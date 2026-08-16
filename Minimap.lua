@@ -24,10 +24,32 @@ local function UpdateZoneName()
 end
 
 local function HandleMouseWheel()
-  if not Minimap.GetZoom or not Minimap.SetZoom then return end
-  local zoom = Minimap:GetZoom() or 0
-  if (arg1 or 0) > 0 then zoom = math.min(5, zoom + 1) else zoom = math.max(0, zoom - 1) end
-  Minimap:SetZoom(zoom)
+  local delta = tonumber(arg1) or 0
+  if delta == 0 then return end
+
+  -- Prefer the native handlers so Emberveil can keep its indoor/outdoor zoom
+  -- state in sync. Some client builds omit them, so retain a direct fallback.
+  if delta > 0 and type(Minimap_ZoomIn) == "function" then
+    Minimap_ZoomIn()
+    return
+  elseif delta < 0 and type(Minimap_ZoomOut) == "function" then
+    Minimap_ZoomOut()
+    return
+  end
+
+  local minimap = Minimap
+  if not minimap or not minimap.GetZoom or not minimap.SetZoom then return end
+  local zoom = tonumber(minimap:GetZoom()) or 0
+  if delta > 0 then zoom = math.min(5, zoom + 1) else zoom = math.max(0, zoom - 1) end
+  minimap:SetZoom(zoom)
+end
+
+local function ForwardMinimapScript(handler)
+  if not handler then return end
+  local previousThis = this
+  this = Minimap
+  pcall(handler)
+  this = previousThis
 end
 
 function PotatoUI:SetupMinimap()
@@ -52,8 +74,27 @@ function PotatoUI:SetupMinimap()
   Minimap:SetPoint("TOP", MinimapCluster or UIParent, "TOP", 0, -14)
   Minimap:SetWidth(MAP_SIZE)
   Minimap:SetHeight(MAP_SIZE)
-  Minimap:EnableMouseWheel(true)
+  Minimap:EnableMouse(true)
+  Minimap:EnableMouseWheel(1)
   Minimap:SetScript("OnMouseWheel", HandleMouseWheel)
+
+  -- Emberveil renders the minimap but does not consistently include that
+  -- special render frame in UI mouse hit testing. A regular transparent button
+  -- reliably captures the wheel before it reaches the third-person camera.
+  local nativeMouseDown = Minimap:GetScript("OnMouseDown")
+  local nativeMouseUp = Minimap:GetScript("OnMouseUp")
+  local nativeClick = Minimap:GetScript("OnClick")
+  local input = CreateFrame("Button", "PotatoUIMinimapInput", MinimapCluster or UIParent)
+  input:SetAllPoints(Minimap)
+  input:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 5)
+  input:EnableMouse(true)
+  input:EnableMouseWheel(1)
+  input:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  input:SetScript("OnMouseWheel", HandleMouseWheel)
+  input:SetScript("OnMouseDown", function() ForwardMinimapScript(nativeMouseDown) end)
+  input:SetScript("OnMouseUp", function() ForwardMinimapScript(nativeMouseUp) end)
+  input:SetScript("OnClick", function() ForwardMinimapScript(nativeClick) end)
+  self.minimapInput = input
 
   local zone = (MinimapCluster or UIParent):CreateFontString("PotatoUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
   zone:SetPoint("BOTTOM", Minimap, "TOP", 0, 2)

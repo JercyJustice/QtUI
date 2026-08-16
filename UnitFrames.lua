@@ -184,6 +184,71 @@ local function UpdateUnitFrame(frame)
   end
 end
 
+local function UpdateComboPoints()
+  local frame = PotatoUI.comboFrame
+  if not frame then return end
+
+  local _, class = UnitClass("player")
+  local isRogue = class == "ROGUE"
+  local isCatDruid = class == "DRUID" and UnitPowerType("player") == 3
+  if not isRogue and not isCatDruid then
+    frame:Hide()
+    return
+  end
+
+  local count = 0
+  if type(GetComboPoints) == "function" then
+    local ok, value = pcall(GetComboPoints)
+    if not ok then ok, value = pcall(GetComboPoints, "player", "target") end
+    if ok then count = tonumber(value) or 0 end
+  end
+  local i
+  for i = 1, 5 do
+    if i <= count then
+      frame.points[i]:SetVertexColor(1, .42, .08, 1)
+    else
+      frame.points[i]:SetVertexColor(.08, .09, .1, .92)
+    end
+  end
+  frame:Show()
+end
+
+function PotatoUI:SetupComboPoints()
+  self:HideFrame(ComboFrame)
+
+  local frame = self:CreatePanel("PotatoUIComboPoints", UIParent,
+    self.playerFrame:GetFrameLevel() + 2)
+  frame:SetFrameStrata("MEDIUM")
+  frame:SetWidth(96)
+  frame:SetHeight(22)
+  frame:SetPoint("RIGHT", self.playerFrame, "LEFT", -8, 0)
+  frame:SetBackdropColor(.015, .02, .025, .76)
+  frame.points = {}
+
+  local i
+  for i = 1, 5 do
+    local slot = CreateFrame("Frame", nil, frame)
+    slot:SetWidth(15)
+    slot:SetHeight(14)
+    slot:SetPoint("LEFT", frame, "LEFT", 6 + (i - 1) * 17, 0)
+    slot.fill = slot:CreateTexture(nil, "ARTWORK")
+    slot.fill:SetAllPoints(slot)
+    slot.fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+    frame.points[i] = slot.fill
+  end
+
+  local events = CreateFrame("Frame", "PotatoUIComboEvents")
+  events:RegisterEvent("PLAYER_COMBO_POINTS")
+  events:RegisterEvent("PLAYER_TARGET_CHANGED")
+  events:RegisterEvent("UNIT_DISPLAYPOWER")
+  events:RegisterEvent("PLAYER_ENTERING_WORLD")
+  events:SetScript("OnEvent", UpdateComboPoints)
+
+  self.comboFrame = frame
+  self.comboEvents = events
+  UpdateComboPoints()
+end
+
 function PotatoUI:UpdateUnitFrames()
   if self.playerFrame then UpdateUnitFrame(self.playerFrame) end
   if self.targetFrame then UpdateUnitFrame(self.targetFrame) end
@@ -195,6 +260,7 @@ function PotatoUI:SetupUnitFrames()
 
   self.playerFrame = CreateUnitFrame("PotatoUIPlayerFrame", "player", -133)
   self.targetFrame = CreateUnitFrame("PotatoUITargetFrame", "target", 133)
+  self:SetupComboPoints()
   if self.PositionAuxiliaryBars then self:PositionAuxiliaryBars() end
 
   local events = CreateFrame("Frame", "PotatoUIUnitEvents")

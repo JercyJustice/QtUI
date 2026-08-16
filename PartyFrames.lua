@@ -52,15 +52,15 @@ local function AddClickLayer(frame, unit, partyIndex)
   frame.click = click
 end
 
-local function CreatePartyMember(index)
+local function CreatePartyMember(index, parent)
   local unit = "party" .. index
-  local frame = PotatoUI:CreatePanel("PotatoUIParty" .. index, UIParent, 3)
+  local frame = PotatoUI:CreatePanel("PotatoUIParty" .. index, parent, 3)
   frame.unit = unit
   frame.partyIndex = index
   frame:SetFrameStrata("LOW")
   frame:SetWidth(220)
   frame:SetHeight(44)
-  frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 18, -105 - (index - 1) * 73)
+  frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * 73)
   frame:SetBackdropColor(.015, .02, .025, .72)
 
   frame.health = CreateFrame("StatusBar", nil, frame)
@@ -207,13 +207,20 @@ function PotatoUI:SetupPartyFrames()
   self.partyFrames = {}
   self.partyPetFrames = {}
 
+  local anchor = CreateFrame("Frame", "PotatoUIPartyAnchor", UIParent)
+  anchor:SetWidth(330)
+  anchor:SetHeight(263)
+  anchor:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 18, -105)
+  anchor:SetFrameStrata("LOW")
+  self.partyAnchor = anchor
+
   self:HideFrame(PetFrame)
   local i
   for i = 1, 4 do
     self:HideFrame(getglobal("PartyMemberFrame" .. i))
     self:HideFrame(getglobal("PartyMemberFrame" .. i .. "PetFrame"))
 
-    local member = CreatePartyMember(i)
+    local member = CreatePartyMember(i, anchor)
     local pet = CreatePetFrame("PotatoUIPartyPet" .. i, "partypet" .. i,
       member, "TOPLEFT", "BOTTOMLEFT", 12, -2, 165)
     self.partyFrames[i] = member

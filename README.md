@@ -12,6 +12,7 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 
 - Two-row central action bar with support for paging, stances/forms, and pet actions
 - Custom player, target, party, and pet frames
+- Compact rogue and cat-form combo points beside the player frame
 - Buff and debuff displays with stack counts and duration timers
 - Player cast bar and compact XP/rested-XP bar
 - Combined bag window with free-space and money displays
@@ -21,6 +22,7 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 - Automatic looting, including retry handling for Emberveil gathering nodes
 - Simplified minimap with zone text and mouse-wheel zoom
 - Gold, clock, FPS, and latency data text
+- Unlockable layout mode with labelled drag fields and saved positions
 - Revealed world-map overlays, including Emberveil's custom zones
 
 ## Installation
@@ -45,14 +47,15 @@ Use `/pui` or `/potatoui` in chat.
 | Command | Description |
 | --- | --- |
 | `/pui` | Show the installed version and available commands |
+| `/pui move` | Unlock or lock labelled UI fields for drag positioning |
 | `/pui bags` | Toggle the combined bag window |
-| `/pui scale 0.7-1.3` | Set the scale of the action, player, and target frames |
 | `/pui reload` | Reload the user interface |
 | `/pui reset` | Reset PotatoUI settings and reload the interface |
 
 ## Usage notes
 
 - PotatoUI replaces the normal backpack and bag windows with one combined window. Drag its header to reposition it.
+- Run `/pui move`, drag the green labelled fields, then run `/pui move` again to lock and save them. Right-click a field to restore that element's default position.
 - Grey-quality items with a known vendor value are sold automatically when a merchant window opens.
 - Loot is collected automatically. Hold **Shift** while looting—or while beginning a gathering cast—to use the normal manual loot window instead.
 - Settings are stored per installation in the `PotatoUIDB` saved-variable table.

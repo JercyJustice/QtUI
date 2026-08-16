@@ -1,5 +1,5 @@
 PotatoUI = CreateFrame("Frame", "PotatoUIEventFrame", UIParent)
-PotatoUI.version = "0.8.9"
+PotatoUI.version = "0.9.8"
 PotatoUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -8,6 +8,10 @@ local function Print(message)
   if DEFAULT_CHAT_FRAME then
     DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00PotatoUI|r: " .. message)
   end
+end
+
+function PotatoUI:Print(message)
+  Print(message)
 end
 
 function PotatoUI:CreatePanel(name, parent, level)
@@ -37,14 +41,9 @@ end
 
 function PotatoUI:EnsureDB()
   if not PotatoUIDB then PotatoUIDB = {} end
-  if PotatoUIDB.scale == nil then PotatoUIDB.scale = 1 end
-end
-
-function PotatoUI:ApplyScale()
-  local scale = PotatoUIDB.scale or 1
-  if self.actionPanel then self.actionPanel:SetScale(scale) end
-  if self.playerFrame then self.playerFrame:SetScale(scale) end
-  if self.targetFrame then self.targetFrame:SetScale(scale) end
+  -- Discard values saved by versions that offered UI scaling. Emberveil does
+  -- not apply frame transforms consistently, so PotatoUI now uses fixed sizes.
+  PotatoUIDB.scale = nil
 end
 
 function PotatoUI:Initialize()
@@ -61,26 +60,23 @@ function PotatoUI:Initialize()
   if self.SetupWorldMap then self:SetupWorldMap() end
   if self.SetupAutoLoot then self:SetupAutoLoot() end
   if self.SetupDataText then self:SetupDataText() end
-  self:ApplyScale()
+  if self.SetupMoveMode then self:SetupMoveMode() end
 
   SLASH_POTATOUI1 = "/potatoui"
   SLASH_POTATOUI2 = "/pui"
   SlashCmdList["POTATOUI"] = function(message)
     local command = string.lower(message or "")
-    local _, _, scale = string.find(command, "^scale%s+(%d+%.?%d*)$")
-
-    if scale then
-      scale = tonumber(scale)
-      if scale and scale >= .7 and scale <= 1.3 then
-        PotatoUIDB.scale = scale
-        PotatoUI:ApplyScale()
-        Print("Scale set to " .. scale .. ".")
+    command = string.gsub(command, "^%s+", "")
+    command = string.gsub(command, "%s+$", "")
+    if command == "reset" then
+      PotatoUIDB = { positions = {} }
+      if type(ReloadUI) == "function" then
+        ReloadUI()
+      elseif type(ConsoleExec) == "function" then
+        ConsoleExec("reloadui")
       else
-        Print("Scale must be between 0.7 and 1.3.")
+        Print("Settings reset. Restart Emberveil to apply the default layout.")
       end
-    elseif command == "reset" then
-      PotatoUIDB = { scale = 1 }
-      ReloadUI()
     elseif command == "reload" then
       if type(ReloadUI) == "function" then
         ReloadUI()
@@ -91,8 +87,10 @@ function PotatoUI:Initialize()
       end
     elseif command == "bags" then
       PotatoUI:ToggleBags()
+    elseif command == "move" then
+      PotatoUI:ToggleMoveMode()
     else
-      Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui bags, /pui reload, /pui scale 0.7-1.3, /pui reset")
+      Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui move, /pui bags, /pui reload, /pui reset")
     end
   end
 

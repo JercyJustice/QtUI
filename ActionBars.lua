@@ -107,6 +107,8 @@ function PotatoUI:PositionAuxiliaryBars()
       local button = getglobal(prefix .. i)
       if button then
         button:SetParent(panel)
+        button:SetWidth(34)
+        button:SetHeight(34)
         button:ClearAllPoints()
         button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 2 + (i - 1) * 36, 2 + row * 36)
         StyleActionButton(button)
@@ -141,7 +143,9 @@ function PotatoUI:PositionAuxiliaryBars()
     PetActionBarFrame:EnableMouse(false)
     PlaceAuxiliaryButtons("PetActionButton", hasPet and 10 or 0, formCount > 0 and 1 or 0)
   end
-  panel:SetHeight((hasPet and formCount > 0) and 74 or 38)
+  local panelHeight = (hasPet and formCount > 0) and 74 or 38
+  panel:SetWidth(362)
+  panel:SetHeight(panelHeight)
 end
 
 local function SetupActionPageEvents()

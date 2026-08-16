@@ -386,8 +386,10 @@ function PotatoUI:UpdateBags()
   end
 
   local rows = math.max(1, math.ceil(total / BAG_COLUMNS))
-  frame:SetWidth(WINDOW_PADDING * 2 + BAG_COLUMNS * SLOT_SIZE + (BAG_COLUMNS - 1) * SLOT_GAP)
-  frame:SetHeight(78 + rows * (SLOT_SIZE + SLOT_GAP))
+  local windowWidth = WINDOW_PADDING * 2 + BAG_COLUMNS * SLOT_SIZE + (BAG_COLUMNS - 1) * SLOT_GAP
+  local windowHeight = 78 + rows * (SLOT_SIZE + SLOT_GAP)
+  frame:SetWidth(windowWidth)
+  frame:SetHeight(windowHeight)
   frame.layoutSignature = BagLayoutSignature()
   UpdateSpaceText(frame)
   UpdateMoneyText(frame)
@@ -455,6 +457,9 @@ function PotatoUI:SetupBags()
     if left and bottom then
       PotatoUIDB.bagX = left
       PotatoUIDB.bagY = bottom
+      if PotatoUIDB.positions then
+        PotatoUIDB.positions.bags = { x = left, y = bottom }
+      end
       parent:ClearAllPoints()
       parent:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
     end

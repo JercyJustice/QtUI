@@ -4,6 +4,10 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 
 > PotatoUI targets Emberveil and is not intended for retail WoW, Classic, or other private-server clients.
 
+![PotatoUI interface](https://media.repulsion.co.uk/r/ZSNFI5.jpg?compress=false)
+
+![PotatoUI interface and bags](https://media.repulsion.co.uk/r/UqG8pW.png?compress=false)
+
 ## Features
 
 - Two-row central action bar with support for paging, stances/forms, and pet actions

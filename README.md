@@ -4,7 +4,7 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 
 > PotatoUI targets Emberveil and is not intended for retail WoW, Classic, or other private-server clients.
 
-![PotatoUI interface](https://media.repulsion.co.uk/r/ZSNFI5.jpg?compress=false)
+![PotatoUI interface](https://media.repulsion.co.uk/r/wO4Fqt.jpg?compress=false)
 
 ![PotatoUI interface and bags](https://media.repulsion.co.uk/r/UqG8pW.png?compress=false)
 
@@ -29,7 +29,7 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 
 1. Download or clone this repository.
 2. Place the addon folder in your Emberveil installation's `Interface\AddOns` directory.
-3. Make sure the final path is `Interface\AddOns\PotatoUI\PotatoUI.toc`—not a nested directory such as `PotatoUI-main\PotatoUI`.
+3. Make sure the addon is called **PotatoUI** and not **PotatoUI-main**.
 4. Restart the client, then enable **PotatoUI** from the AddOns menu on the character-selection screen.
 
 To clone it directly into the addon directory:

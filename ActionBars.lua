@@ -85,6 +85,26 @@ local function RefreshActionButtons()
       if type(ActionButton_UpdateUsable) == "function" then pcall(ActionButton_UpdateUsable) end
       if type(ActionButton_UpdateCooldown) == "function" then pcall(ActionButton_UpdateCooldown) end
     end
+
+    local bottomLeftButton = getglobal("MultiBarBottomLeftButton" .. i)
+    if bottomLeftButton then
+      this = bottomLeftButton
+      if type(MultiActionButton_Update) == "function" then
+        pcall(MultiActionButton_Update)
+      elseif type(ActionButton_Update) == "function" then
+        pcall(ActionButton_Update)
+      end
+    end
+
+    local bottomRightButton = getglobal("MultiBarBottomRightButton" .. i)
+    if bottomRightButton then
+      this = bottomRightButton
+      if type(MultiActionButton_Update) == "function" then
+        pcall(MultiActionButton_Update)
+      elseif type(ActionButton_Update) == "function" then
+        pcall(ActionButton_Update)
+      end
+    end
   end
   this = previousThis
 end
@@ -312,6 +332,17 @@ function PotatoUI:SetupActionBars()
   panel:SetBackdropBorderColor(0, 0, 0, 0)
   self.actionPanel = panel
 
+  -- Emberveil leaves the second multi-action row partially off-screen when
+  -- its original bar geometry is active. Give slots 49-60 a compact PotatoUI
+  -- panel of their own at bottom-right instead.
+  local utilityPanel = self:CreatePanel("PotatoUIUtilityActionPanel", UIParent, 1)
+  utilityPanel:SetWidth(442)
+  utilityPanel:SetHeight(44)
+  utilityPanel:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
+  utilityPanel:SetBackdropColor(0, 0, 0, 0)
+  utilityPanel:SetBackdropBorderColor(0, 0, 0, 0)
+  self.utilityActionPanel = utilityPanel
+
   local i
   for i = 1, 12 do
     local primaryButton = getglobal("ActionButton" .. i)
@@ -324,18 +355,12 @@ function PotatoUI:SetupActionBars()
     end
     PlaceButton(upperButton, panel, i, 1)
 
-    -- Refresh immediately; otherwise the texture cached before PotatoUI
-    -- loaded can remain visible until the next action-bar event.
-    if upperButton then
-      local previousThis = this
-      this = upperButton
-      if type(MultiActionButton_Update) == "function" then
-        pcall(MultiActionButton_Update)
-      elseif type(ActionButton_Update) == "function" then
-        pcall(ActionButton_Update)
-      end
-      this = previousThis
+    local utilityButton = getglobal("MultiBarBottomRightButton" .. i)
+    if utilityButton then
+      utilityButton.PotatoUIAction = 48 + i
+      utilityButton.action = 48 + i
     end
+    PlaceButton(utilityButton, utilityPanel, i, 0)
   end
 
   SetupActionPageEvents()
@@ -347,6 +372,9 @@ function PotatoUI:SetupActionBars()
   self:HideFrame(MainMenuBar)
   if MultiBarBottomLeft then
     self:HideFrame(MultiBarBottomLeft)
+  end
+  if MultiBarBottomRight then
+    self:HideFrame(MultiBarBottomRight)
   end
 
   -- Keep only the useful stance/form and pet buttons at bottom-left; the

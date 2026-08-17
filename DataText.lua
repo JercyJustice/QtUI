@@ -22,7 +22,11 @@ function PotatoUI:SetupDataText()
   local parent = UIParent
   local bar = CreateFrame("Frame", "PotatoUIDataBar", parent)
   bar:SetWidth(math.min(430, UIParent:GetWidth() * .27))
-  bar:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
+  if self.utilityActionPanel then
+    bar:SetPoint("BOTTOMRIGHT", self.utilityActionPanel, "TOPRIGHT", 0, 4)
+  else
+    bar:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 62)
+  end
   bar:SetHeight(20)
 
   bar.left = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")

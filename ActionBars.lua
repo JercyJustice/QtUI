@@ -33,6 +33,18 @@ local function ResolvePrimaryAction(button)
   if type(GetBonusBarOffset) == "function" then
     bonusOffset = tonumber(GetBonusBarOffset()) or 0
   end
+
+  -- Emberveil can leave the bonus offset stuck briefly after a rogue breaks
+  -- stealth. The form state changes reliably, so do not keep routing clicks
+  -- to slots 73-84 once the rogue has returned to form zero.
+  local _, class
+  if type(UnitClass) == "function" then _, class = UnitClass("player") end
+  if class == "ROGUE" and bonusOffset > 0 and type(GetShapeshiftForm) == "function" then
+    local ok, activeForm = pcall(GetShapeshiftForm)
+    if ok and activeForm ~= nil and (tonumber(activeForm) or 0) == 0 then
+      bonusOffset = 0
+    end
+  end
   if bonusOffset > 0 then
     local normalPages = tonumber(NUM_ACTIONBAR_PAGES) or 6
     return buttonID + (normalPages + bonusOffset - 1) * 12
@@ -72,6 +84,43 @@ local function InstallActionResolvers()
     if originalMultiResolver then return originalMultiResolver(button) end
     return activeButton and activeButton:GetID()
   end
+
+  -- Vanilla key bindings normally divert to BonusActionButton while the
+  -- native bonus controller is shown. PotatoUI keeps that controller alive
+  -- for state updates but displays ActionButton instead, so dispatch bindings
+  -- through the visible button and the same resolver used by mouse clicks.
+  local originalActionButtonDown = ActionButtonDown
+  if type(originalActionButtonDown) == "function" then
+    ActionButtonDown = function(id)
+      local activeButton = getglobal("ActionButton" .. tostring(id or ""))
+      if not activeButton or not activeButton.PotatoUIPrimaryAction then
+        return originalActionButtonDown(id)
+      end
+      if activeButton:GetButtonState() == "NORMAL" then
+        activeButton:SetButtonState("PUSHED")
+      end
+    end
+  end
+
+  local originalActionButtonUp = ActionButtonUp
+  if type(originalActionButtonUp) == "function" then
+    ActionButtonUp = function(id, onSelf)
+      local activeButton = getglobal("ActionButton" .. tostring(id or ""))
+      if not activeButton or not activeButton.PotatoUIPrimaryAction then
+        return originalActionButtonUp(id, onSelf)
+      end
+      if activeButton:GetButtonState() ~= "PUSHED" then return end
+      activeButton:SetButtonState("NORMAL")
+      if MacroFrame_SaveMacro then MacroFrame_SaveMacro() end
+      local action = ResolvePrimaryAction(activeButton)
+      if action and type(UseAction) == "function" then UseAction(action, 0, onSelf) end
+      if action and type(IsCurrentAction) == "function" and IsCurrentAction(action) then
+        activeButton:SetChecked(1)
+      else
+        activeButton:SetChecked(0)
+      end
+    end
+  end
 end
 
 local function RefreshActionButtons()
@@ -80,6 +129,10 @@ local function RefreshActionButtons()
   for i = 1, 12 do
     local button = getglobal("ActionButton" .. i)
     if button then
+      -- Emberveil's input bridge may read this cached field directly instead
+      -- of calling ActionButton_GetPagedID. Keep it synchronized on every
+      -- page/form refresh so leaving stealth restores slots 1-12.
+      button.action = ResolvePrimaryAction(button)
       this = button
       if type(ActionButton_Update) == "function" then pcall(ActionButton_Update) end
       if type(ActionButton_UpdateUsable) == "function" then pcall(ActionButton_UpdateUsable) end
@@ -178,19 +231,31 @@ local function SetupActionPageEvents()
   pcall(events.RegisterEvent, events, "ACTIONBAR_PAGE_CHANGED")
   pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORM")
   pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORMS")
+  pcall(events.RegisterEvent, events, "PLAYER_AURAS_CHANGED")
+  pcall(events.RegisterEvent, events, "PLAYER_ENTER_COMBAT")
+  pcall(events.RegisterEvent, events, "PLAYER_LEAVE_COMBAT")
+  pcall(events.RegisterEvent, events, "ACTIONBAR_SLOT_CHANGED")
   pcall(events.RegisterEvent, events, "PET_BAR_UPDATE")
   pcall(events.RegisterEvent, events, "UNIT_PET")
 
   local function RefreshAfterClientUpdate()
-    this:SetScript("OnUpdate", nil)
-    RefreshActionButtons()
-    PotatoUI:PositionAuxiliaryBars()
+    this.refreshElapsed = (this.refreshElapsed or 0) + (arg1 or 0)
+    this.refreshRemaining = (this.refreshRemaining or 0) - (arg1 or 0)
+    if this.refreshElapsed >= .05 or this.refreshRemaining <= 0 then
+      this.refreshElapsed = 0
+      RefreshActionButtons()
+      PotatoUI:PositionAuxiliaryBars()
+    end
+    if this.refreshRemaining <= 0 then this:SetScript("OnUpdate", nil) end
   end
   events:SetScript("OnEvent", function()
-    -- Refresh now and once more on the next rendered frame. The latter lets
-    -- Emberveil finish changing GetBonusBarOffset before icons are resolved.
+    -- Refresh throughout the short native bonus-bar transition. Emberveil can
+    -- publish the aura/form, bonus offset and cached action ID on different
+    -- frames when stealth ends through an attack.
     RefreshActionButtons()
     PotatoUI:PositionAuxiliaryBars()
+    this.refreshElapsed = 0
+    this.refreshRemaining = .75
     this:SetScript("OnUpdate", RefreshAfterClientUpdate)
   end)
   PotatoUI.actionPageEvents = events

@@ -10,6 +10,8 @@ local hiddenDecorations = {
   "MiniMapWorldMapButton",
   "GameTimeFrame",
   "MinimapZoneTextButton",
+  "MinimapZoneText",
+  "MiniMapZoneText",
   "MinimapCloseButton",
   "MiniMapCloseButton",
   "MinimapToggleButton",
@@ -57,6 +59,18 @@ function PotatoUI:SetupMinimap()
 
   for _, name in ipairs(hiddenDecorations) do
     self:HideFrame(getglobal(name))
+  end
+  -- Emberveil ships MinimapZoneText with the placeholder "BLAH!".
+  local nativeZone = getglobal("MinimapZoneText") or getglobal("MiniMapZoneText")
+  if nativeZone then
+    if nativeZone.SetText then pcall(nativeZone.SetText, nativeZone, "") end
+    if nativeZone.SetAlpha then pcall(nativeZone.SetAlpha, nativeZone, 0) end
+    if nativeZone.ClearAllPoints and nativeZone.SetPoint then
+      pcall(function()
+        nativeZone:ClearAllPoints()
+        nativeZone:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      end)
+    end
   end
 
   -- Retain the native circular render that works in Emberveil, but strip all

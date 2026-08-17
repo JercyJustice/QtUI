@@ -1,4 +1,124 @@
 local MOVE_COLOR = { .05, .8, .62, .28 }
+local GRID_STEP = 16
+local GRID_MAJOR = 4
+local GRID_LINE = 2
+
+local function KindForOffset(offset)
+  if offset == 0 then return "axis" end
+  local steps = math.floor((math.abs(offset) / GRID_STEP) + 0.5)
+  if math.mod(steps, GRID_MAJOR) == 0 then return "major" end
+  return "minor"
+end
+
+local function ColorForKind(kind)
+  if kind == "axis" then return .3, 1, .85, .55 end
+  if kind == "major" then return .22, .78, .7, .32 end
+  return 1, 1, 1, .14
+end
+
+local function AddGridLine(grid, vertical, offset, width, height)
+  local tex = grid:CreateTexture(nil, "ARTWORK")
+  tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+  local r, g, b, a = ColorForKind(KindForOffset(offset))
+  tex:SetVertexColor(r, g, b, a)
+  -- Corner anchors so Emberveil actually stretches both axes. A 1px
+  -- SetWidth line is often discarded and never shows vertically.
+  if vertical then
+    tex:SetPoint("TOPLEFT", grid, "CENTER", offset, height / 2)
+    tex:SetPoint("BOTTOMRIGHT", grid, "CENTER", offset + GRID_LINE, -(height / 2))
+  else
+    tex:SetPoint("TOPLEFT", grid, "CENTER", -(width / 2), offset + GRID_LINE)
+    tex:SetPoint("BOTTOMRIGHT", grid, "CENTER", width / 2, offset)
+  end
+end
+
+local function BuildMoveGrid(grid)
+  local width = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+  local height = (UIParent.GetHeight and UIParent:GetHeight()) or 768
+  if width < 200 then width = 1024 end
+  if height < 200 then height = 768 end
+
+  local x = 0
+  local count = 0
+  while x <= (width / 2) + 1 and count < 160 do
+    AddGridLine(grid, true, x, width, height)
+    if x > 0 then AddGridLine(grid, true, -x, width, height) end
+    x = x + GRID_STEP
+    count = count + 1
+  end
+
+  local y = 0
+  count = 0
+  while y <= (height / 2) + 1 and count < 160 do
+    AddGridLine(grid, false, y, width, height)
+    if y > 0 then AddGridLine(grid, false, -y, width, height) end
+    y = y + GRID_STEP
+    count = count + 1
+  end
+end
+
+local function EnsureMoveGrid()
+  if PotatoUI.moveGrid then return PotatoUI.moveGrid end
+  local grid = CreateFrame("Frame", "PotatoUIMoveGrid", UIParent)
+  grid:SetAllPoints(UIParent)
+  grid:SetFrameStrata("LOW")
+  grid:SetFrameLevel(0)
+  if grid.EnableMouse then grid:EnableMouse(false) end
+
+  grid.dim = grid:CreateTexture(nil, "BACKGROUND")
+  grid.dim:SetAllPoints()
+  grid.dim:SetTexture("Interface\\Buttons\\WHITE8X8")
+  grid.dim:SetVertexColor(0, 0, 0, .18)
+
+  BuildMoveGrid(grid)
+  grid:Hide()
+  PotatoUI.moveGrid = grid
+  return grid
+end
+
+local function EnsureMoveCatcher()
+  if PotatoUI.moveCatcher then return PotatoUI.moveCatcher end
+  local catcher = CreateFrame("Frame", "PotatoUIMoveCatcher", UIParent)
+  catcher:SetWidth(1)
+  catcher:SetHeight(1)
+  catcher:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+  catcher:Hide()
+  catcher:SetScript("OnHide", function()
+    if PotatoUI.moveMode then
+      PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+    end
+  end)
+  if UISpecialFrames then table.insert(UISpecialFrames, "PotatoUIMoveCatcher") end
+  PotatoUI.moveCatcher = catcher
+  return catcher
+end
+
+local function HookEscapeToEndMove()
+  if PotatoUI.hookedToggleGameMenu then return end
+  PotatoUI.hookedToggleGameMenu = true
+  local original = ToggleGameMenu
+  ToggleGameMenu = function()
+    if PotatoUI.moveMode then
+      PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+      return
+    end
+    if PotatoUI.justEndedMove then
+      PotatoUI.justEndedMove = nil
+      return
+    end
+    if type(original) == "function" then original() end
+  end
+  if type(CloseSpecialWindows) == "function" then
+    local originalClose = CloseSpecialWindows
+    CloseSpecialWindows = function()
+      if PotatoUI.moveMode then
+        PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+        return 1
+      end
+      return originalClose()
+    end
+  end
+end
 
 local function ReanchorOverlay(overlay)
   local target = overlay.entry.frame
@@ -125,31 +245,60 @@ end
 
 function PotatoUI:SetMoveMode(enabled)
   self.moveMode = enabled and true or nil
-  if not self.movableEntries then return end
-  local _, entry
-  for _, entry in ipairs(self.movableEntries) do
-    if self.moveMode then
-      ReanchorOverlay(entry.overlay)
-      entry.overlay:Show()
-    else
-      entry.overlay:Hide()
+  EnsureMoveCatcher()
+  EnsureMoveGrid()
+  HookEscapeToEndMove()
+
+  if self.movableEntries then
+    local _, entry
+    for _, entry in ipairs(self.movableEntries) do
+      local shown = self.moveMode and entry.frame and entry.frame.IsShown and entry.frame:IsShown()
+      if shown then
+        ReanchorOverlay(entry.overlay)
+        entry.overlay:Show()
+      else
+        entry.overlay:Hide()
+      end
+    end
+  end
+
+  if self.moveMode then
+    if self.moveGrid then self.moveGrid:Show() end
+    if self.moveCatcher then self.moveCatcher:Show() end
+  else
+    if self.moveGrid then self.moveGrid:Hide() end
+    if self.moveCatcher then self.moveCatcher:Hide() end
+  end
+end
+
+function PotatoUI:EndMoveMode(reopenSettings)
+  if not self.moveMode then return end
+  local reopen = reopenSettings
+  self.moveFromSettings = nil
+  self.justEndedMove = true
+  self:SetMoveMode(false)
+  self:Print("Move mode locked. Positions saved.")
+  if reopen and self.ToggleSettings then
+    if not self.settingsFrame or not self.settingsFrame:IsShown() then
+      self:ToggleSettings()
     end
   end
 end
 
 function PotatoUI:ToggleMoveMode()
-  self:SetMoveMode(not self.moveMode)
   if self.moveMode then
-    self:Print("Move mode unlocked. Drag the green fields; right-click resets one. Type /pui move again to lock.")
-  else
-    self:Print("Move mode locked. Positions saved.")
+    self:EndMoveMode(self.moveFromSettings)
+    return
   end
+  self:SetMoveMode(true)
+  self:Print("Move mode unlocked. Drag the green fields; right-click resets one. Escape locks.")
 end
 
 function PotatoUI:SetupMoveMode()
   if self.moveModeReady then return end
   self.moveModeReady = true
   if not PotatoUIDB.positions then PotatoUIDB.positions = {} end
+  HookEscapeToEndMove()
 
   self:RegisterMovable("player", "Player", self.playerFrame)
   self:RegisterMovable("combo", "Combo Points", self.comboFrame)
@@ -167,4 +316,58 @@ function PotatoUI:SetupMoveMode()
   self:RegisterMovable("minimap", "Minimap", MinimapCluster or Minimap)
   self:RegisterMovable("bags", "Bags", self.bagFrame)
   self:RegisterMovable("data", "Gold / Time / FPS", self.dataBar)
+  self:SetupQuestTimerMove()
+end
+
+function PotatoUI:RestoreQuestTimerPosition()
+  local frame = getglobal("QuestTimerFrame")
+  if not frame then return end
+  local saved = PotatoUIDB.positions and PotatoUIDB.positions.questTimers
+  if saved and saved.x and saved.y then
+    frame:ClearAllPoints()
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
+  end
+end
+
+function PotatoUI:SetupQuestTimerMove()
+  if self.questTimerRegistered then return end
+  local frame = getglobal("QuestTimerFrame")
+  if not frame then
+    if self.questTimerWait then return end
+    local wait = CreateFrame("Frame", "PotatoUIQuestTimerWait")
+    self.questTimerWait = wait
+    wait.elapsed = 0
+    wait:SetScript("OnUpdate", function()
+      this.elapsed = this.elapsed + (arg1 or 0)
+      if getglobal("QuestTimerFrame") then
+        this:SetScript("OnUpdate", nil)
+        PotatoUI:SetupQuestTimerMove()
+        if PotatoUI.moveMode then PotatoUI:SetMoveMode(true) end
+      elseif this.elapsed > 8 then
+        this:SetScript("OnUpdate", nil)
+      end
+    end)
+    return
+  end
+  self.questTimerRegistered = true
+  self:RegisterMovable("questTimers", "Quest Timers", frame)
+  self:RestoreQuestTimerPosition()
+  if frame.HookScript then
+    pcall(frame.HookScript, frame, "OnShow", function()
+      PotatoUI:RestoreQuestTimerPosition()
+    end)
+  else
+    local original = frame.GetScript and frame:GetScript("OnShow")
+    frame:SetScript("OnShow", function()
+      if original then original() end
+      PotatoUI:RestoreQuestTimerPosition()
+    end)
+  end
+  if type(QuestTimerFrame_Update) == "function" then
+    local originalUpdate = QuestTimerFrame_Update
+    QuestTimerFrame_Update = function()
+      originalUpdate()
+      PotatoUI:RestoreQuestTimerPosition()
+    end
+  end
 end

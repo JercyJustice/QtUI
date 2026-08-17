@@ -106,6 +106,9 @@ local function CreatePartyMember(index, parent)
   frame.power.bg:SetTexture(PotatoUI.media.statusbar)
   frame.power.bg:SetVertexColor(.04, .045, .055, 1)
 
+  frame.powerText = frame.power:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.powerText:SetPoint("RIGHT", frame.power, "RIGHT", -5, 0)
+
   if PotatoUI:IsFeatureEnabled("auras") then
     frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 6, 18)
     frame.debuffs:SetPoint("LEFT", frame, "RIGHT", 4, 10)
@@ -169,15 +172,18 @@ local function UpdatePartyMember(frame)
   frame.power:SetMinMaxValues(0, powerMax)
   frame.power:SetValue(power)
   PotatoUI.SetPowerColor(frame.power, unit)
+  if frame.powerText then
+    frame.powerText:SetText(PotatoUI.ShortNumber(power) .. " / " .. PotatoUI.ShortNumber(powerMax))
+  end
 
   local layout = PotatoUI:GetLayout()
   if layout.partyClassColor then
     local _, class = UnitClass(unit)
     local color = PotatoUI.classColors[class] or { .2, .72, .28 }
-    frame.health:SetStatusBarColor(color[1], color[2], color[3])
+    PotatoUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
   else
     local c = layout.partyHealth
-    frame.health:SetStatusBarColor(c.r, c.g, c.b)
+    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   end
 
   local prefix = ""
@@ -215,27 +221,28 @@ local function UpdatePetFrame(frame)
   if healthMax < 1 then healthMax = 1 end
   frame.health:SetMinMaxValues(0, healthMax)
   frame.health:SetValue(health)
+  PotatoUI:PaintStatusBar(frame.health, .18, .68, .28)
   frame.name:SetText(UnitName(unit) or "Pet")
   frame.healthText:SetText(PotatoUI.ShortNumber(health) .. " / " .. PotatoUI.ShortNumber(healthMax))
 end
 
 function PotatoUI:ApplyPartyFrameLayout()
   local layout = self:GetLayout()
-  local width = layout.partyWidth or 220
-  local height = layout.partyHeight or 44
-  local gap = height + (layout.partySpacing or 29)
+  local party = self:GetUnitStyle("party") or {}
+  local pet = self:GetUnitStyle("pet") or {}
+  local width = party.width or layout.partyWidth or 220
+  local height = party.height or layout.partyHeight or 44
+  local spacing = party.spacing or layout.partySpacing or 29
+  local gap = height + spacing
   if self.partyFrames then
     local i
     for i = 1, 4 do
       local frame = self.partyFrames[i]
       if frame then
-        frame:SetWidth(width)
-        frame:SetHeight(height)
+        self:ApplyUnitBarSizes(frame, party)
+        self:ApplyUnitTexts(frame, party)
         frame:ClearAllPoints()
         frame:SetPoint("TOPLEFT", self.partyAnchor or UIParent, "TOPLEFT", 0, -(i - 1) * gap)
-        if frame.health then
-          frame.health:SetHeight(math.max(14, height - 20))
-        end
       end
     end
   end
@@ -244,7 +251,14 @@ function PotatoUI:ApplyPartyFrameLayout()
     self.partyAnchor:SetHeight(4 * gap)
   end
   if self.playerPetFrame then
-    self.playerPetFrame:SetWidth(layout.petWidth or 180)
+    self:ApplyUnitBarSizes(self.playerPetFrame, pet)
+    self:ApplyUnitTexts(self.playerPetFrame, pet)
+  end
+  if self.partyPetFrames then
+    local i
+    for i = 1, 4 do
+      if self.partyPetFrames[i] then self:ApplyUnitTexts(self.partyPetFrames[i], pet) end
+    end
   end
 end
 

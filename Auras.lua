@@ -23,6 +23,76 @@ local KNOWN_DURATIONS = {
   ["prayer of shadow protection"] = 1200,
   ["fear ward"] = 600,
   ["inspiration"] = 15,
+  ["erneuerung"] = 15,
+  ["machtwort: schild"] = 30,
+  ["geschwächte seele"] = 15,
+  ["geschwachte seele"] = 15,
+  ["machtwort: seelenstärke"] = 1800,
+  ["machtwort: seelenstarke"] = 1800,
+  ["gebet der seelenstärke"] = 3600,
+  ["gebet der seelenstarke"] = 3600,
+  ["göttlicher geist"] = 1800,
+  ["gottlicher geist"] = 1800,
+  ["gebet der geistigen stärke"] = 3600,
+  ["schattenschutz"] = 600,
+  ["gebet des schattenschutzes"] = 1200,
+  ["furchtzauberschutz"] = 600,
+  ["schattenwort: schmerz"] = 18,
+  ["verschlingende seuche"] = 24,
+  ["heiliges feuer"] = 10,
+  ["vampirumarmung"] = 60,
+  ["gedankenbenebelung"] = 3,
+  ["psychischer schrei"] = 8,
+  ["stille"] = 5,
+  ["untote fesseln"] = 50,
+
+  ["rejuvenation"] = 12,
+  ["regrowth"] = 21,
+  ["verjüngung"] = 12,
+  ["verjungung"] = 12,
+  ["nachwachsen"] = 21,
+  ["moonfire"] = 12,
+  ["mondfeuer"] = 12,
+  ["insect swarm"] = 12,
+  ["insektenschwarm"] = 12,
+  ["entangling roots"] = 27,
+  ["wucherwurzeln"] = 27,
+  ["thorns"] = 600,
+  ["dornen"] = 600,
+  ["mark of the wild"] = 1800,
+  ["gift of the wild"] = 3600,
+  ["mal der wildnis"] = 1800,
+  ["gabe der wildnis"] = 3600,
+
+  ["flame shock"] = 12,
+  ["flammenschock"] = 12,
+  ["frost shock"] = 8,
+  ["frostschock"] = 8,
+  ["earthbind"] = 5,
+
+  ["arcane intellect"] = 1800,
+  ["arcane brilliance"] = 3600,
+  ["arkane intelligenz"] = 1800,
+  ["arkane brillanz"] = 3600,
+  ["frost armor"] = 1800,
+  ["ice armor"] = 1800,
+  ["mage armor"] = 1800,
+  ["frostrüstung"] = 1800,
+  ["eisrüstung"] = 1800,
+  ["magische rüstung"] = 1800,
+
+  ["power word: shield"] = 30,
+  ["mend pet"] = 15,
+  ["tier heilen"] = 15,
+  ["corruption"] = 18,
+  ["verderbnis"] = 18,
+  ["immolate"] = 15,
+  ["immolation"] = 15,
+  ["feierbrand"] = 15,
+  ["curse of agony"] = 24,
+  ["fluch der pein"] = 24,
+  ["siphon life"] = 30,
+  ["lebensentzug"] = 30,
 
   -- Paladin judgements and control effects
   ["judgement of the crusader"] = 10,
@@ -118,22 +188,37 @@ local function GetRawAura(unit, index, auraType)
   return UnitBuff(unit, index)
 end
 
-local function ParseTimeLine(text, requireRemaining)
+local function ParseAnyTime(text)
   if not text then return nil end
   local lower = string.lower(text)
-  if requireRemaining and not string.find(lower, "remaining") then return nil end
-  if not requireRemaining and not (string.find(lower, " for ") or
-      string.find(lower, " over ") or string.find(lower, "lasts")) then
-    return nil
-  end
-
-  local _, _, value = string.find(lower, "(%d+%.?%d*)%s*hour")
+  local _, _, value = string.find(lower, "(%d+%.?%d*)%s*stunde")
+  if not value then _, _, value = string.find(lower, "(%d+%.?%d*)%s*hour") end
   if value then return tonumber(value) * 3600 end
   _, _, value = string.find(lower, "(%d+%.?%d*)%s*min")
   if value then return tonumber(value) * 60 end
-  _, _, value = string.find(lower, "(%d+%.?%d*)%s*sec")
+  _, _, value = string.find(lower, "(%d+%.?%d*)%s*sek")
+  if not value then _, _, value = string.find(lower, "(%d+%.?%d*)%s*sec") end
   if value then return tonumber(value) end
   return nil
+end
+
+local function ParseTimeLine(text, requireRemaining)
+  if not text then return nil end
+  local lower = string.lower(text)
+  local isRemaining = string.find(lower, "remaining", 1, true)
+    or string.find(lower, "verbleib", 1, true)
+    or string.find(lower, "bleibt", 1, true)
+  if requireRemaining and not isRemaining then return nil end
+  if not requireRemaining then
+    if isRemaining then return nil end
+    if not (string.find(lower, " for ", 1, true) or string.find(lower, " over ", 1, true)
+        or string.find(lower, "lasts", 1, true) or string.find(lower, "hält", 1, true)
+        or string.find(lower, "halt", 1, true) or string.find(lower, "dauer", 1, true)
+        or string.find(lower, "sek", 1, true) or string.find(lower, "min", 1, true)) then
+      return nil
+    end
+  end
+  return ParseAnyTime(text)
 end
 
 local function ScanAuraTooltip(unit, index, auraType)
@@ -169,7 +254,66 @@ local function ScanAuraTooltip(unit, index, auraType)
   return auraName, duration, remaining
 end
 
+local function GetPlayerAura(index, auraType)
+  if type(GetPlayerBuff) ~= "function" then return nil end
+  local filter = "HELPFUL"
+  if auraType == "DEBUFF" then filter = "HARMFUL" end
+  local ok, buffIndex = pcall(GetPlayerBuff, index - 1, filter)
+  if not ok then ok, buffIndex = pcall(GetPlayerBuff, index, filter) end
+  if not ok then return nil end
+  buffIndex = tonumber(buffIndex)
+  if not buffIndex or buffIndex == 0 or buffIndex == -1 then return nil end
+
+  local texture
+  if type(GetPlayerBuffTexture) == "function" then
+    local texOk, tex = pcall(GetPlayerBuffTexture, buffIndex)
+    if texOk then texture = tex end
+  end
+  if not texture then return nil end
+
+  local applications = 0
+  if type(GetPlayerBuffApplications) == "function" then
+    local countOk, count = pcall(GetPlayerBuffApplications, buffIndex)
+    if countOk then applications = tonumber(count) or 0 end
+  end
+
+  local timeLeft
+  if type(GetPlayerBuffTimeLeft) == "function" then
+    local timeOk, remaining = pcall(GetPlayerBuffTimeLeft, buffIndex)
+    if timeOk then timeLeft = tonumber(remaining) end
+  end
+
+  local auraName
+  if GameTooltip and GameTooltip.SetPlayerBuff then
+    if not auraScanner then
+      auraScanner = CreateFrame("GameTooltip", "PotatoUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
+      auraScanner:SetOwner(UIParent, "ANCHOR_NONE")
+    end
+    auraScanner:ClearLines()
+    pcall(auraScanner.SetPlayerBuff, auraScanner, buffIndex)
+    local nameLine = getglobal("PotatoUIAuraScanTooltipTextLeft1")
+    auraName = nameLine and nameLine:GetText()
+    auraScanner:Hide()
+  end
+
+  local duration = GetKnownDuration(auraName, texture)
+  local expiration
+  if timeLeft and timeLeft > 0 then
+    expiration = GetTime() + timeLeft
+    if not duration or duration < timeLeft then duration = timeLeft end
+  end
+  return texture, applications, nil, duration, expiration, auraName
+end
+
 local function GetAura(unit, index, auraType)
+  if unit == "player" then
+    local texture, applications, auraKind, duration, expiration, auraName =
+      GetPlayerAura(index, auraType)
+    if texture then
+      return texture, applications, auraKind, duration, expiration, auraName
+    end
+  end
+
   local first, second, third, fourth, fifth, sixth, seventh =
     GetRawAura(unit, index, auraType)
   if not first then return nil end
@@ -202,7 +346,7 @@ end
 local function FormatAuraTime(seconds)
   if seconds >= 3600 then return math.ceil(seconds / 3600) .. "h" end
   if seconds >= 60 then return math.ceil(seconds / 60) .. "m" end
-  return tostring(math.ceil(seconds))
+  return math.ceil(seconds) .. "s"
 end
 
 local function UpdateAuraTimers(row)
@@ -266,9 +410,15 @@ local function CreateAuraIcon(row, index, size)
   icon.count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
   icon.count:SetTextColor(1, 1, 1)
 
-  icon.timer = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  icon.timer:SetPoint("TOP", icon, "TOP", 0, -1)
+  icon.timer = icon:CreateFontString(nil, "OVERLAY")
+  icon.timer:SetPoint("BOTTOM", icon, "BOTTOM", 0, 1)
   icon.timer:SetTextColor(1, 1, 1)
+  if icon.timer.SetJustifyH then icon.timer:SetJustifyH("CENTER") end
+  local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+  local timerSize = math.floor(size * 0.48)
+  if timerSize < 9 then timerSize = 9 end
+  if timerSize > 13 then timerSize = 13 end
+  if icon.timer.SetFont then icon.timer:SetFont(font, timerSize, "OUTLINE") end
 
   icon:SetScript("OnEnter", ShowAuraTooltip)
   icon:SetScript("OnLeave", function() GameTooltip:Hide() end)

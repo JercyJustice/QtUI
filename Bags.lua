@@ -500,6 +500,12 @@ function PotatoUI:UpdateBags()
   local frame = self.bagFrame
   if not frame then return end
 
+  local layout = PotatoUI.GetLayout and PotatoUI:GetLayout()
+  local slotSize = (layout and layout.bagSlotSize) or SLOT_SIZE
+  local columns = (layout and layout.bagColumns) or BAG_COLUMNS
+  if slotSize < 24 then slotSize = 24 end
+  if columns < 6 then columns = 6 end
+
   local position = 1
   local free = 0
   local total = 0
@@ -517,13 +523,15 @@ function PotatoUI:UpdateBags()
         button = CreateItemButton(frame, position)
         frame.items[position] = button
       end
+      button:SetWidth(slotSize)
+      button:SetHeight(slotSize)
 
-      local column = math.mod(position - 1, BAG_COLUMNS)
-      local row = math.floor((position - 1) / BAG_COLUMNS)
+      local column = math.mod(position - 1, columns)
+      local row = math.floor((position - 1) / columns)
       button:ClearAllPoints()
       button:SetPoint("TOPLEFT", frame, "TOPLEFT",
-        WINDOW_PADDING + column * (SLOT_SIZE + SLOT_GAP),
-        -42 - row * (SLOT_SIZE + SLOT_GAP))
+        WINDOW_PADDING + column * (slotSize + SLOT_GAP),
+        -42 - row * (slotSize + SLOT_GAP))
       UpdateSlot(button, bag, slot, bag == -2)
       frame.itemByLocation[bag .. ":" .. slot] = button
 
@@ -539,9 +547,9 @@ function PotatoUI:UpdateBags()
     frame.items[index]:Hide()
   end
 
-  local rows = math.max(1, math.floor((total + BAG_COLUMNS - 1) / BAG_COLUMNS))
-  local windowWidth = WINDOW_PADDING * 2 + BAG_COLUMNS * SLOT_SIZE + (BAG_COLUMNS - 1) * SLOT_GAP
-  local windowHeight = 78 + rows * (SLOT_SIZE + SLOT_GAP)
+  local rows = math.max(1, math.floor((total + columns - 1) / columns))
+  local windowWidth = WINDOW_PADDING * 2 + columns * slotSize + (columns - 1) * SLOT_GAP
+  local windowHeight = 78 + rows * (slotSize + SLOT_GAP)
   frame:SetWidth(windowWidth)
   frame:SetHeight(windowHeight)
   frame.layoutSignature = BagLayoutSignature()
@@ -590,7 +598,7 @@ function PotatoUI:SetupBags()
 
   frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 13, -13)
-  frame.title:SetText("|cffffcc00Potato|r Bags  |cff777777- drag here|r")
+  frame.title:SetText("|cffffcc00Potato|r Bags")
 
   frame.space = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   frame.space:SetPoint("TOP", frame, "TOP", 0, -15)

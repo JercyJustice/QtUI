@@ -11,14 +11,69 @@ local function ShortNumber(value)
   return tostring(value)
 end
 
+function PotatoUI:PaintStatusBar(bar, r, g, b)
+  if not bar then return end
+  r = tonumber(r) or 1
+  g = tonumber(g) or 1
+  b = tonumber(b) or 1
+
+  local enabled
+  if self.GetLayout then
+    local layout = self:GetLayout()
+    local flag = layout and layout.unitGradient
+    enabled = flag == true or flag == 1 or flag == "1"
+  end
+
+  -- Re-stamp the fill so a previous SetGradient cannot stick around.
+  if bar.SetStatusBarTexture then
+    bar:SetStatusBarTexture(self.media.statusbar)
+  end
+  bar:SetStatusBarColor(r, g, b)
+
+  local tex = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+  if tex then
+    if enabled and tex.SetGradient then
+      pcall(tex.SetGradient, tex, "VERTICAL", r * .38, g * .38, b * .38, r, g, b)
+    else
+      if tex.SetGradient then pcall(tex.SetGradient, tex, "VERTICAL", r, g, b, r, g, b) end
+      if tex.SetVertexColor then pcall(tex.SetVertexColor, tex, r, g, b, 1) end
+    end
+  end
+
+  if not bar.PotatoUIGradient then
+    local shine = bar:CreateTexture(nil, "ARTWORK")
+    shine:SetAllPoints(bar)
+    if shine.SetBlendMode then pcall(shine.SetBlendMode, shine, "ADD") end
+    bar.PotatoUIGradient = shine
+  end
+  local shine = bar.PotatoUIGradient
+  if shine then
+    if enabled then
+      shine:SetTexture("Interface\\Buttons\\WHITE8X8")
+      if shine.SetGradientAlpha then
+        pcall(shine.SetGradientAlpha, shine, "VERTICAL", 1, 1, 1, .28, 0, 0, 0, 0)
+      elseif shine.SetGradient then
+        pcall(shine.SetGradient, shine, "VERTICAL", .42, .42, .42, 0, 0, 0)
+      end
+      if shine.SetAlpha then pcall(shine.SetAlpha, shine, 1) end
+      if shine.Show then pcall(shine.Show, shine) end
+    else
+      -- Hide() is ignored on Emberveil. Clear the texture and alpha instead.
+      if shine.SetTexture then shine:SetTexture(nil) end
+      if shine.SetAlpha then pcall(shine.SetAlpha, shine, 0) end
+      if shine.Hide then pcall(shine.Hide, shine) end
+    end
+  end
+end
+
 local function SetPowerColor(bar, unit)
   local power = UnitPowerType(unit)
   if power == 1 then
-    bar:SetStatusBarColor(.75, .12, .12)
+    PotatoUI:PaintStatusBar(bar, .75, .12, .12)
   elseif power == 3 then
-    bar:SetStatusBarColor(.92, .76, .12)
+    PotatoUI:PaintStatusBar(bar, .92, .76, .12)
   else
-    bar:SetStatusBarColor(.12, .38, .82)
+    PotatoUI:PaintStatusBar(bar, .12, .38, .82)
   end
 end
 
@@ -66,6 +121,67 @@ end
 PotatoUI.classColors = classColors
 PotatoUI.ShortNumber = ShortNumber
 PotatoUI.SetPowerColor = SetPowerColor
+
+local TEXT_ALIGN = {
+  left = { "LEFT", "LEFT", 6, 0, "LEFT", "MIDDLE" },
+  right = { "RIGHT", "RIGHT", -6, 0, "RIGHT", "MIDDLE" },
+  top = { "TOP", "TOP", 0, -2, "CENTER", "TOP" },
+  bottom = { "BOTTOM", "BOTTOM", 0, 2, "CENTER", "BOTTOM" },
+  center = { "CENTER", "CENTER", 0, 0, "CENTER", "MIDDLE" },
+  topleft = { "TOPLEFT", "TOPLEFT", 6, -2, "LEFT", "TOP" },
+  topright = { "TOPRIGHT", "TOPRIGHT", -6, -2, "RIGHT", "TOP" },
+  bottomleft = { "BOTTOMLEFT", "BOTTOMLEFT", 6, 2, "LEFT", "BOTTOM" },
+  bottomright = { "BOTTOMRIGHT", "BOTTOMRIGHT", -6, 2, "RIGHT", "BOTTOM" },
+}
+
+function PotatoUI:PlaceUnitText(fontString, parent, align)
+  if not fontString or not parent then return end
+  local spec = TEXT_ALIGN[align] or TEXT_ALIGN.left
+  fontString:ClearAllPoints()
+  fontString:SetPoint(spec[1], parent, spec[2], spec[3], spec[4])
+  if fontString.SetJustifyH then fontString:SetJustifyH(spec[5]) end
+  if fontString.SetJustifyV then fontString:SetJustifyV(spec[6]) end
+end
+
+function PotatoUI:ApplyUnitTexts(frame, style)
+  if not frame or not style then return end
+  if frame.name then self:PlaceUnitText(frame.name, frame.health, style.nameAlign) end
+  if frame.healthText then self:PlaceUnitText(frame.healthText, frame.health, style.healthAlign) end
+  if frame.powerText and frame.power then
+    self:PlaceUnitText(frame.powerText, frame.power, style.powerAlign)
+  end
+  if frame.classification then
+    self:PlaceUnitText(frame.classification, frame.health, style.classAlign or "top")
+  end
+end
+
+function PotatoUI:ApplyUnitBarSizes(frame, style)
+  if not frame or not style then return end
+  local pad = 4
+  local gap = 3
+  local width = style.width or 260
+  local height = style.height or 54
+  frame:SetWidth(width)
+  frame:SetHeight(height)
+  if not frame.health then return end
+  if frame.power and style.powerHeight then
+    local powerH = style.powerHeight or 13
+    local healthH = height - pad * 2 - powerH - gap
+    if healthH < 14 then healthH = 14 end
+    frame.health:ClearAllPoints()
+    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -pad)
+    frame.health:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pad, -pad)
+    frame.health:SetHeight(healthH)
+    frame.power:ClearAllPoints()
+    frame.power:SetPoint("TOPLEFT", frame.health, "BOTTOMLEFT", 0, -gap)
+    frame.power:SetPoint("TOPRIGHT", frame.health, "BOTTOMRIGHT", 0, -gap)
+    frame.power:SetHeight(powerH)
+  else
+    frame.health:ClearAllPoints()
+    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -pad)
+    frame.health:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, pad)
+  end
+end
 
 local function HandleUnitClick()
   local unit = this.unit
@@ -132,7 +248,7 @@ local function CreateUnitFrame(name, unit, x)
   frame.healthText = frame.health:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   frame.healthText:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
   frame.healthText:SetJustifyH("RIGHT")
-  frame.classification:SetPoint("RIGHT", frame.healthText, "LEFT", -6, 0)
+  frame.classification:SetPoint("TOP", frame.health, "TOP", 0, -2)
 
   frame.power = CreateFrame("StatusBar", nil, frame)
   frame.power:SetStatusBarTexture(PotatoUI.media.statusbar)
@@ -166,11 +282,13 @@ local function CreateUnitFrame(name, unit, x)
   end)
   frame.click:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  if unit == "target" and PotatoUI:IsFeatureEnabled("auras") then
-    frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 10, 20)
+  if PotatoUI:IsFeatureEnabled("auras") then
+    local auraCount = 10
+    if unit == "player" then auraCount = 16 end
+    frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", auraCount, 20)
     frame.debuffs:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 2, 4)
 
-    frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", 10, 20)
+    frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", auraCount, 20)
     frame.buffs:SetPoint("BOTTOMLEFT", frame.debuffs, "TOPLEFT", 0, 3)
   end
 
@@ -229,20 +347,20 @@ local function UpdateUnitFrame(frame)
     if layout.playerClassColor then
       local _, class = UnitClass(unit)
       local color = classColors[class] or { .2, .75, .25 }
-      frame.health:SetStatusBarColor(color[1], color[2], color[3])
+      PotatoUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
     else
       local c = layout.playerHealth
-      frame.health:SetStatusBarColor(c.r, c.g, c.b)
+      PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
     end
   elseif isEnemy then
     local c = layout.enemyHealth
-    frame.health:SetStatusBarColor(c.r, c.g, c.b)
+    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   elseif isFriend then
     local c = layout.friendHealth
-    frame.health:SetStatusBarColor(c.r, c.g, c.b)
+    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   else
     local c = layout.neutralHealth
-    frame.health:SetStatusBarColor(c.r, c.g, c.b)
+    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   end
 
   if unit == "target" then
@@ -258,7 +376,7 @@ local function UpdateUnitFrame(frame)
     end
   end
 
-  if unit == "target" and frame.debuffs then
+  if frame.debuffs then
     PotatoUI:UpdateAuraRow(frame.debuffs)
     PotatoUI:UpdateAuraRow(frame.buffs)
   end
@@ -347,19 +465,18 @@ function PotatoUI:SetupComboPoints()
 end
 
 function PotatoUI:ApplyUnitFrameLayout()
-  local layout = self:GetLayout()
-  local function SizeFrame(frame)
-    if not frame then return end
-    frame:SetWidth(layout.unitWidth or 260)
-    frame:SetHeight(layout.unitHeight or 54)
-    if frame.health then
-      frame.health:SetHeight(math.max(16, (layout.unitHeight or 54) - 26))
-    end
+  local player = self:GetUnitStyle("player")
+  local target = self:GetUnitStyle("target")
+  if self.playerFrame then
+    self:ApplyUnitBarSizes(self.playerFrame, player)
+    self:ApplyUnitTexts(self.playerFrame, player)
   end
-  SizeFrame(self.playerFrame)
-  SizeFrame(self.targetFrame)
-  if self.castBar then
-    self.castBar:SetWidth(layout.unitWidth or 260)
+  if self.targetFrame then
+    self:ApplyUnitBarSizes(self.targetFrame, target)
+    self:ApplyUnitTexts(self.targetFrame, target)
+  end
+  if self.castBar and player then
+    self.castBar:SetWidth(player.width or 260)
   end
 end
 
@@ -374,7 +491,21 @@ function PotatoUI:SetupUnitFrames()
   self:SetupComboPoints()
   if self.playerFrame then self:HideFrame(PlayerFrame) end
   if self.targetFrame then self:HideFrame(TargetFrame) end
+  if self:IsFeatureEnabled("auras") then
+    local buffFrame = BuffFrame
+    if buffFrame then
+      if buffFrame.EnableMouse then pcall(buffFrame.EnableMouse, buffFrame, false) end
+      if buffFrame.SetAlpha then pcall(buffFrame.SetAlpha, buffFrame, 0) end
+      if buffFrame.ClearAllPoints and buffFrame.SetPoint then
+        pcall(function()
+          buffFrame:ClearAllPoints()
+          buffFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+        end)
+      end
+    end
+  end
   if self.PositionAuxiliaryBars then self:PositionAuxiliaryBars() end
+  self:ApplyUnitFrameLayout()
 
   local events = CreateFrame("Frame", "PotatoUIUnitEvents")
   events:RegisterEvent("PLAYER_TARGET_CHANGED")

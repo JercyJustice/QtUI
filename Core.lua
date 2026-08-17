@@ -107,16 +107,29 @@ local function EnsureBar(bars, name, columns, size, rows)
   if bar.size > 52 then bar.size = 52 end
   if bar.spacing < 0 then bar.spacing = 0 end
   if bar.spacing > 12 then bar.spacing = 12 end
+  if bar.enabled == nil then bar.enabled = true end
+  if not bar.hotkeyAlign then bar.hotkeyAlign = "center" end
+  if bar.hotkeyAlign ~= "left" and bar.hotkeyAlign ~= "right" and bar.hotkeyAlign ~= "top"
+      and bar.hotkeyAlign ~= "bottom" and bar.hotkeyAlign ~= "center"
+      and bar.hotkeyAlign ~= "topleft" and bar.hotkeyAlign ~= "topright"
+      and bar.hotkeyAlign ~= "bottomleft" and bar.hotkeyAlign ~= "bottomright" then
+    bar.hotkeyAlign = "center"
+  end
+  if not bar.hotkeySize then bar.hotkeySize = 10 end
+  bar.hotkeySize = tonumber(bar.hotkeySize) or 10
+  if bar.hotkeySize < 7 then bar.hotkeySize = 7 end
+  if bar.hotkeySize > 16 then bar.hotkeySize = 16 end
+  if bar.hotkeyShadow == nil then bar.hotkeyShadow = 1 end
+  bar.hotkeyShadow = tonumber(bar.hotkeyShadow) or 1
+  if bar.hotkeyShadow < 0 then bar.hotkeyShadow = 0 end
+  if bar.hotkeyShadow > 4 then bar.hotkeyShadow = 4 end
   return bar
 end
 
 function PotatoUI:EnsureLayoutDefaults()
   if not PotatoUIDB.layout then PotatoUIDB.layout = {} end
   local layout = PotatoUIDB.layout
-  if not layout.scale then layout.scale = 1 end
-  layout.scale = tonumber(layout.scale) or 1
-  if layout.scale < 0.6 then layout.scale = 0.6 end
-  if layout.scale > 1.6 then layout.scale = 1.6 end
+  layout.scale = nil
   if not layout.unitWidth then layout.unitWidth = 260 end
   if not layout.unitHeight then layout.unitHeight = 54 end
   if layout.unitWidth < 160 then layout.unitWidth = 160 end
@@ -124,6 +137,11 @@ function PotatoUI:EnsureLayoutDefaults()
   if layout.unitHeight < 40 then layout.unitHeight = 40 end
   if layout.unitHeight > 80 then layout.unitHeight = 80 end
   if layout.playerClassColor == nil then layout.playerClassColor = true end
+  if layout.unitGradient == nil then layout.unitGradient = true end
+  if not layout.unitPowerHeight then layout.unitPowerHeight = 13 end
+  layout.unitPowerHeight = tonumber(layout.unitPowerHeight) or 13
+  if layout.unitPowerHeight < 6 then layout.unitPowerHeight = 6 end
+  if layout.unitPowerHeight > 28 then layout.unitPowerHeight = 28 end
   layout.playerHealth = EnsureColor(layout.playerHealth, .2, .75, .25)
   layout.enemyHealth = EnsureColor(layout.enemyHealth, .78, .12, .12)
   layout.friendHealth = EnsureColor(layout.friendHealth, .15, .72, .22)
@@ -142,12 +160,71 @@ function PotatoUI:EnsureLayoutDefaults()
   if layout.petWidth > 280 then layout.petWidth = 280 end
   if layout.partyClassColor == nil then layout.partyClassColor = true end
   layout.partyHealth = EnsureColor(layout.partyHealth, .2, .72, .28)
+  if not layout.unitStyle then layout.unitStyle = {} end
+  local function EnsureAlign(value, fallback)
+    if value == "left" or value == "right" or value == "top" or value == "bottom"
+        or value == "center" or value == "topleft" or value == "topright"
+        or value == "bottomleft" or value == "bottomright" then
+      return value
+    end
+    return fallback
+  end
+  local function EnsureUnitStyle(name, defaults)
+    if not layout.unitStyle[name] then layout.unitStyle[name] = {} end
+    local style = layout.unitStyle[name]
+    if not style.width then style.width = defaults.width end
+    if not style.height then style.height = defaults.height end
+    if not style.powerHeight then style.powerHeight = defaults.powerHeight end
+    if not style.spacing then style.spacing = defaults.spacing end
+    style.width = tonumber(style.width) or defaults.width
+    style.height = tonumber(style.height) or defaults.height
+    if style.powerHeight then style.powerHeight = tonumber(style.powerHeight) or defaults.powerHeight end
+    if style.spacing then style.spacing = tonumber(style.spacing) or defaults.spacing end
+    if style.width < 100 then style.width = 100 end
+    if style.width > 420 then style.width = 420 end
+    if style.height and style.height < 24 then style.height = 24 end
+    if style.height and style.height > 100 then style.height = 100 end
+    if style.powerHeight and style.powerHeight < 6 then style.powerHeight = 6 end
+    if style.powerHeight and style.powerHeight > 28 then style.powerHeight = 28 end
+    style.nameAlign = EnsureAlign(style.nameAlign, defaults.nameAlign)
+    style.healthAlign = EnsureAlign(style.healthAlign, defaults.healthAlign)
+    style.powerAlign = EnsureAlign(style.powerAlign, defaults.powerAlign)
+    style.classAlign = EnsureAlign(style.classAlign, defaults.classAlign)
+    return style
+  end
+  EnsureUnitStyle("player", {
+    width = layout.unitWidth or 260, height = layout.unitHeight or 54,
+    powerHeight = layout.unitPowerHeight or 13,
+    nameAlign = "left", healthAlign = "right", powerAlign = "right",
+  })
+  EnsureUnitStyle("target", {
+    width = layout.unitWidth or 260, height = layout.unitHeight or 54,
+    powerHeight = layout.unitPowerHeight or 13,
+    nameAlign = "left", healthAlign = "right", powerAlign = "right", classAlign = "top",
+  })
+  EnsureUnitStyle("party", {
+    width = layout.partyWidth or 220, height = layout.partyHeight or 44,
+    powerHeight = 9, spacing = layout.partySpacing or 29,
+    nameAlign = "left", healthAlign = "right", powerAlign = "right",
+  })
+  EnsureUnitStyle("pet", {
+    width = layout.petWidth or 180, height = 27,
+    nameAlign = "left", healthAlign = "right",
+  })
   if layout.barShowBackground == nil then layout.barShowBackground = false end
   layout.barBackground = EnsureColor(layout.barBackground, .025, .035, .045, .85)
   layout.barBorder = EnsureColor(layout.barBorder, .18, .24, .28, 1)
   if layout.slotShowBackground == nil then layout.slotShowBackground = true end
   layout.slotBackground = EnsureColor(layout.slotBackground, .02, .025, .03, .96)
   layout.slotBorder = EnsureColor(layout.slotBorder, .14, .18, .2, 1)
+  if not layout.bagSlotSize then layout.bagSlotSize = 36 end
+  layout.bagSlotSize = tonumber(layout.bagSlotSize) or 36
+  if layout.bagSlotSize < 24 then layout.bagSlotSize = 24 end
+  if layout.bagSlotSize > 52 then layout.bagSlotSize = 52 end
+  if not layout.bagColumns then layout.bagColumns = 10 end
+  layout.bagColumns = tonumber(layout.bagColumns) or 10
+  if layout.bagColumns < 6 then layout.bagColumns = 6 end
+  if layout.bagColumns > 16 then layout.bagColumns = 16 end
   if not layout.bars then layout.bars = {} end
   EnsureBar(layout.bars, "main", 12, 34, 1)
   if not layout.bars.extra and layout.bars.main then
@@ -186,28 +263,28 @@ function PotatoUI:GetBarConfig(name)
   return layout.bars[name] or layout.bars.main
 end
 
-function PotatoUI:ApplyScale()
-  local scale = self:GetLayout().scale or 1
-  -- Only PotatoUI-created top-level frames. Children inherit.
-  local frames = {
-    self.playerFrame, self.targetFrame, self.comboFrame,
-    self.partyAnchor, self.playerPetFrame,
-    self.actionPanel, self.extraActionPanel, self.utilityActionPanel, self.auxiliaryPanel,
-    self.sideRightPanel, self.sideLeftPanel,
-    self.dataBar, self.bagFrame,
-  }
-  local i
-  for i = 1, table.getn(frames) do
-    local frame = frames[i]
-    if frame and frame.SetScale then pcall(frame.SetScale, frame, scale) end
-  end
+function PotatoUI:GetUnitStyle(name)
+  local layout = self:GetLayout()
+  if layout.unitStyle and layout.unitStyle[name] then return layout.unitStyle[name] end
+  return layout.unitStyle and layout.unitStyle.player
+end
+
+function PotatoUI:IsBarEnabled(name)
+  local bar = self:GetBarConfig(name)
+  return not bar or bar.enabled ~= false
+end
+
+local function LayoutFlagOn(value)
+  return value == true or value == 1 or value == "1"
 end
 
 function PotatoUI:ApplyActionBarBackground()
   local layout = self:GetLayout()
   local function Paint(panel)
     if not panel or not panel.SetBackdropColor then return end
-    if not panel.GetBackdrop or not panel:GetBackdrop() then
+    -- Always re-stamp the backdrop. Emberveil can keep a dead GetBackdrop()
+    -- after login so a skipped SetBackdrop leaves the bar fully transparent.
+    if panel.SetBackdrop then
       panel:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -215,11 +292,11 @@ function PotatoUI:ApplyActionBarBackground()
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
       })
     end
-    if layout.barShowBackground then
-      local c = layout.barBackground
-      local b = layout.barBorder
-      panel:SetBackdropColor(c.r, c.g, c.b, c.a or .85)
-      panel:SetBackdropBorderColor(b.r, b.g, b.b, b.a or 1)
+    if LayoutFlagOn(layout.barShowBackground) then
+      local c = layout.barBackground or {}
+      local b = layout.barBorder or {}
+      panel:SetBackdropColor(c.r or .025, c.g or .035, c.b or .045, c.a or .85)
+      panel:SetBackdropBorderColor(b.r or .18, b.g or .24, b.b or .28, b.a or 1)
     else
       panel:SetBackdropColor(0, 0, 0, 0)
       panel:SetBackdropBorderColor(0, 0, 0, 0)
@@ -256,28 +333,41 @@ function PotatoUI:EnsureSlotCell(button, panel)
   panel = panel or button:GetParent()
   if not panel then return end
 
+  local size = 34
+  if button.GetWidth then size = button:GetWidth() or 34 end
+  local extra = 0
+  local edge = 10
+  local inset = 2
+  -- Below 28 the tooltip border eats the fill. Grow the cell back toward 28
+  -- and use a thinner edge so empty wells stay visible.
+  if size < 28 then
+    extra = math.floor((28 - size) / 2 + 0.5)
+    if extra < 1 then extra = 1 end
+    edge = 8
+    inset = 1
+  end
+
   local cell = button.PotatoUICell
   if not cell then
     cell = CreateFrame("Frame", nil, panel)
-    cell:SetBackdrop({
-      bgFile = "Interface\\Buttons\\WHITE8X8",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = true, tileSize = 8, edgeSize = 10,
-      insets = { left = 2, right = 2, top = 2, bottom = 2 },
-    })
     button.PotatoUICell = cell
   else
     cell:SetParent(panel)
   end
+  cell:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = edge,
+    insets = { left = inset, right = inset, top = inset, bottom = inset },
+  })
 
   local panelLevel = 1
   if panel.GetFrameLevel then panelLevel = panel:GetFrameLevel() or 1 end
   cell:SetFrameLevel(math.max(0, panelLevel))
   if button.SetFrameLevel then button:SetFrameLevel(panelLevel + 4) end
   cell:ClearAllPoints()
-  -- Fill more of the Quickslot2 well without covering the round rim.
-  cell:SetPoint("TOPLEFT", button, "TOPLEFT", -5, 5)
-  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 5, -5)
+  cell:SetPoint("TOPLEFT", button, "TOPLEFT", -extra, extra)
+  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", extra, -extra)
   return cell
 end
 
@@ -292,11 +382,59 @@ local function SlotHasSpell(button, prefix, index)
   end
   local action = button.PotatoUIAction or button.action
   if not action and button.GetID then action = button:GetID() end
+  if action and type(GetActionTexture) == "function" then
+    local ok, texture = pcall(GetActionTexture, action)
+    if ok then return texture and texture ~= "" end
+  end
   if action and type(HasAction) == "function" then
     local ok, has = pcall(HasAction, action)
     if ok and (has == true or has == 1 or has == "1") then return true end
   end
   return nil
+end
+
+local function ButtonIsOnPotatoBar(button)
+  if not button then return nil end
+  if button.PotatoUIStyled then return true end
+  if button.IsShown then
+    local ok, shown = pcall(button.IsShown, button)
+    if ok and (shown == true or shown == 1 or shown == "1") then return true end
+  end
+  local parent = button.GetParent and button:GetParent()
+  if parent and parent.GetName then
+    local name = parent:GetName()
+    if name and string.find(name, "PotatoUI", 1, true) then return true end
+  end
+  return nil
+end
+
+function PotatoUI:EnsureButtonRim(button, size, keepNormalIcon)
+  if not button then return end
+  size = size or (button.GetWidth and button:GetWidth()) or 34
+  if not keepNormalIcon and button.SetNormalTexture then
+    button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+  end
+  -- Emberveil often has no NormalTexture yet at login. An overlay rim
+  -- survives the later native ActionButton_Update wipe.
+  if not button.PotatoUIRing then
+    button.PotatoUIRing = button:CreateTexture(nil, "OVERLAY")
+  end
+  local ring = button.PotatoUIRing
+  if ring.SetTexture then ring:SetTexture("Interface\\Buttons\\UI-Quickslot2") end
+  local pad = math.floor(size * 0.38)
+  if pad < 10 then pad = 10 end
+  ring:ClearAllPoints()
+  ring:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+  ring:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+  if ring.SetAlpha then ring:SetAlpha(1) end
+  if ring.Show then pcall(ring.Show, ring) end
+  local normal = button.GetNormalTexture and button:GetNormalTexture()
+  if normal and not keepNormalIcon then
+    if normal.SetAlpha then normal:SetAlpha(1) end
+    normal:ClearAllPoints()
+    normal:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+    normal:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+  end
 end
 
 function PotatoUI:ApplySlotBackgrounds()
@@ -314,10 +452,10 @@ function PotatoUI:ApplySlotBackgrounds()
     for i = 1, last do
       local button = getglobal(names[n] .. i)
       if button then
-        local shown = button.IsShown and button:IsShown()
+        local shown = ButtonIsOnPotatoBar(button)
         local cell = self:EnsureSlotCell(button, button:GetParent())
         if cell then
-          if shown and layout.slotShowBackground and not SlotHasSpell(button, names[n], i) then
+          if shown and LayoutFlagOn(layout.slotShowBackground) and not SlotHasSpell(button, names[n], i) then
             local c = layout.slotBackground
             cell:SetBackdropColor(c.r, c.g, c.b, c.a or .96)
             cell:SetBackdropBorderColor(c.r, c.g, c.b, 0)
@@ -326,49 +464,88 @@ function PotatoUI:ApplySlotBackgrounds()
             cell:Hide()
           end
         end
-        if shown then
-          local filled = SlotHasSpell(button, names[n], i)
-          -- Shapeshift stores the form icon on NormalTexture. Only stamp
-          -- Quickslot2 onto empty stance slots so the icon stays visible.
-          if button.SetNormalTexture and (names[n] ~= "ShapeshiftButton" or not filled) then
-            button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
-          end
-          local ring = button.GetNormalTexture and button:GetNormalTexture()
-          if names[n] == "ShapeshiftButton" and filled then
-            if not button.PotatoUIRing then
-              button.PotatoUIRing = button:CreateTexture(nil, "OVERLAY")
-              button.PotatoUIRing:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-            end
-            ring = button.PotatoUIRing
-            ring:Show()
-          elseif button.PotatoUIRing then
-            button.PotatoUIRing:Hide()
-          end
-          if ring then
-            local size = button.GetWidth and button:GetWidth() or 34
-            local pad = math.floor(size * 0.38)
-            if pad < 10 then pad = 10 end
-            ring:ClearAllPoints()
-            ring:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
-            ring:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
-            ring:SetAlpha(1)
-          end
-        end
+        local filled = SlotHasSpell(button, names[n], i)
+        local keepIcon = names[n] == "ShapeshiftButton" and filled
+        self:EnsureButtonRim(button, button.GetWidth and button:GetWidth(), keepIcon)
       end
     end
   end
 end
 
+function PotatoUI:RefreshBarChrome()
+  if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
+  if self.ApplySlotBackgrounds then self:ApplySlotBackgrounds() end
+end
+
+function PotatoUI:ScheduleBarChromeRefresh()
+  local frame = self.barChromeRefresher
+  if not frame then
+    frame = CreateFrame("Frame", "PotatoUIBarChromeRefresh")
+    self.barChromeRefresher = frame
+  end
+  frame.elapsed = 0
+  frame.remaining = 4
+  frame.nextPulse = 0.05
+  frame:SetScript("OnUpdate", function()
+    this.elapsed = this.elapsed + (arg1 or 0)
+    this.remaining = this.remaining - (arg1 or 0)
+    if this.elapsed >= this.nextPulse then
+      this.elapsed = 0
+      this.nextPulse = 0.3
+      if PotatoUI.RefreshBarChrome then PotatoUI:RefreshBarChrome() end
+    end
+    if this.remaining <= 0 then
+      this:SetScript("OnUpdate", nil)
+    end
+  end)
+end
+
 function PotatoUI:ApplyLayout()
   self:EnsureLayoutDefaults()
   if self.LayoutActionBars then self:LayoutActionBars() end
-  if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
-  if self.ApplySlotBackgrounds then self:ApplySlotBackgrounds() end
+  if self.RefreshBarChrome then self:RefreshBarChrome() end
   if self.ApplyUnitFrameLayout then self:ApplyUnitFrameLayout() end
   if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
-  if self.ApplyScale then self:ApplyScale() end
   if self.UpdateUnitFrames then self:UpdateUnitFrames() end
   if self.UpdatePartyFrames then self:UpdatePartyFrames() end
+  if self.bagFrame and self.UpdateBags then self:UpdateBags() end
+  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
+  if not self.pulsingBarBackground and self.ScheduleBarChromeRefresh then
+    self:ScheduleBarChromeRefresh()
+  end
+end
+
+function PotatoUI:PulseActionBarBackground()
+  if self.pulsingBarBackground then return end
+  local layout = self:GetLayout()
+  local saved = layout.barShowBackground
+  local on = saved == true or saved == 1 or saved == "1"
+  self.pulsingBarBackground = true
+  -- Same sequence as toggling the setting: flip, apply, restore, apply.
+  layout.barShowBackground = not on
+  self:ApplyLayout()
+  layout.barShowBackground = saved
+  self:ApplyLayout()
+  self.pulsingBarBackground = nil
+end
+
+function PotatoUI:ScheduleBackgroundPulse()
+  if self.backgroundPulseFrame then return end
+  local frame = CreateFrame("Frame", "PotatoUIBackgroundPulse")
+  self.backgroundPulseFrame = frame
+  frame.elapsed = 0
+  frame.stage = 0
+  frame:SetScript("OnUpdate", function()
+    this.elapsed = this.elapsed + (arg1 or 0)
+    if this.stage == 0 and this.elapsed >= 0.6 then
+      this.stage = 1
+      if PotatoUI.PulseActionBarBackground then PotatoUI:PulseActionBarBackground() end
+    elseif this.stage == 1 and this.elapsed >= 2.2 then
+      this.stage = 2
+      if PotatoUI.PulseActionBarBackground then PotatoUI:PulseActionBarBackground() end
+      this:SetScript("OnUpdate", nil)
+    end
+  end)
 end
 
 function PotatoUI:EnsureDB()
@@ -405,6 +582,7 @@ function PotatoUI:Initialize()
   SafeSetup("settingsButton", self.SetupSettingsButton)
   SafeSetup("moveMode", self.SetupMoveMode)
   SafeSetup("applyLayout", self.ApplyLayout)
+  if self.ScheduleBackgroundPulse then self:ScheduleBackgroundPulse() end
 
   Print("Loaded. Type /pui for commands.")
 end

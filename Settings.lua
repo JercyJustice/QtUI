@@ -297,6 +297,79 @@ local function CreateToggleRow(parent, y, label, getter, setter)
   return row
 end
 
+local GRID_PRESETS = {
+  { label = "1x12", columns = 1, rows = 12 },
+  { label = "2x6", columns = 2, rows = 6 },
+  { label = "3x4", columns = 3, rows = 4 },
+  { label = "4x3", columns = 4, rows = 3 },
+  { label = "6x2", columns = 6, rows = 2 },
+  { label = "12x1", columns = 12, rows = 1 },
+}
+
+local function CreateGridPicker(parent, y, barKey)
+  local row = CreateFrame("Frame", nil, parent)
+  row:SetWidth(540)
+  row:SetHeight(52)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, y)
+  row.barKey = barKey
+
+  row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  row.caption:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+  row.caption:SetText("Layout")
+
+  row.buttons = {}
+  local i
+  for i = 1, table.getn(GRID_PRESETS) do
+    local preset = GRID_PRESETS[i]
+    local button = CreateFrame("Button", nil, row)
+    button:SetWidth(56)
+    button:SetHeight(24)
+    button:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * 62, -20)
+    button:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    button.gridColumns = preset.columns
+    button.gridRows = preset.rows
+    button.barKey = barKey
+    button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+    button.text:SetText(preset.label)
+    button:SetScript("OnClick", function()
+      local bar = PotatoUI:GetBarConfig(this.barKey)
+      bar.columns = this.gridColumns
+      bar.rows = this.gridRows
+      row.Refresh()
+      PotatoUI:ApplyLayout()
+    end)
+    table.insert(row.buttons, button)
+  end
+
+  local function Refresh()
+    local bar = PotatoUI:GetBarConfig(row.barKey)
+    local columns = bar.columns or 12
+    local n
+    for n = 1, table.getn(row.buttons) do
+      local button = row.buttons[n]
+      if button.gridColumns == columns then
+        button:SetBackdropColor(.08, .4, .64, .95)
+        button:SetBackdropBorderColor(.25, .72, 1, 1)
+        button.text:SetTextColor(1, .9, .48)
+      else
+        button:SetBackdropColor(.04, .05, .06, .95)
+        button:SetBackdropBorderColor(.25, .28, .3, 1)
+        button.text:SetTextColor(.78, .8, .82)
+      end
+    end
+  end
+
+  Refresh()
+  row.Refresh = Refresh
+  return row
+end
+
 local function ShowPage(frame, key)
   local name, page
   for name, page in pairs(frame.pages) do
@@ -322,7 +395,7 @@ function PotatoUI:SetupSettingsWindow()
   local frame = self:CreatePanel("PotatoUISettingsFrame", UIParent, 40)
   frame:SetFrameStrata("DIALOG")
   frame:SetWidth(760)
-  frame:SetHeight(560)
+  frame:SetHeight(580)
   frame:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
   frame:SetBackdropColor(.012, .018, .024, .97)
   frame:SetBackdropBorderColor(.4, .52, .54, 1)
@@ -359,11 +432,20 @@ function PotatoUI:SetupSettingsWindow()
   frame.pages = {}
   frame.navButtons = {}
 
-  local function AddNav(key, label, index)
+  local navY = 0
+  local function AddNav(key, label, child)
     local button = CreateFrame("Button", nil, nav)
-    button:SetWidth(148)
-    button:SetHeight(28)
-    button:SetPoint("TOPLEFT", nav, "TOPLEFT", 0, -(index - 1) * 32)
+    local height = 28
+    local x = 0
+    local width = 148
+    if child then
+      height = 24
+      x = 14
+      width = 134
+    end
+    button:SetWidth(width)
+    button:SetHeight(height)
+    button:SetPoint("TOPLEFT", nav, "TOPLEFT", x, -navY)
     button:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
       edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -372,10 +454,11 @@ function PotatoUI:SetupSettingsWindow()
     })
     button.pageKey = key
     button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.text:SetPoint("LEFT", button, "LEFT", 10, 0)
+    button.text:SetPoint("LEFT", button, "LEFT", child and 8 or 10, 0)
     button.text:SetText(label)
     button:SetScript("OnClick", function() ShowPage(frame, this.pageKey) end)
     table.insert(frame.navButtons, button)
+    navY = navY + height + 4
     return button
   end
 
@@ -387,11 +470,16 @@ function PotatoUI:SetupSettingsWindow()
     return page
   end
 
-  AddNav("general", "General", 1)
-  AddNav("actionbars", "Action Bars", 2)
-  AddNav("unitframes", "Unit Frames", 3)
-  AddNav("party", "Party / Pet", 4)
-  AddNav("sidebars", "Side Bars", 5)
+  AddNav("general", "General")
+  AddNav("actionbars", "Action Bars")
+  AddNav("bar-main", "Main Bar", true)
+  AddNav("bar-extra", "Extra Bar", true)
+  AddNav("bar-utility", "Utility Bar", true)
+  AddNav("bar-aux", "Stance / Pet", true)
+  AddNav("bar-sideright", "Right Side", true)
+  AddNav("bar-sideleft", "Left Side", true)
+  AddNav("unitframes", "Unit Frames")
+  AddNav("party", "Party / Pet")
 
   local general = AddPage("general")
   general.note = general:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -414,77 +502,82 @@ function PotatoUI:SetupSettingsWindow()
   local bars = AddPage("actionbars")
   bars.note = bars:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   bars.note:SetPoint("TOPLEFT", bars, "TOPLEFT", 12, 0)
-  bars.note:SetText("All bars fill left to right (horizontal). Columns wrap to the next row.")
+  bars.note:SetWidth(520)
+  bars.note:SetJustifyH("LEFT")
+  bars.note:SetText("Shared chrome for every bar. Open a bar on the left to set its size, spacing and 1x12 / 2x6 / 3x4 / 4x3 / 6x2 / 12x1 layout.")
 
-  CreateToggleRow(bars, -18, "Show action-bar background", function()
+  CreateToggleRow(bars, -28, "Show action-bar background", function()
     return PotatoUI:GetLayout().barShowBackground
   end, function(value)
     PotatoUI:GetLayout().barShowBackground = value and true or false
   end)
-  CreateColorRow(bars, -44, "Bar background", function()
+  CreateColorRow(bars, -54, "Bar background", function()
     return PotatoUI:GetLayout().barBackground
   end, function(color)
     local current = PotatoUI:GetLayout().barBackground
     color.a = current.a or .85
     PotatoUI:GetLayout().barBackground = color
   end)
-  CreateStepper(bars, -70, "Background opacity", function()
+  CreateStepper(bars, -80, "Background opacity", function()
     return PotatoUI:GetLayout().barBackground.a or .85
   end, function(value)
     PotatoUI:GetLayout().barBackground.a = value
   end, 0.1, 1, 0.05, 2)
-  CreateColorRow(bars, -96, "Bar border", function()
+  CreateColorRow(bars, -106, "Bar border", function()
     return PotatoUI:GetLayout().barBorder
   end, function(color)
     PotatoUI:GetLayout().barBorder = color
   end)
-  CreateToggleRow(bars, -122, "Show slot background", function()
+  CreateToggleRow(bars, -132, "Show slot background", function()
     return PotatoUI:GetLayout().slotShowBackground
   end, function(value)
     PotatoUI:GetLayout().slotShowBackground = value and true or false
   end)
-  CreateColorRow(bars, -148, "Slot background", function()
+  CreateColorRow(bars, -158, "Slot background", function()
     return PotatoUI:GetLayout().slotBackground
   end, function(color)
     local current = PotatoUI:GetLayout().slotBackground
     color.a = current.a or .96
     PotatoUI:GetLayout().slotBackground = color
   end)
-  CreateStepper(bars, -174, "Slot opacity", function()
+  CreateStepper(bars, -184, "Slot opacity", function()
     return PotatoUI:GetLayout().slotBackground.a or .96
   end, function(value)
     PotatoUI:GetLayout().slotBackground.a = value
   end, 0.1, 1, 0.05, 2)
-  CreateColorRow(bars, -200, "Slot border", function()
+  CreateColorRow(bars, -210, "Slot border", function()
     return PotatoUI:GetLayout().slotBorder
   end, function(color)
     PotatoUI:GetLayout().slotBorder = color
   end)
 
-  local function BarBlock(title, key, y)
-    local header = bars:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    header:SetPoint("TOPLEFT", bars, "TOPLEFT", 12, y)
-    header:SetText("|cffffcc00" .. title .. "|r")
-    CreateStepper(bars, y - 20, "Button size", function()
-      return PotatoUI:GetBarConfig(key).size
+  local function BuildBarPage(pageKey, barKey, blurb)
+    local page = AddPage(pageKey)
+    page.note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 12, 0)
+    page.note:SetWidth(520)
+    page.note:SetJustifyH("LEFT")
+    page.note:SetText(blurb)
+    CreateStepper(page, -28, "Button size", function()
+      return PotatoUI:GetBarConfig(barKey).size
     end, function(value)
-      PotatoUI:GetBarConfig(key).size = value
+      PotatoUI:GetBarConfig(barKey).size = value
     end, 20, 52, 2, 0)
-    CreateStepper(bars, y - 42, "Spacing", function()
-      return PotatoUI:GetBarConfig(key).spacing
+    CreateStepper(page, -54, "Spacing", function()
+      return PotatoUI:GetBarConfig(barKey).spacing
     end, function(value)
-      PotatoUI:GetBarConfig(key).spacing = value
+      PotatoUI:GetBarConfig(barKey).spacing = value
     end, 0, 12, 1, 0)
-    CreateStepper(bars, y - 64, "Buttons per row", function()
-      return PotatoUI:GetBarConfig(key).columns
-    end, function(value)
-      PotatoUI:GetBarConfig(key).columns = value
-    end, 1, key == "main" and 24 or 12, 1, 0)
+    CreateGridPicker(page, -88, barKey)
+    return page
   end
 
-  BarBlock("Main bar (1-12 + extra row)", "main", -230)
-  BarBlock("Bottom-right utility bar", "utility", -320)
-  BarBlock("Stance / pet bar", "aux", -410)
+  BuildBarPage("bar-main", "main", "Primary action buttons 1-12. Pick a grid; it applies only to this bar.")
+  BuildBarPage("bar-extra", "extra", "Second bar (bottom-left multi-bar). Independent size, spacing and grid.")
+  BuildBarPage("bar-utility", "utility", "Bottom-right utility bar. Independent size, spacing and grid.")
+  BuildBarPage("bar-aux", "aux", "Stance, shapeshift and pet buttons. Grid wraps the visible buttons.")
+  BuildBarPage("bar-sideright", "sideRight", "Right side bar. All 12 buttons stay visible.")
+  BuildBarPage("bar-sideleft", "sideLeft", "Left side bar. All 12 buttons stay visible.")
 
   local units = AddPage("unitframes")
   units.note = units:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -561,82 +654,6 @@ function PotatoUI:SetupSettingsWindow()
   end, function(color)
     PotatoUI:GetLayout().partyHealth = color
   end)
-
-  local sides = AddPage("sidebars")
-  sides.note = sides:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  sides.note:SetPoint("TOPLEFT", sides, "TOPLEFT", 12, 0)
-  sides.note:SetWidth(520)
-  sides.note:SetJustifyH("LEFT")
-  sides.note:SetText("Same options as the other bars. 3 buttons per row = 3x4. 1 = vertical. All 12 buttons stay visible.")
-
-  CreateToggleRow(sides, -18, "Show action-bar background", function()
-    return PotatoUI:GetLayout().barShowBackground
-  end, function(value)
-    PotatoUI:GetLayout().barShowBackground = value and true or false
-  end)
-  CreateColorRow(sides, -44, "Bar background", function()
-    return PotatoUI:GetLayout().barBackground
-  end, function(color)
-    local current = PotatoUI:GetLayout().barBackground
-    color.a = current.a or .85
-    PotatoUI:GetLayout().barBackground = color
-  end)
-  CreateStepper(sides, -70, "Background opacity", function()
-    return PotatoUI:GetLayout().barBackground.a or .85
-  end, function(value)
-    PotatoUI:GetLayout().barBackground.a = value
-  end, 0.1, 1, 0.05, 2)
-  CreateColorRow(sides, -96, "Bar border", function()
-    return PotatoUI:GetLayout().barBorder
-  end, function(color)
-    PotatoUI:GetLayout().barBorder = color
-  end)
-  CreateToggleRow(sides, -122, "Show slot background", function()
-    return PotatoUI:GetLayout().slotShowBackground
-  end, function(value)
-    PotatoUI:GetLayout().slotShowBackground = value and true or false
-  end)
-  CreateColorRow(sides, -148, "Slot background", function()
-    return PotatoUI:GetLayout().slotBackground
-  end, function(color)
-    local current = PotatoUI:GetLayout().slotBackground
-    color.a = current.a or .96
-    PotatoUI:GetLayout().slotBackground = color
-  end)
-  CreateStepper(sides, -174, "Slot opacity", function()
-    return PotatoUI:GetLayout().slotBackground.a or .96
-  end, function(value)
-    PotatoUI:GetLayout().slotBackground.a = value
-  end, 0.1, 1, 0.05, 2)
-  CreateColorRow(sides, -200, "Slot border", function()
-    return PotatoUI:GetLayout().slotBorder
-  end, function(color)
-    PotatoUI:GetLayout().slotBorder = color
-  end)
-
-  local function SideBlock(title, key, y)
-    local header = sides:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    header:SetPoint("TOPLEFT", sides, "TOPLEFT", 12, y)
-    header:SetText("|cffffcc00" .. title .. "|r")
-    CreateStepper(sides, y - 20, "Button size", function()
-      return PotatoUI:GetBarConfig(key).size
-    end, function(value)
-      PotatoUI:GetBarConfig(key).size = value
-    end, 20, 52, 2, 0)
-    CreateStepper(sides, y - 42, "Spacing", function()
-      return PotatoUI:GetBarConfig(key).spacing
-    end, function(value)
-      PotatoUI:GetBarConfig(key).spacing = value
-    end, 0, 12, 1, 0)
-    CreateStepper(sides, y - 64, "Buttons per row", function()
-      return PotatoUI:GetBarConfig(key).columns
-    end, function(value)
-      PotatoUI:GetBarConfig(key).columns = value
-    end, 1, 12, 1, 0)
-  end
-
-  SideBlock("Right side bar", "sideRight", -230)
-  SideBlock("Left side bar", "sideLeft", -320)
 
   CreateSmallButton(frame, "Reload UI", 18, function()
     if SlashCmdList and SlashCmdList["POTATOUI"] then

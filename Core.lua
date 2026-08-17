@@ -100,7 +100,7 @@ local function EnsureBar(bars, name, columns, size, rows)
   if not bar.spacing then bar.spacing = 2 end
   if not bar.rows then bar.rows = rows or 12 end
   if bar.columns < 1 then bar.columns = 1 end
-  if bar.columns > 24 then bar.columns = 24 end
+  if bar.columns > 12 then bar.columns = 12 end
   if bar.rows < 1 then bar.rows = 1 end
   if bar.rows > 12 then bar.rows = 12 end
   if bar.size < 20 then bar.size = 20 end
@@ -149,7 +149,16 @@ function PotatoUI:EnsureLayoutDefaults()
   layout.slotBackground = EnsureColor(layout.slotBackground, .02, .025, .03, .96)
   layout.slotBorder = EnsureColor(layout.slotBorder, .14, .18, .2, 1)
   if not layout.bars then layout.bars = {} end
-  EnsureBar(layout.bars, "main", 12, 34, 2)
+  EnsureBar(layout.bars, "main", 12, 34, 1)
+  if not layout.bars.extra and layout.bars.main then
+    layout.bars.extra = {
+      columns = layout.bars.main.columns,
+      size = layout.bars.main.size,
+      spacing = layout.bars.main.spacing,
+      rows = 1,
+    }
+  end
+  EnsureBar(layout.bars, "extra", 12, 34, 1)
   EnsureBar(layout.bars, "utility", 12, 34, 1)
   EnsureBar(layout.bars, "aux", 10, 34, 1)
   EnsureBar(layout.bars, "sideRight", 3, 34, 4)
@@ -183,7 +192,7 @@ function PotatoUI:ApplyScale()
   local frames = {
     self.playerFrame, self.targetFrame, self.comboFrame,
     self.partyAnchor, self.playerPetFrame,
-    self.actionPanel, self.utilityActionPanel, self.auxiliaryPanel,
+    self.actionPanel, self.extraActionPanel, self.utilityActionPanel, self.auxiliaryPanel,
     self.sideRightPanel, self.sideLeftPanel,
     self.dataBar, self.bagFrame,
   }
@@ -217,13 +226,14 @@ function PotatoUI:ApplyActionBarBackground()
     end
   end
   Paint(self.actionPanel)
+  Paint(self.extraActionPanel)
   Paint(self.utilityActionPanel)
   Paint(self.auxiliaryPanel)
   Paint(self.sideRightPanel)
   Paint(self.sideLeftPanel)
   -- Backdrop makes frames eat clicks. Only the buttons should be clickable.
   local panels = {
-    self.actionPanel, self.utilityActionPanel, self.auxiliaryPanel,
+    self.actionPanel, self.extraActionPanel, self.utilityActionPanel, self.auxiliaryPanel,
     self.sideRightPanel, self.sideLeftPanel,
   }
   local i

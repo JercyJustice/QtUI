@@ -56,6 +56,7 @@ local hiddenNames = {
 
 local actionResolversInstalled
 local StyleActionButton
+local StyleActionButtonText
 local PlaceInGrid
 local SizeForGrid
 local function ResolvePrimaryAction(button)
@@ -380,7 +381,7 @@ local function AbbreviateHotkey(text)
   return text
 end
 
-local function StyleActionButtonText(button, size)
+StyleActionButtonText = function(button, size)
   if not button or not button.GetName then return end
   local name = button:GetName()
   if not name then return end
@@ -465,23 +466,31 @@ function PotatoUI:LayoutActionBars()
   if not self.actionPanel then return end
   local pad = 5
   local main = self:GetBarConfig("main")
+  local extra = self:GetBarConfig("extra")
   local utility = self:GetBarConfig("utility")
 
   local i
   for i = 1, 12 do
     PlaceInGrid(getglobal("ActionButton" .. i), self.actionPanel, i, main.columns, main.size, main.spacing, pad)
-    local upper = getglobal("MultiBarBottomLeftButton" .. i)
-    if upper then
-      PlaceInGrid(upper, self.actionPanel, 12 + i, main.columns, main.size, main.spacing, pad)
+    local extraButton = getglobal("MultiBarBottomLeftButton" .. i)
+    if extraButton and self.extraActionPanel then
+      PlaceInGrid(extraButton, self.extraActionPanel, i, extra.columns, extra.size, extra.spacing, pad)
+    elseif extraButton then
+      PlaceInGrid(extraButton, self.actionPanel, 12 + i, main.columns, main.size, main.spacing, pad)
     end
     if self.utilityActionPanel then
       PlaceInGrid(getglobal("MultiBarBottomRightButton" .. i), self.utilityActionPanel, i, utility.columns, utility.size, utility.spacing, pad)
     end
   end
 
-  local mainW, mainH = SizeForGrid(24, main.columns, main.size, main.spacing, pad)
+  local mainW, mainH = SizeForGrid(12, main.columns, main.size, main.spacing, pad)
   self.actionPanel:SetWidth(mainW)
   self.actionPanel:SetHeight(mainH)
+  if self.extraActionPanel then
+    local extraW, extraH = SizeForGrid(12, extra.columns, extra.size, extra.spacing, pad)
+    self.extraActionPanel:SetWidth(extraW)
+    self.extraActionPanel:SetHeight(extraH)
+  end
   if self.utilityActionPanel then
     local utilW, utilH = SizeForGrid(12, utility.columns, utility.size, utility.spacing, pad)
     self.utilityActionPanel:SetWidth(utilW)
@@ -495,6 +504,7 @@ function PotatoUI:LayoutActionBars()
   SuppressPagingChrome()
   if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
   PassClicksThrough(self.actionPanel)
+  PassClicksThrough(self.extraActionPanel)
   PassClicksThrough(self.utilityActionPanel)
   PassClicksThrough(self.sideRightPanel)
   PassClicksThrough(self.sideLeftPanel)
@@ -658,6 +668,17 @@ function PotatoUI:SetupActionBars()
   panel:SetBackdropBorderColor(0, 0, 0, 0)
   PassClicksThrough(panel)
   self.actionPanel = panel
+
+  -- MultiBarBottomLeft used to share the main panel. It is its own bar so
+  -- each 12-button strip can use 1x12 / 3x4 / 12x1 independently.
+  local extraPanel = self:CreatePanel("PotatoUIExtraActionPanel", UIParent, 1)
+  extraPanel:SetWidth(442)
+  extraPanel:SetHeight(44)
+  extraPanel:SetPoint("BOTTOM", panel, "TOP", 0, 4)
+  extraPanel:SetBackdropColor(0, 0, 0, 0)
+  extraPanel:SetBackdropBorderColor(0, 0, 0, 0)
+  PassClicksThrough(extraPanel)
+  self.extraActionPanel = extraPanel
 
   -- Emberveil leaves the second multi-action row partially off-screen when
   -- its original bar geometry is active. Give slots 49-60 a compact PotatoUI

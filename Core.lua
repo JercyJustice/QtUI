@@ -1,5 +1,5 @@
 PotatoUI = CreateFrame("Frame", "PotatoUIEventFrame", UIParent)
-PotatoUI.version = "0.10.6"
+PotatoUI.version = "0.10.8"
 PotatoUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }

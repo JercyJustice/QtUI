@@ -22,6 +22,47 @@ local function SetPowerColor(bar, unit)
   end
 end
 
+local function IsLegacyTrue(value)
+  return value == true or value == 1 or value == "1"
+end
+
+local function GetEnemyDifficultyBorder(targetLevel)
+  targetLevel = tonumber(targetLevel) or 0
+  if targetLevel == -1 then return .95, .08, .08, 1 end
+
+  -- Emberveil exposes one of these Vanilla-era quest difficulty helpers. Use
+  -- its level thresholds, but combine its yellow/orange bands into the orange
+  -- requested for enemy frames.
+  local difficulty = GetQuestDifficultyColor or GetDifficultyColor
+  if type(difficulty) == "function" then
+    local ok, color = pcall(difficulty, targetLevel)
+    if ok and type(color) == "table" then
+      local r = color.r or color[1] or 1
+      local g = color.g or color[2] or 1
+      if r >= .8 and g < .3 then return .95, .08, .08, 1 end
+      if g > r then return .18, .72, .22, 1 end
+      if r < .65 and g < .65 then return .42, .44, .46, 1 end
+      return 1, .48, .06, 1
+    end
+  end
+
+  local playerLevel = tonumber(UnitLevel("player")) or 0
+  local difference = targetLevel - playerLevel
+  if difference >= 5 then return .95, .08, .08, 1 end
+  if difference >= -2 then return 1, .48, .06, 1 end
+
+  local greenRange
+  if playerLevel <= 5 then
+    greenRange = 0
+  elseif playerLevel <= 39 then
+    greenRange = math.floor(playerLevel / 10) + 5
+  else
+    greenRange = 9
+  end
+  if targetLevel <= playerLevel - greenRange then return .42, .44, .46, 1 end
+  return .18, .72, .22, 1
+end
+
 PotatoUI.classColors = classColors
 PotatoUI.ShortNumber = ShortNumber
 PotatoUI.SetPowerColor = SetPowerColor
@@ -166,22 +207,55 @@ local function UpdateUnitFrame(frame)
     frame.classification:SetText("")
   end
 
+  local isEnemy = IsLegacyTrue(UnitIsEnemy("player", unit))
+  local isFriend = IsLegacyTrue(UnitIsFriend("player", unit))
+
   if unit == "player" then
     local _, class = UnitClass(unit)
     local color = classColors[class] or { .2, .75, .25 }
     frame.health:SetStatusBarColor(color[1], color[2], color[3])
-  elseif UnitIsEnemy("player", unit) then
+  elseif isEnemy then
     frame.health:SetStatusBarColor(.78, .12, .12)
-  elseif UnitIsFriend("player", unit) then
+  elseif isFriend then
     frame.health:SetStatusBarColor(.15, .72, .22)
   else
     frame.health:SetStatusBarColor(.82, .68, .16)
+  end
+
+  if unit == "target" then
+    local attackable = isEnemy
+    if not attackable and type(UnitCanAttack) == "function" then
+      local ok, value = pcall(UnitCanAttack, "player", unit)
+      attackable = ok and IsLegacyTrue(value)
+    end
+    if attackable then
+      frame:SetBackdropBorderColor(GetEnemyDifficultyBorder(level))
+    else
+      frame:SetBackdropBorderColor(.18, .24, .28, 1)
+    end
   end
 
   if unit == "target" and frame.debuffs then
     PotatoUI:UpdateAuraRow(frame.debuffs)
     PotatoUI:UpdateAuraRow(frame.buffs)
   end
+end
+
+local function SetPlayerCombatOutline(inCombat)
+  local frame = PotatoUI.playerFrame
+  if not frame then return end
+  if inCombat then
+    frame:SetBackdropBorderColor(.95, .08, .08, 1)
+  else
+    frame:SetBackdropBorderColor(.18, .24, .28, 1)
+  end
+end
+
+local function PlayerIsInCombat()
+  if type(UnitAffectingCombat) ~= "function" then return nil end
+  local ok, value = pcall(UnitAffectingCombat, "player")
+  if not ok then return nil end
+  return value == true or value == 1 or value == "1"
 end
 
 local function UpdateComboPoints()
@@ -274,11 +348,31 @@ function PotatoUI:SetupUnitFrames()
   events:RegisterEvent("UNIT_LEVEL")
   events:RegisterEvent("UNIT_NAME_UPDATE")
   events:RegisterEvent("PLAYER_ENTERING_WORLD")
+  pcall(events.RegisterEvent, events, "PLAYER_ENTER_COMBAT")
+  pcall(events.RegisterEvent, events, "PLAYER_LEAVE_COMBAT")
+  pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")
+  pcall(events.RegisterEvent, events, "PLAYER_REGEN_ENABLED")
   events:SetScript("OnEvent", function()
+    if event == "PLAYER_REGEN_DISABLED" then
+      this.combatLocked = true
+      SetPlayerCombatOutline(true)
+    elseif event == "PLAYER_REGEN_ENABLED" then
+      this.combatLocked = nil
+      SetPlayerCombatOutline(false)
+    elseif event == "PLAYER_ENTER_COMBAT" then
+      SetPlayerCombatOutline(true)
+    elseif event == "PLAYER_LEAVE_COMBAT" then
+      -- PLAYER_LEAVE_COMBAT can mean only that auto-attack stopped. Keep the
+      -- outline while the actual combat-lockdown state remains active.
+      SetPlayerCombatOutline(this.combatLocked or PlayerIsInCombat())
+    elseif event == "PLAYER_ENTERING_WORLD" then
+      SetPlayerCombatOutline(PlayerIsInCombat())
+    end
     if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" or arg1 == "player" or arg1 == "target" then
       PotatoUI:UpdateUnitFrames()
     end
   end)
 
+  SetPlayerCombatOutline(PlayerIsInCombat())
   self:UpdateUnitFrames()
 end

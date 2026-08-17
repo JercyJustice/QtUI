@@ -4,10 +4,12 @@ local function IsShiftHeld()
 end
 
 local function LootEverything()
-  local count = GetNumLootItems() or 0
+  local count = tonumber(GetNumLootItems()) or 0
   local slot
   for slot = count, 1, -1 do
-    LootSlot(slot)
+    -- One temporarily unavailable slot should not prevent the remaining loot
+    -- from being collected on Emberveil's asynchronous loot bridge.
+    pcall(LootSlot, slot)
   end
 end
 
@@ -21,21 +23,16 @@ function PotatoUI:SetupAutoLoot()
   frame:RegisterEvent("LOOT_OPENED")
   frame:RegisterEvent("LOOT_CLOSED")
   frame:RegisterEvent("LOOT_SLOT_CLEARED")
-  frame:RegisterEvent("SPELLCAST_START")
 
   frame:SetScript("OnEvent", function()
-    if event == "SPELLCAST_START" then
-      -- Mining, herbalism and skinning open their loot only after a cast.
-      -- Remember whether Shift requested manual looting even if it is released
-      -- before the node's LOOT_OPENED event arrives.
-      this.shiftCastRemaining = IsShiftHeld() and 10 or 0
-    elseif event == "LOOT_OPENED" then
-      local manualLoot = IsShiftHeld() or (this.shiftCastRemaining or 0) > 0
-      this.shiftCastRemaining = 0
-      if not manualLoot then
+    if event == "LOOT_OPENED" then
+      -- Shift is sampled only when the corpse, container or gathering loot
+      -- actually opens. A Shift-modified spell cast must not suppress a later,
+      -- unrelated loot window.
+      if not IsShiftHeld() then
         this.active = true
         this.elapsed = 0
-        this.remaining = 1.25
+        this.remaining = 2
         LootEverything()
       else
         this.active = nil
@@ -50,13 +47,8 @@ function PotatoUI:SetupAutoLoot()
   end)
 
   -- A short retry period handles gathering nodes whose loot becomes available
-  -- one frame after LOOT_OPENED on Emberveil.
+  -- after LOOT_OPENED on Emberveil, and tolerates brief server latency.
   frame:SetScript("OnUpdate", function()
-    if (this.shiftCastRemaining or 0) > 0 then
-      this.shiftCastRemaining = this.shiftCastRemaining - arg1
-      if this.shiftCastRemaining < 0 then this.shiftCastRemaining = 0 end
-    end
-
     if not this.active then return end
     this.elapsed = this.elapsed + arg1
     this.remaining = this.remaining - arg1

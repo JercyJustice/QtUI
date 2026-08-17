@@ -305,12 +305,29 @@ local function UpdateXPBar()
   local level = UnitLevel("player") or 0
   local rested = 0
   if type(GetXPExhaustion) == "function" then rested = GetXPExhaustion() or 0 end
+  local resting
+  if type(IsResting) == "function" then
+    local ok, value = pcall(IsResting)
+    resting = ok and (value == true or value == 1 or value == "1")
+  end
+
+  if resting then
+    bar:SetStatusBarColor(.18, .48, .92)
+    bar:SetBackdropBorderColor(.35, .62, 1, 1)
+  else
+    bar:SetStatusBarColor(.38, .28, .78)
+    bar:SetBackdropBorderColor(.18, .22, .28, 1)
+  end
 
   if maximum > 0 then
     local percent = math.floor(current / maximum * 100)
     bar:SetMinMaxValues(0, maximum)
     bar:SetValue(current)
-    if rested > 0 then
+    if resting and rested > 0 then
+      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting  -  Rested " .. rested .. "|r")
+    elseif resting then
+      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting|r")
+    elseif rested > 0 then
       bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffRested " .. rested .. "|r")
     else
       bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%")
@@ -318,12 +335,17 @@ local function UpdateXPBar()
   else
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
-    bar.text:SetText("Level " .. level .. "  -  Maximum Level")
+    if resting then
+      bar.text:SetText("Level " .. level .. "  -  Maximum Level  |cff66aaffResting|r")
+    else
+      bar.text:SetText("Level " .. level .. "  -  Maximum Level")
+    end
   end
 
   bar.current = current
   bar.maximum = maximum
   bar.rested = rested
+  bar.resting = resting
 end
 
 function PotatoUI:SetupXPBar()
@@ -372,6 +394,7 @@ function PotatoUI:SetupXPBar()
     else
       GameTooltip:AddLine("Maximum level", 1, .82, .2)
     end
+    if this.resting then GameTooltip:AddLine("Currently resting", .4, .65, 1) end
     GameTooltip:Show()
   end)
   bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -381,6 +404,7 @@ function PotatoUI:SetupXPBar()
   events:RegisterEvent("UPDATE_EXHAUSTION")
   events:RegisterEvent("PLAYER_LEVEL_UP")
   events:RegisterEvent("PLAYER_ENTERING_WORLD")
+  pcall(events.RegisterEvent, events, "PLAYER_UPDATE_RESTING")
   events:SetScript("OnEvent", UpdateXPBar)
 
   self.xpBar = bar

@@ -73,15 +73,159 @@ function PotatoUI:SetupAutoSell()
   self.autoSellFrame = frame
 end
 
+local function IsModifierDown(fn)
+  if type(fn) ~= "function" then return nil end
+  return IsTruthy(fn())
+end
+
+local function StyleSplitButton(button, width, height)
+  button:SetWidth(width)
+  button:SetHeight(height)
+  button:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 9,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  button:SetBackdropColor(.035, .05, .06, .96)
+  button:SetBackdropBorderColor(.25, .34, .36, 1)
+  button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+  button.text:SetJustifyH("CENTER")
+  button.text:SetTextColor(1, .9, .48)
+  button:SetScript("OnEnter", function()
+    this:SetBackdropColor(.08, .4, .64, .95)
+    this:SetBackdropBorderColor(.25, .72, 1, 1)
+  end)
+  button:SetScript("OnLeave", function()
+    this:SetBackdropColor(.035, .05, .06, .96)
+    this:SetBackdropBorderColor(.25, .34, .36, 1)
+  end)
+end
+
+local function OpenPotatoStackSplit(button, count)
+  if PotatoUI.splitFrame and not PotatoUI.splitFrame.layoutV2 then
+    PotatoUI.splitFrame:Hide()
+    PotatoUI.splitFrame = nil
+  end
+
+  local frame = PotatoUI.splitFrame
+  if not frame then
+    frame = CreateFrame("Frame", "PotatoUIStackSplit", UIParent)
+    frame.layoutV2 = true
+    frame:SetWidth(176)
+    frame:SetHeight(108)
+    frame:SetFrameStrata("TOOLTIP")
+    frame:SetFrameLevel(200)
+    frame:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    frame:SetBackdropColor(.012, .018, .024, .97)
+    frame:SetBackdropBorderColor(.4, .52, .54, 1)
+    frame:EnableMouse(true)
+
+    frame.label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.label:SetPoint("TOP", frame, "TOP", 0, -12)
+    frame.label:SetText("|cffffcc00Split stack|r")
+
+    frame.minus = CreateFrame("Button", nil, frame)
+    StyleSplitButton(frame.minus, 28, 24)
+    frame.minus:SetPoint("TOP", frame, "TOP", -40, -38)
+    frame.minus.text:SetText("-")
+    frame.minus:SetScript("OnClick", function()
+      local split = PotatoUI.splitFrame.split - 1
+      if split < 1 then split = 1 end
+      PotatoUI.splitFrame.split = split
+      PotatoUI.splitFrame.value:SetText(split)
+    end)
+
+    frame.value = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.value:SetPoint("TOP", frame, "TOP", 0, -40)
+    frame.value:SetWidth(36)
+    frame.value:SetJustifyH("CENTER")
+    frame.value:SetTextColor(1, 1, 1)
+
+    frame.plus = CreateFrame("Button", nil, frame)
+    StyleSplitButton(frame.plus, 28, 24)
+    frame.plus:SetPoint("TOP", frame, "TOP", 40, -38)
+    frame.plus.text:SetText("+")
+    frame.plus:SetScript("OnClick", function()
+      local split = PotatoUI.splitFrame.split + 1
+      local maxStack = PotatoUI.splitFrame.maxStack or 1
+      if split > maxStack - 1 then split = maxStack - 1 end
+      if split < 1 then split = 1 end
+      PotatoUI.splitFrame.split = split
+      PotatoUI.splitFrame.value:SetText(split)
+    end)
+
+    frame.ok = CreateFrame("Button", nil, frame)
+    StyleSplitButton(frame.ok, 68, 24)
+    frame.ok:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 12)
+    frame.ok.text:SetText("OK")
+    frame.ok:SetScript("OnClick", function()
+      local owner = PotatoUI.splitFrame.owner
+      local split = PotatoUI.splitFrame.split
+      PotatoUI.splitFrame:Hide()
+      if owner and owner.bag and owner.slot and type(SplitContainerItem) == "function" then
+        SplitContainerItem(owner.bag, owner.slot, split)
+      end
+    end)
+
+    frame.cancel = CreateFrame("Button", nil, frame)
+    StyleSplitButton(frame.cancel, 68, 24)
+    frame.cancel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 12)
+    frame.cancel.text:SetText("Cancel")
+    frame.cancel:SetScript("OnClick", function()
+      PotatoUI.splitFrame:Hide()
+    end)
+
+    PotatoUI.splitFrame = frame
+  end
+
+  frame.owner = button
+  frame.maxStack = count
+  frame.split = 1
+  frame.value:SetText("1")
+  frame:SetParent(UIParent)
+  frame:SetFrameStrata("TOOLTIP")
+  frame:SetFrameLevel(200)
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOM", button, "TOP", 0, 10)
+  frame:Show()
+  if frame.Raise then frame:Raise() end
+end
+
 local function HandleItemClick()
   local bag, slot = this.bag, this.slot
   local link = GetContainerItemLink(bag, slot)
+  local _, count, locked = GetContainerItemInfo(bag, slot)
+  count = tonumber(count) or 1
 
-  if IsShiftKeyDown() and link and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
-    ChatFrameEditBox:Insert(link)
-  elseif IsControlKeyDown() and link and type(DressUpItemLink) == "function" then
+  if IsModifierDown(IsShiftKeyDown) then
+    if link and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
+      ChatFrameEditBox:Insert(link)
+      return
+    end
+    if link and count > 1 and not IsTruthy(locked) then
+      this.SplitStack = function(button, split)
+        if type(SplitContainerItem) == "function" then
+          SplitContainerItem(button.bag, button.slot, split)
+        end
+      end
+      OpenPotatoStackSplit(this, count)
+      return
+    end
+  end
+
+  if IsModifierDown(IsControlKeyDown) and link and type(DressUpItemLink) == "function" then
     DressUpItemLink(link)
-  elseif arg1 == "RightButton" then
+    return
+  end
+
+  if arg1 == "RightButton" then
     UseContainerItem(bag, slot)
   else
     PickupContainerItem(bag, slot)
@@ -415,6 +559,8 @@ function PotatoUI:CloseBags()
     if self.bagFrame.bagMenu then self.bagFrame.bagMenu:Hide() end
     self.bagFrame:Hide()
   end
+  if self.splitFrame then self.splitFrame:Hide() end
+  if StackSplitFrame and StackSplitFrame.Hide then StackSplitFrame:Hide() end
 end
 
 function PotatoUI:ToggleBags()

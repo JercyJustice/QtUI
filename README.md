@@ -1,5 +1,7 @@
 # PotatoUI
 
+Fork of [PotatoAnimation/PotatoUI](https://github.com/PotatoAnimation/PotatoUI) with extra Emberveil layout and bag fixes.
+
 PotatoUI is a compact, opinionated interface addon built specifically for the [Emberveil](https://emberveil.org/) private World of Warcraft server. It replaces several parts of the default UI with a clean, space-efficient layout and includes a few quality-of-life features tailored to Emberveil's client.
 
 > PotatoUI targets Emberveil and is not intended for retail WoW, Classic, or other private-server clients.
@@ -24,6 +26,11 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 - Gold, clock, FPS, and latency data text
 - Unlockable layout mode with labelled drag fields and saved positions
 - Revealed world-map overlays, including Emberveil's custom zones
+- Category settings window (scale, action bars, unit frames, party, side bars)
+- Configurable side bars (vertical or grid, e.g. 3x4)
+- Slot and bar backgrounds
+- Shift-click stack splitting in the combined bag window
+- Click a unit frame to finish a pending heal or friendly spell
 
 ## Installation
 
@@ -35,7 +42,7 @@ PotatoUI is a compact, opinionated interface addon built specifically for the [E
 To clone it directly into the addon directory:
 
 ```sh
-git clone https://github.com/PotatoAnimation/PotatoUI.git PotatoUI
+git clone https://github.com/JercyJustice/PotatoUI.git PotatoUI
 ```
 
 PotatoUI has no external addon dependencies.

@@ -22,6 +22,8 @@ local hiddenNames = {
 
 local actionResolversInstalled
 local StyleActionButton
+local PlaceInGrid
+local SizeForGrid
 local function ResolvePrimaryAction(button)
   local buttonID = button and button:GetID()
   if not buttonID then return nil end
@@ -158,8 +160,29 @@ local function RefreshActionButtons()
         pcall(ActionButton_Update)
       end
     end
+
+    local rightButton = getglobal("MultiBarRightButton" .. i)
+    if rightButton then
+      this = rightButton
+      if type(MultiActionButton_Update) == "function" then
+        pcall(MultiActionButton_Update)
+      elseif type(ActionButton_Update) == "function" then
+        pcall(ActionButton_Update)
+      end
+    end
+
+    local leftButton = getglobal("MultiBarLeftButton" .. i)
+    if leftButton then
+      this = leftButton
+      if type(MultiActionButton_Update) == "function" then
+        pcall(MultiActionButton_Update)
+      elseif type(ActionButton_Update) == "function" then
+        pcall(ActionButton_Update)
+      end
+    end
   end
   this = previousThis
+  if PotatoUI.ApplySlotBackgrounds then PotatoUI:ApplySlotBackgrounds() end
 end
 
 function PotatoUI:PositionAuxiliaryBars()
@@ -174,17 +197,18 @@ function PotatoUI:PositionAuxiliaryBars()
   end
   local panel = self.auxiliaryPanel
 
-  local function PlaceAuxiliaryButtons(prefix, visibleCount, row)
+  local aux = self:GetBarConfig("aux")
+  local size = aux.size or 34
+  local spacing = aux.spacing or 2
+  local columns = aux.columns or 10
+  local pad = 2
+
+  local function PlaceAuxiliaryButtons(prefix, visibleCount, startIndex)
     local i
     for i = 1, 10 do
       local button = getglobal(prefix .. i)
       if button then
-        button:SetParent(panel)
-        button:SetWidth(34)
-        button:SetHeight(34)
-        button:ClearAllPoints()
-        button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 2 + (i - 1) * 36, 2 + row * 36)
-        StyleActionButton(button)
+        PlaceInGrid(button, panel, startIndex + i - 1, columns, size, spacing, pad)
         if i <= visibleCount then button:Show() else button:Hide() end
       end
     end
@@ -199,7 +223,7 @@ function PotatoUI:PositionAuxiliaryBars()
     -- large classic artwork and empty-slot strip.
     ShapeshiftBarFrame:SetAlpha(0)
     ShapeshiftBarFrame:EnableMouse(false)
-    PlaceAuxiliaryButtons("ShapeshiftButton", formCount, 0)
+    PlaceAuxiliaryButtons("ShapeshiftButton", formCount, 1)
   end
 
   local hasPet
@@ -214,11 +238,15 @@ function PotatoUI:PositionAuxiliaryBars()
   if PetActionBarFrame then
     PetActionBarFrame:SetAlpha(0)
     PetActionBarFrame:EnableMouse(false)
-    PlaceAuxiliaryButtons("PetActionButton", hasPet and 10 or 0, formCount > 0 and 1 or 0)
+    PlaceAuxiliaryButtons("PetActionButton", hasPet and 10 or 0, formCount > 0 and (formCount + 1) or 1)
   end
-  local panelHeight = (hasPet and formCount > 0) and 74 or 38
-  panel:SetWidth(362)
-  panel:SetHeight(panelHeight)
+  local total = 0
+  if formCount > 0 then total = total + formCount end
+  if hasPet then total = total + 10 end
+  if total < 1 then total = 1 end
+  local width, height = SizeForGrid(total, columns, size, spacing, pad)
+  panel:SetWidth(width)
+  panel:SetHeight(height)
 end
 
 local function SetupActionPageEvents()
@@ -261,39 +289,104 @@ local function SetupActionPageEvents()
   PotatoUI.actionPageEvents = events
 end
 
-StyleActionButton = function(button)
-  if not button or button.PotatoUIStyled then return end
+StyleActionButton = function(button, size)
+  if not button then return end
+  size = size or 34
+  button:SetWidth(size)
+  button:SetHeight(size)
+  if button.PotatoUISlotBg then
+    button.PotatoUISlotBg:Hide()
+    if button.PotatoUISlotBg.SetTexture then button.PotatoUISlotBg:SetTexture(nil) end
+  end
+  if button.PotatoUIStyled then return end
   button.PotatoUIStyled = true
-  button:SetWidth(34)
-  button:SetHeight(34)
 
   local normal = button:GetNormalTexture()
   if normal then normal:SetAlpha(0) end
-
-  local border = CreateFrame("Frame", nil, button)
-  border:SetPoint("TOPLEFT", button, "TOPLEFT", -2, 2)
-  border:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 2, -2)
-  border:SetFrameLevel(math.max(0, button:GetFrameLevel() - 1))
-  border:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true,
-    tileSize = 8,
-    edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-  })
-  border:SetBackdropColor(.02, .025, .03, .96)
-  border:SetBackdropBorderColor(.14, .18, .2, 1)
-  button.PotatoUIBorder = border
 end
 
-local function PlaceButton(button, panel, column, row)
-  if not button then return end
+PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
+  if not button or not panel then return end
+  if columns < 1 then columns = 1 end
+  local col = math.mod(index - 1, columns)
+  local row = math.floor((index - 1) / columns)
   button:SetParent(panel)
   button:ClearAllPoints()
-  button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 5 + (column - 1) * 36, 5 + row * 36)
-  StyleActionButton(button)
+  button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT",
+    pad + col * (size + spacing), pad + row * (size + spacing))
+  StyleActionButton(button, size)
+  if PotatoUI.EnsureSlotCell then PotatoUI:EnsureSlotCell(button, panel) end
   button:Show()
+end
+
+SizeForGrid = function(count, columns, size, spacing, pad)
+  if columns < 1 then columns = 1 end
+  if count < 1 then count = 1 end
+  local rows = math.floor((count - 1) / columns) + 1
+  local width = pad * 2 + columns * size + (columns - 1) * spacing
+  local height = pad * 2 + rows * size + (rows - 1) * spacing
+  return width, height
+end
+
+function PotatoUI:LayoutActionBars()
+  if not self.actionPanel then return end
+  local pad = 5
+  local main = self:GetBarConfig("main")
+  local utility = self:GetBarConfig("utility")
+
+  local i
+  for i = 1, 12 do
+    PlaceInGrid(getglobal("ActionButton" .. i), self.actionPanel, i, main.columns, main.size, main.spacing, pad)
+    local upper = getglobal("MultiBarBottomLeftButton" .. i)
+    if upper then
+      PlaceInGrid(upper, self.actionPanel, 12 + i, main.columns, main.size, main.spacing, pad)
+    end
+    if self.utilityActionPanel then
+      PlaceInGrid(getglobal("MultiBarBottomRightButton" .. i), self.utilityActionPanel, i, utility.columns, utility.size, utility.spacing, pad)
+    end
+  end
+
+  local mainW, mainH = SizeForGrid(24, main.columns, main.size, main.spacing, pad)
+  self.actionPanel:SetWidth(mainW)
+  self.actionPanel:SetHeight(mainH)
+  if self.utilityActionPanel then
+    local utilW, utilH = SizeForGrid(12, utility.columns, utility.size, utility.spacing, pad)
+    self.utilityActionPanel:SetWidth(utilW)
+    self.utilityActionPanel:SetHeight(utilH)
+  end
+  if self.xpBar and self.actionPanel then
+    self.xpBar:SetWidth(mainW)
+  end
+  self:LayoutSideBars()
+  self:PositionAuxiliaryBars()
+  if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
+end
+
+function PotatoUI:LayoutSideBars()
+  local pad = 5
+  local function LayoutSide(panel, prefix, cfg, actionBase)
+    if not panel then return end
+    local columns = cfg.columns or 3
+    local size = cfg.size or 34
+    local spacing = cfg.spacing or 2
+    if columns < 1 then columns = 1 end
+    local i
+    for i = 1, 12 do
+      local button = getglobal(prefix .. i)
+      if button then
+        button.PotatoUIAction = actionBase + i
+        button.action = actionBase + i
+        PlaceInGrid(button, panel, i, columns, size, spacing, pad)
+        button:Show()
+      end
+    end
+    local width, height = SizeForGrid(12, columns, size, spacing, pad)
+    panel:SetWidth(width)
+    panel:SetHeight(height)
+  end
+
+  LayoutSide(self.sideRightPanel, "MultiBarRightButton", self:GetBarConfig("sideRight"), 24)
+  LayoutSide(self.sideLeftPanel, "MultiBarLeftButton", self:GetBarConfig("sideLeft"), 36)
 end
 
 local function UpdateXPBar()
@@ -441,22 +534,45 @@ function PotatoUI:SetupActionBars()
   for i = 1, 12 do
     local primaryButton = getglobal("ActionButton" .. i)
     if primaryButton then primaryButton.PotatoUIPrimaryAction = true end
-    PlaceButton(primaryButton, panel, i, 0)
     local upperButton = getglobal("MultiBarBottomLeftButton" .. i)
     if upperButton then
       upperButton.PotatoUIAction = 60 + i
       upperButton.action = 60 + i
     end
-    PlaceButton(upperButton, panel, i, 1)
-
     local utilityButton = getglobal("MultiBarBottomRightButton" .. i)
     if utilityButton then
       utilityButton.PotatoUIAction = 48 + i
       utilityButton.action = 48 + i
     end
-    PlaceButton(utilityButton, utilityPanel, i, 0)
+    local rightButton = getglobal("MultiBarRightButton" .. i)
+    if rightButton then
+      rightButton.PotatoUIAction = 24 + i
+      rightButton.action = 24 + i
+    end
+    local leftButton = getglobal("MultiBarLeftButton" .. i)
+    if leftButton then
+      leftButton.PotatoUIAction = 36 + i
+      leftButton.action = 36 + i
+    end
   end
 
+  local sideRight = self:CreatePanel("PotatoUISideRightPanel", UIParent, 1)
+  sideRight:SetPoint("RIGHT", UIParent, "RIGHT", -14, 40)
+  sideRight:SetBackdropColor(0, 0, 0, 0)
+  sideRight:SetBackdropBorderColor(0, 0, 0, 0)
+  self.sideRightPanel = sideRight
+
+  local sideLeft = self:CreatePanel("PotatoUISideLeftPanel", UIParent, 1)
+  sideLeft:SetPoint("RIGHT", sideRight, "LEFT", -8, 0)
+  sideLeft:SetBackdropColor(0, 0, 0, 0)
+  sideLeft:SetBackdropBorderColor(0, 0, 0, 0)
+  self.sideLeftPanel = sideLeft
+
+  if SHOW_MULTI_ACTIONBAR_3 ~= nil then SHOW_MULTI_ACTIONBAR_3 = 1 end
+  if SHOW_MULTI_ACTIONBAR_4 ~= nil then SHOW_MULTI_ACTIONBAR_4 = 1 end
+  if type(MultiActionBar_Update) == "function" then pcall(MultiActionBar_Update) end
+
+  self:LayoutActionBars()
   SetupActionPageEvents()
   RefreshActionButtons()
 
@@ -469,6 +585,12 @@ function PotatoUI:SetupActionBars()
   end
   if MultiBarBottomRight then
     self:HideFrame(MultiBarBottomRight)
+  end
+  if MultiBarRight then
+    self:HideFrame(MultiBarRight)
+  end
+  if MultiBarLeft then
+    self:HideFrame(MultiBarLeft)
   end
 
   -- Keep only the useful stance/form and pet buttons at bottom-left; the

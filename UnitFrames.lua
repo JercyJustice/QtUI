@@ -69,6 +69,12 @@ PotatoUI.SetPowerColor = SetPowerColor
 
 local function HandleUnitClick()
   local unit = this.unit
+  if this.potatoUsedPending then
+    this.potatoUsedPending = nil
+    return
+  end
+  if PotatoUI:UsePendingActionOnUnit(unit) then return end
+
   if arg1 == "LeftButton" then
     if type(TargetUnit) == "function" then TargetUnit(unit) end
     return
@@ -90,11 +96,18 @@ local function HandleUnitClick()
   end
 end
 
+local function HandleUnitMouseUp()
+  if PotatoUI:UsePendingActionOnUnit(this.unit) then
+    this.potatoUsedPending = true
+  end
+end
+
 local function CreateUnitFrame(name, unit, x)
   local frame = PotatoUI:CreatePanel(name, UIParent, 3)
   frame.unit = unit
-  frame:SetWidth(260)
-  frame:SetHeight(54)
+  local layout = PotatoUI:GetLayout()
+  frame:SetWidth(layout.unitWidth or 260)
+  frame:SetHeight(layout.unitHeight or 54)
   frame:SetPoint("BOTTOM", UIParent, "BOTTOM", x, 120)
   frame:SetFrameStrata("MEDIUM")
 
@@ -142,6 +155,7 @@ local function CreateUnitFrame(name, unit, x)
   frame.click:SetFrameLevel(frame:GetFrameLevel() + 5)
   frame.click.unit = unit
   frame.click:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  frame.click:SetScript("OnMouseUp", HandleUnitMouseUp)
   frame.click:SetScript("OnClick", HandleUnitClick)
   frame.click:SetScript("OnEnter", function()
     if this.unit == "target" and UnitName("target") and GameTooltip.SetUnit then
@@ -210,16 +224,25 @@ local function UpdateUnitFrame(frame)
   local isEnemy = IsLegacyTrue(UnitIsEnemy("player", unit))
   local isFriend = IsLegacyTrue(UnitIsFriend("player", unit))
 
+  local layout = PotatoUI:GetLayout()
   if unit == "player" then
-    local _, class = UnitClass(unit)
-    local color = classColors[class] or { .2, .75, .25 }
-    frame.health:SetStatusBarColor(color[1], color[2], color[3])
+    if layout.playerClassColor then
+      local _, class = UnitClass(unit)
+      local color = classColors[class] or { .2, .75, .25 }
+      frame.health:SetStatusBarColor(color[1], color[2], color[3])
+    else
+      local c = layout.playerHealth
+      frame.health:SetStatusBarColor(c.r, c.g, c.b)
+    end
   elseif isEnemy then
-    frame.health:SetStatusBarColor(.78, .12, .12)
+    local c = layout.enemyHealth
+    frame.health:SetStatusBarColor(c.r, c.g, c.b)
   elseif isFriend then
-    frame.health:SetStatusBarColor(.15, .72, .22)
+    local c = layout.friendHealth
+    frame.health:SetStatusBarColor(c.r, c.g, c.b)
   else
-    frame.health:SetStatusBarColor(.82, .68, .16)
+    local c = layout.neutralHealth
+    frame.health:SetStatusBarColor(c.r, c.g, c.b)
   end
 
   if unit == "target" then
@@ -321,6 +344,23 @@ function PotatoUI:SetupComboPoints()
   self.comboFrame = frame
   self.comboEvents = events
   UpdateComboPoints()
+end
+
+function PotatoUI:ApplyUnitFrameLayout()
+  local layout = self:GetLayout()
+  local function SizeFrame(frame)
+    if not frame then return end
+    frame:SetWidth(layout.unitWidth or 260)
+    frame:SetHeight(layout.unitHeight or 54)
+    if frame.health then
+      frame.health:SetHeight(math.max(16, (layout.unitHeight or 54) - 26))
+    end
+  end
+  SizeFrame(self.playerFrame)
+  SizeFrame(self.targetFrame)
+  if self.castBar then
+    self.castBar:SetWidth(layout.unitWidth or 260)
+  end
 end
 
 function PotatoUI:UpdateUnitFrames()

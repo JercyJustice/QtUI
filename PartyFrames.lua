@@ -10,6 +10,12 @@ end
 
 local function HandlePartyClick()
   local unit = this.unit
+  if this.potatoUsedPending then
+    this.potatoUsedPending = nil
+    return
+  end
+  if PotatoUI:UsePendingActionOnUnit(unit) then return end
+
   if arg1 == "LeftButton" then
     if type(TargetUnit) == "function" then TargetUnit(unit) end
     return
@@ -33,6 +39,12 @@ local function HandlePartyClick()
   end
 end
 
+local function HandlePartyMouseUp()
+  if PotatoUI:UsePendingActionOnUnit(this.unit) then
+    this.potatoUsedPending = true
+  end
+end
+
 local function AddClickLayer(frame, unit, partyIndex)
   local click = CreateFrame("Button", frame:GetName() .. "Click", frame)
   click:SetAllPoints(frame)
@@ -40,6 +52,7 @@ local function AddClickLayer(frame, unit, partyIndex)
   click.unit = unit
   click.partyIndex = partyIndex
   click:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  click:SetScript("OnMouseUp", HandlePartyMouseUp)
   click:SetScript("OnClick", HandlePartyClick)
   click:SetScript("OnEnter", function()
     if UnitIsPresent(this.unit) and GameTooltip.SetUnit then
@@ -58,9 +71,11 @@ local function CreatePartyMember(index, parent)
   frame.unit = unit
   frame.partyIndex = index
   frame:SetFrameStrata("LOW")
-  frame:SetWidth(220)
-  frame:SetHeight(44)
-  frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * 73)
+  local layout = PotatoUI:GetLayout()
+  frame:SetWidth(layout.partyWidth or 220)
+  frame:SetHeight(layout.partyHeight or 44)
+  local gap = (layout.partyHeight or 44) + (layout.partySpacing or 29)
+  frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * gap)
   frame:SetBackdropColor(.015, .02, .025, .72)
 
   frame.health = CreateFrame("StatusBar", nil, frame)
@@ -155,9 +170,15 @@ local function UpdatePartyMember(frame)
   frame.power:SetValue(power)
   PotatoUI.SetPowerColor(frame.power, unit)
 
-  local _, class = UnitClass(unit)
-  local color = PotatoUI.classColors[class] or { .2, .72, .28 }
-  frame.health:SetStatusBarColor(color[1], color[2], color[3])
+  local layout = PotatoUI:GetLayout()
+  if layout.partyClassColor then
+    local _, class = UnitClass(unit)
+    local color = PotatoUI.classColors[class] or { .2, .72, .28 }
+    frame.health:SetStatusBarColor(color[1], color[2], color[3])
+  else
+    local c = layout.partyHealth
+    frame.health:SetStatusBarColor(c.r, c.g, c.b)
+  end
 
   local prefix = ""
   if type(UnitIsPartyLeader) == "function" and IsTrue(UnitIsPartyLeader(unit)) then
@@ -198,6 +219,35 @@ local function UpdatePetFrame(frame)
   frame.healthText:SetText(PotatoUI.ShortNumber(health) .. " / " .. PotatoUI.ShortNumber(healthMax))
 end
 
+function PotatoUI:ApplyPartyFrameLayout()
+  local layout = self:GetLayout()
+  local width = layout.partyWidth or 220
+  local height = layout.partyHeight or 44
+  local gap = height + (layout.partySpacing or 29)
+  if self.partyFrames then
+    local i
+    for i = 1, 4 do
+      local frame = self.partyFrames[i]
+      if frame then
+        frame:SetWidth(width)
+        frame:SetHeight(height)
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", self.partyAnchor or UIParent, "TOPLEFT", 0, -(i - 1) * gap)
+        if frame.health then
+          frame.health:SetHeight(math.max(14, height - 20))
+        end
+      end
+    end
+  end
+  if self.partyAnchor then
+    self.partyAnchor:SetWidth(width + 120)
+    self.partyAnchor:SetHeight(4 * gap)
+  end
+  if self.playerPetFrame then
+    self.playerPetFrame:SetWidth(layout.petWidth or 180)
+  end
+end
+
 function PotatoUI:UpdatePartyFrames()
   local i
   for i = 1, 4 do
@@ -232,7 +282,8 @@ function PotatoUI:SetupPartyFrames()
   end
 
   self.playerPetFrame = CreatePetFrame("PotatoUIPlayerPet", "pet",
-    UIParent, "BOTTOM", "BOTTOM", -133, 170, 180)
+    UIParent, "BOTTOM", "BOTTOM", -133, 170, PotatoUI:GetLayout().petWidth or 180)
+  if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
 
   local events = CreateFrame("Frame", "PotatoUIPartyEvents")
   events:RegisterEvent("PARTY_MEMBERS_CHANGED")

@@ -22,22 +22,32 @@ end
 -- unit frame to cast it (SpellTargetUnit) instead of changing target.
 function PotatoUI:UsePendingActionOnUnit(unit)
   if not unit then return nil end
-  if type(SpellIsTargeting) == "function" then
+
+  -- SpellCanTargetUnit is only true while a spell is waiting for a unit.
+  -- SpellIsTargeting() alone is not trusted on Emberveil (can stay truthy).
+  local pending
+  if type(SpellCanTargetUnit) == "function" then
+    local ok, can = pcall(SpellCanTargetUnit, unit)
+    pending = ok and IsLegacyTrue(can)
+  elseif type(SpellIsTargeting) == "function" then
     local ok, targeting = pcall(SpellIsTargeting)
-    if ok and IsLegacyTrue(targeting) then
-      if arg1 == "RightButton" then
-        if type(SpellStopTargeting) == "function" then pcall(SpellStopTargeting) end
-        return true
-      end
-      if type(SpellTargetUnit) == "function" then
-        pcall(SpellTargetUnit, unit)
-      end
+    pending = ok and targeting == true
+  end
+
+  if pending then
+    if arg1 == "RightButton" then
+      if type(SpellStopTargeting) == "function" then pcall(SpellStopTargeting) end
       return true
     end
+    if type(SpellTargetUnit) == "function" then
+      pcall(SpellTargetUnit, unit)
+    end
+    return true
   end
+
   if type(CursorHasItem) == "function" then
     local ok, hasItem = pcall(CursorHasItem)
-    if ok and IsLegacyTrue(hasItem) then
+    if ok and hasItem == true then
       if type(DropItemOnUnit) == "function" then
         pcall(DropItemOnUnit, unit)
       end
@@ -211,6 +221,17 @@ function PotatoUI:ApplyActionBarBackground()
   Paint(self.auxiliaryPanel)
   Paint(self.sideRightPanel)
   Paint(self.sideLeftPanel)
+  -- Backdrop makes frames eat clicks. Only the buttons should be clickable.
+  local panels = {
+    self.actionPanel, self.utilityActionPanel, self.auxiliaryPanel,
+    self.sideRightPanel, self.sideLeftPanel,
+  }
+  local i
+  for i = 1, table.getn(panels) do
+    if panels[i] and panels[i].EnableMouse then
+      pcall(panels[i].EnableMouse, panels[i], false)
+    end
+  end
 end
 
 function PotatoUI:EnsureSlotCell(button, panel)
@@ -244,8 +265,9 @@ function PotatoUI:EnsureSlotCell(button, panel)
   cell:SetFrameLevel(math.max(0, panelLevel))
   if button.SetFrameLevel then button:SetFrameLevel(panelLevel + 4) end
   cell:ClearAllPoints()
-  cell:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
-  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+  -- Fill more of the Quickslot2 well without covering the round rim.
+  cell:SetPoint("TOPLEFT", button, "TOPLEFT", -5, 5)
+  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 5, -5)
   return cell
 end
 
@@ -282,15 +304,44 @@ function PotatoUI:ApplySlotBackgrounds()
     for i = 1, last do
       local button = getglobal(names[n] .. i)
       if button then
+        local shown = button.IsShown and button:IsShown()
         local cell = self:EnsureSlotCell(button, button:GetParent())
         if cell then
-          if layout.slotShowBackground and not SlotHasSpell(button, names[n], i) then
+          if shown and layout.slotShowBackground and not SlotHasSpell(button, names[n], i) then
             local c = layout.slotBackground
             cell:SetBackdropColor(c.r, c.g, c.b, c.a or .96)
             cell:SetBackdropBorderColor(c.r, c.g, c.b, 0)
             cell:Show()
           else
             cell:Hide()
+          end
+        end
+        if shown then
+          local filled = SlotHasSpell(button, names[n], i)
+          -- Shapeshift stores the form icon on NormalTexture. Only stamp
+          -- Quickslot2 onto empty stance slots so the icon stays visible.
+          if button.SetNormalTexture and (names[n] ~= "ShapeshiftButton" or not filled) then
+            button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+          end
+          local ring = button.GetNormalTexture and button:GetNormalTexture()
+          if names[n] == "ShapeshiftButton" and filled then
+            if not button.PotatoUIRing then
+              button.PotatoUIRing = button:CreateTexture(nil, "OVERLAY")
+              button.PotatoUIRing:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+            end
+            ring = button.PotatoUIRing
+            ring:Show()
+          elseif button.PotatoUIRing then
+            button.PotatoUIRing:Hide()
+          end
+          if ring then
+            local size = button.GetWidth and button:GetWidth() or 34
+            local pad = math.floor(size * 0.38)
+            if pad < 10 then pad = 10 end
+            ring:ClearAllPoints()
+            ring:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+            ring:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+            ring:SetAlpha(1)
           end
         end
       end
@@ -322,56 +373,64 @@ function PotatoUI:Initialize()
   self.initialized = true
   self:EnsureDB()
 
-  if self:IsFeatureEnabled("actionBars") and self.SetupActionBars then self:SetupActionBars() end
-  if self:IsFeatureEnabled("experienceBar") and self.SetupXPBar then self:SetupXPBar() end
-  if self:IsFeatureEnabled("unitFrames") and self.SetupUnitFrames then self:SetupUnitFrames() end
-  if self:IsFeatureEnabled("castBar") and self.SetupCastBar then self:SetupCastBar() end
-  if self:IsFeatureEnabled("partyFrames") and self.SetupPartyFrames then self:SetupPartyFrames() end
-  if self:IsFeatureEnabled("bags") and self.SetupBags then self:SetupBags() end
-  if self:IsFeatureEnabled("minimap") and self.SetupMinimap then self:SetupMinimap() end
-  if self:IsFeatureEnabled("mapReveal") and self.SetupWorldMap then self:SetupWorldMap() end
-  if self:IsFeatureEnabled("autoLoot") and self.SetupAutoLoot then self:SetupAutoLoot() end
-  if self:IsFeatureEnabled("autoSell") and self.SetupAutoSell then self:SetupAutoSell() end
-  if self:IsFeatureEnabled("dataText") and self.SetupDataText then self:SetupDataText() end
-  if self.SetupSettingsButton then self:SetupSettingsButton() end
-  if self.SetupMoveMode then self:SetupMoveMode() end
-  if self.ApplyLayout then self:ApplyLayout() end
-
-  SLASH_POTATOUI1 = "/potatoui"
-  SLASH_POTATOUI2 = "/pui"
-  SlashCmdList["POTATOUI"] = function(message)
-    local command = string.lower(message or "")
-    command = string.gsub(command, "^%s+", "")
-    command = string.gsub(command, "%s+$", "")
-    if command == "reset" then
-      PotatoUIDB = { positions = {} }
-      if type(ReloadUI) == "function" then
-        ReloadUI()
-      elseif type(ConsoleExec) == "function" then
-        ConsoleExec("reloadui")
-      else
-        Print("Settings reset. Restart Emberveil to apply the default layout.")
-      end
-    elseif command == "reload" then
-      if type(ReloadUI) == "function" then
-        ReloadUI()
-      elseif type(ConsoleExec) == "function" then
-        ConsoleExec("reloadui")
-      else
-        Print("This Emberveil build does not expose a UI reload function; restart the client instead.")
-      end
-    elseif command == "bags" then
-      PotatoUI:ToggleBags()
-    elseif command == "move" then
-      PotatoUI:ToggleMoveMode()
-    elseif command == "settings" or command == "config" then
-      PotatoUI:ToggleSettings()
-    else
-      Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui settings, /pui move, /pui bags, /pui reload, /pui reset")
+  local function SafeSetup(label, fn)
+    if not fn then return end
+    local ok, err = pcall(fn, self)
+    if not ok then
+      Print("Error in " .. label .. ": " .. tostring(err))
     end
   end
 
+  if self:IsFeatureEnabled("actionBars") then SafeSetup("actionBars", self.SetupActionBars) end
+  if self:IsFeatureEnabled("experienceBar") then SafeSetup("experienceBar", self.SetupXPBar) end
+  if self:IsFeatureEnabled("unitFrames") then SafeSetup("unitFrames", self.SetupUnitFrames) end
+  if self:IsFeatureEnabled("castBar") then SafeSetup("castBar", self.SetupCastBar) end
+  if self:IsFeatureEnabled("partyFrames") then SafeSetup("partyFrames", self.SetupPartyFrames) end
+  if self:IsFeatureEnabled("bags") then SafeSetup("bags", self.SetupBags) end
+  if self:IsFeatureEnabled("minimap") then SafeSetup("minimap", self.SetupMinimap) end
+  if self:IsFeatureEnabled("mapReveal") then SafeSetup("mapReveal", self.SetupWorldMap) end
+  if self:IsFeatureEnabled("autoLoot") then SafeSetup("autoLoot", self.SetupAutoLoot) end
+  if self:IsFeatureEnabled("autoSell") then SafeSetup("autoSell", self.SetupAutoSell) end
+  if self:IsFeatureEnabled("dataText") then SafeSetup("dataText", self.SetupDataText) end
+  SafeSetup("settingsButton", self.SetupSettingsButton)
+  SafeSetup("moveMode", self.SetupMoveMode)
+  SafeSetup("applyLayout", self.ApplyLayout)
+
   Print("Loaded. Type /pui for commands.")
+end
+
+SLASH_POTATOUI1 = "/potatoui"
+SLASH_POTATOUI2 = "/pui"
+SlashCmdList["POTATOUI"] = function(message)
+  local command = string.lower(message or "")
+  command = string.gsub(command, "^%s+", "")
+  command = string.gsub(command, "%s+$", "")
+  if command == "reset" then
+    PotatoUIDB = { positions = {} }
+    if type(ReloadUI) == "function" then
+      ReloadUI()
+    elseif type(ConsoleExec) == "function" then
+      ConsoleExec("reloadui")
+    else
+      Print("Settings reset. Restart Emberveil to apply the default layout.")
+    end
+  elseif command == "reload" then
+    if type(ReloadUI) == "function" then
+      ReloadUI()
+    elseif type(ConsoleExec) == "function" then
+      ConsoleExec("reloadui")
+    else
+      Print("This Emberveil build does not expose a UI reload function; restart the client instead.")
+    end
+  elseif command == "bags" then
+    if PotatoUI.ToggleBags then PotatoUI:ToggleBags() end
+  elseif command == "move" then
+    if PotatoUI.ToggleMoveMode then PotatoUI:ToggleMoveMode() end
+  elseif command == "settings" or command == "config" then
+    if PotatoUI.ToggleSettings then PotatoUI:ToggleSettings() end
+  else
+    Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui settings, /pui move, /pui bags, /pui reload, /pui reset")
+  end
 end
 
 PotatoUI:SetScript("OnEvent", function()

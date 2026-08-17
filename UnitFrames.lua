@@ -369,12 +369,11 @@ function PotatoUI:UpdateUnitFrames()
 end
 
 function PotatoUI:SetupUnitFrames()
-  self:HideFrame(PlayerFrame)
-  self:HideFrame(TargetFrame)
-
   self.playerFrame = CreateUnitFrame("PotatoUIPlayerFrame", "player", -133)
   self.targetFrame = CreateUnitFrame("PotatoUITargetFrame", "target", 133)
   self:SetupComboPoints()
+  if self.playerFrame then self:HideFrame(PlayerFrame) end
+  if self.targetFrame then self:HideFrame(TargetFrame) end
   if self.PositionAuxiliaryBars then self:PositionAuxiliaryBars() end
 
   local events = CreateFrame("Frame", "PotatoUIUnitEvents")

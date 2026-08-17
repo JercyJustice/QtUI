@@ -507,7 +507,9 @@ function PotatoUI:UpdateBags()
   local keySlots = 0
   frame.itemByLocation = {}
   for _, bag in ipairs(bagOrder) do
-    local slots = GetContainerNumSlots(bag) or 0
+    local okSlots, slots = pcall(GetContainerNumSlots, bag)
+    if not okSlots then slots = 0 end
+    slots = tonumber(slots) or 0
     local slot
     for slot = 1, slots do
       local button = frame.items[position]
@@ -537,7 +539,7 @@ function PotatoUI:UpdateBags()
     frame.items[index]:Hide()
   end
 
-  local rows = math.max(1, math.ceil(total / BAG_COLUMNS))
+  local rows = math.max(1, math.floor((total + BAG_COLUMNS - 1) / BAG_COLUMNS))
   local windowWidth = WINDOW_PADDING * 2 + BAG_COLUMNS * SLOT_SIZE + (BAG_COLUMNS - 1) * SLOT_GAP
   local windowHeight = 78 + rows * (SLOT_SIZE + SLOT_GAP)
   frame:SetWidth(windowWidth)
@@ -691,10 +693,6 @@ function PotatoUI:SetupBags()
   frame:Hide()
   self.bagFrame = frame
 
-  -- Suppress Blizzard's individual container windows.
-  local i
-  for i = 1, 13 do self:HideFrame(getglobal("ContainerFrame" .. i)) end
-
   -- Replace every standard backpack entry point with the combined window.
   ToggleBackpack = function() PotatoUI:ToggleBags() end
   OpenBackpack = function() PotatoUI:OpenBags() end
@@ -702,6 +700,14 @@ function PotatoUI:SetupBags()
   OpenAllBags = function() PotatoUI:OpenBags() end
   CloseAllBags = function() PotatoUI:CloseBags() end
   ToggleBag = function() PotatoUI:ToggleBags() end
+
+  local bagsOk, bagsErr = pcall(function() PotatoUI:UpdateBags() end)
+  if bagsOk then
+    local i
+    for i = 1, 13 do self:HideFrame(getglobal("ContainerFrame" .. i)) end
+  else
+    self:Print("Bags failed to build: " .. tostring(bagsErr))
+  end
 
   local events = CreateFrame("Frame", "PotatoUIBagEvents")
   events:RegisterEvent("BAG_UPDATE")
@@ -783,6 +789,4 @@ function PotatoUI:SetupBags()
       events:SetScript("OnUpdate", ProcessPendingBagEvents)
     end
   end)
-
-  self:UpdateBags()
 end

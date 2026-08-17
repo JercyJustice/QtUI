@@ -1,3 +1,37 @@
+local pagingChromeNames = {
+  "MainMenuBarPageNumber", "MainMenuBarPageUpButton", "MainMenuBarPageDownButton",
+  "ActionBarUpButton", "ActionBarDownButton",
+  "MainMenuBar", "MainMenuBarArtFrame", "MainMenuBarMaxLevelBar",
+  "MainMenuBarOverlayFrame", "BonusActionBarFrame",
+  "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft",
+  "ReputationWatchBar", "MainMenuExpBar", "ExhaustionTick",
+  "ShapeshiftBarFrame", "PetActionBarFrame", "PossessBarFrame",
+}
+
+local function SuppressPagingChrome()
+  local i
+  for i = 1, table.getn(pagingChromeNames) do
+    local frame = getglobal(pagingChromeNames[i])
+    if frame then
+      if frame.Hide then pcall(frame.Hide, frame) end
+      if frame.EnableMouse then pcall(frame.EnableMouse, frame, false) end
+      if frame.SetAlpha then pcall(frame.SetAlpha, frame, 0) end
+      if frame.ClearAllPoints and frame.SetPoint then
+        pcall(function()
+          frame:ClearAllPoints()
+          frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+        end)
+      end
+    end
+  end
+end
+
+local function PassClicksThrough(panel)
+  if panel and panel.EnableMouse then
+    pcall(panel.EnableMouse, panel, false)
+  end
+end
+
 local hiddenNames = {
   -- gryphons and action-bar artwork
   "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap",
@@ -123,6 +157,14 @@ local function InstallActionResolvers()
       end
     end
   end
+
+  if type(ActionButton_UpdateHotkeys) == "function" then
+    local originalHotkeys = ActionButton_UpdateHotkeys
+    ActionButton_UpdateHotkeys = function(actionButtonType)
+      originalHotkeys(actionButtonType)
+      if StyleActionButtonText then StyleActionButtonText(this) end
+    end
+  end
 end
 
 local function RefreshActionButtons()
@@ -182,7 +224,20 @@ local function RefreshActionButtons()
     end
   end
   this = previousThis
+  SuppressPagingChrome()
   if PotatoUI.ApplySlotBackgrounds then PotatoUI:ApplySlotBackgrounds() end
+  local labels = {
+    "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+    "MultiBarRightButton", "MultiBarLeftButton",
+  }
+  local n
+  for n = 1, table.getn(labels) do
+    local i
+    for i = 1, 12 do
+      local button = getglobal(labels[n] .. i)
+      if button then StyleActionButtonText(button) end
+    end
+  end
 end
 
 function PotatoUI:PositionAuxiliaryBars()
@@ -201,7 +256,7 @@ function PotatoUI:PositionAuxiliaryBars()
   local size = aux.size or 34
   local spacing = aux.spacing or 2
   local columns = aux.columns or 10
-  local pad = 2
+  local pad = 8
 
   local function PlaceAuxiliaryButtons(prefix, visibleCount, startIndex)
     local i
@@ -209,7 +264,12 @@ function PotatoUI:PositionAuxiliaryBars()
       local button = getglobal(prefix .. i)
       if button then
         PlaceInGrid(button, panel, startIndex + i - 1, columns, size, spacing, pad)
-        if i <= visibleCount then button:Show() else button:Hide() end
+        if prefix == "ShapeshiftButton" or i <= visibleCount then
+          button:Show()
+        else
+          button:Hide()
+          if button.PotatoUICell then button.PotatoUICell:Hide() end
+        end
       end
     end
   end
@@ -289,6 +349,81 @@ local function SetupActionPageEvents()
   PotatoUI.actionPageEvents = events
 end
 
+local function RestoreRoundSlot(button, size)
+  if not button then return end
+  if button.PotatoUIBorder then button.PotatoUIBorder:Hide() end
+  if button.SetNormalTexture then
+    button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+  end
+  local normal = button.GetNormalTexture and button:GetNormalTexture()
+  if not normal then return end
+  normal:SetAlpha(1)
+  local pad = math.floor((size or 34) * 0.38)
+  if pad < 10 then pad = 10 end
+  normal:ClearAllPoints()
+  normal:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+  normal:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+end
+
+local function AbbreviateHotkey(text)
+  if not text or text == "" or text == RANGE_INDICATOR then return text end
+  text = string.gsub(text, "SHIFT%-", "s")
+  text = string.gsub(text, "CTRL%-", "c")
+  text = string.gsub(text, "ALT%-", "a")
+  text = string.gsub(text, "Middle Mouse", "M3")
+  text = string.gsub(text, "Mouse Button 4", "M4")
+  text = string.gsub(text, "Mouse Button 5", "M5")
+  text = string.gsub(text, "Mouse Wheel Up", "WU")
+  text = string.gsub(text, "Mouse Wheel Down", "WD")
+  text = string.gsub(text, "Num Pad", "N")
+  text = string.gsub(text, "Mouse Button ", "M")
+  return text
+end
+
+local function StyleActionButtonText(button, size)
+  if not button or not button.GetName then return end
+  local name = button:GetName()
+  if not name then return end
+  size = size or (button.GetWidth and button:GetWidth()) or 34
+  local font = (STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF")
+  local hotSize = math.floor(size * 0.26)
+  if hotSize < 8 then hotSize = 8 end
+  if hotSize > 11 then hotSize = 11 end
+  local nameSize = hotSize - 1
+  if nameSize < 7 then nameSize = 7 end
+
+  local hotkey = getglobal(name .. "HotKey")
+  if hotkey then
+    hotkey:ClearAllPoints()
+    hotkey:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+    hotkey:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+    if hotkey.SetJustifyH then hotkey:SetJustifyH("CENTER") end
+    if hotkey.SetJustifyV then hotkey:SetJustifyV("MIDDLE") end
+    if hotkey.SetFont then hotkey:SetFont(font, hotSize, "OUTLINE") end
+    if hotkey.SetNonSpaceWrap then hotkey:SetNonSpaceWrap(false) end
+    if hotkey.GetText and hotkey.SetText then
+      hotkey:SetText(AbbreviateHotkey(hotkey:GetText()))
+    end
+  end
+
+  local macro = getglobal(name .. "Name")
+  if macro then
+    macro:ClearAllPoints()
+    macro:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+    macro:SetWidth(size - 4)
+    if macro.SetJustifyH then macro:SetJustifyH("CENTER") end
+    if macro.SetFont then macro:SetFont(font, nameSize, "OUTLINE") end
+  end
+
+  local count = getglobal(name .. "Count")
+  if count then
+    count:ClearAllPoints()
+    count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+    if count.SetFont then count:SetFont(font, hotSize, "OUTLINE") end
+    if count.SetJustifyH then count:SetJustifyH("RIGHT") end
+  end
+end
+
 StyleActionButton = function(button, size)
   if not button then return end
   size = size or 34
@@ -298,11 +433,9 @@ StyleActionButton = function(button, size)
     button.PotatoUISlotBg:Hide()
     if button.PotatoUISlotBg.SetTexture then button.PotatoUISlotBg:SetTexture(nil) end
   end
-  if button.PotatoUIStyled then return end
+  RestoreRoundSlot(button, size)
+  StyleActionButtonText(button, size)
   button.PotatoUIStyled = true
-
-  local normal = button:GetNormalTexture()
-  if normal then normal:SetAlpha(0) end
 end
 
 PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
@@ -359,7 +492,13 @@ function PotatoUI:LayoutActionBars()
   end
   self:LayoutSideBars()
   self:PositionAuxiliaryBars()
+  SuppressPagingChrome()
   if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
+  PassClicksThrough(self.actionPanel)
+  PassClicksThrough(self.utilityActionPanel)
+  PassClicksThrough(self.sideRightPanel)
+  PassClicksThrough(self.sideLeftPanel)
+  PassClicksThrough(self.auxiliaryPanel)
 end
 
 function PotatoUI:LayoutSideBars()
@@ -517,6 +656,7 @@ function PotatoUI:SetupActionBars()
   panel:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
   panel:SetBackdropColor(0, 0, 0, 0)
   panel:SetBackdropBorderColor(0, 0, 0, 0)
+  PassClicksThrough(panel)
   self.actionPanel = panel
 
   -- Emberveil leaves the second multi-action row partially off-screen when
@@ -528,6 +668,7 @@ function PotatoUI:SetupActionBars()
   utilityPanel:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
   utilityPanel:SetBackdropColor(0, 0, 0, 0)
   utilityPanel:SetBackdropBorderColor(0, 0, 0, 0)
+  PassClicksThrough(utilityPanel)
   self.utilityActionPanel = utilityPanel
 
   local i
@@ -560,12 +701,14 @@ function PotatoUI:SetupActionBars()
   sideRight:SetPoint("RIGHT", UIParent, "RIGHT", -14, 40)
   sideRight:SetBackdropColor(0, 0, 0, 0)
   sideRight:SetBackdropBorderColor(0, 0, 0, 0)
+  PassClicksThrough(sideRight)
   self.sideRightPanel = sideRight
 
   local sideLeft = self:CreatePanel("PotatoUISideLeftPanel", UIParent, 1)
   sideLeft:SetPoint("RIGHT", sideRight, "LEFT", -8, 0)
   sideLeft:SetBackdropColor(0, 0, 0, 0)
   sideLeft:SetBackdropBorderColor(0, 0, 0, 0)
+  PassClicksThrough(sideLeft)
   self.sideLeftPanel = sideLeft
 
   if SHOW_MULTI_ACTIONBAR_3 ~= nil then SHOW_MULTI_ACTIONBAR_3 = 1 end

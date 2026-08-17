@@ -91,11 +91,13 @@ local function CreatePartyMember(index, parent)
   frame.power.bg:SetTexture(PotatoUI.media.statusbar)
   frame.power.bg:SetVertexColor(.04, .045, .055, 1)
 
-  frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 6, 18)
-  frame.debuffs:SetPoint("LEFT", frame, "RIGHT", 4, 10)
+  if PotatoUI:IsFeatureEnabled("auras") then
+    frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 6, 18)
+    frame.debuffs:SetPoint("LEFT", frame, "RIGHT", 4, 10)
 
-  frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", 6, 18)
-  frame.buffs:SetPoint("LEFT", frame, "RIGHT", 4, -10)
+    frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", 6, 18)
+    frame.buffs:SetPoint("LEFT", frame, "RIGHT", 4, -10)
+  end
 
   AddClickLayer(frame, unit, index)
   return frame
@@ -173,8 +175,10 @@ local function UpdatePartyMember(frame)
     frame.healthText:SetText(PotatoUI.ShortNumber(health) .. " / " .. PotatoUI.ShortNumber(healthMax))
   end
 
-  PotatoUI:UpdateAuraRow(frame.debuffs)
-  PotatoUI:UpdateAuraRow(frame.buffs)
+  if frame.debuffs then
+    PotatoUI:UpdateAuraRow(frame.debuffs)
+    PotatoUI:UpdateAuraRow(frame.buffs)
+  end
 end
 
 local function UpdatePetFrame(frame)

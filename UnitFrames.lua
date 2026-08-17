@@ -111,7 +111,7 @@ local function CreateUnitFrame(name, unit, x)
   end)
   frame.click:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  if unit == "target" then
+  if unit == "target" and PotatoUI:IsFeatureEnabled("auras") then
     frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 10, 20)
     frame.debuffs:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 2, 4)
 
@@ -178,7 +178,7 @@ local function UpdateUnitFrame(frame)
     frame.health:SetStatusBarColor(.82, .68, .16)
   end
 
-  if unit == "target" then
+  if unit == "target" and frame.debuffs then
     PotatoUI:UpdateAuraRow(frame.debuffs)
     PotatoUI:UpdateAuraRow(frame.buffs)
   end

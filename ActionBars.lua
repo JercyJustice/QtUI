@@ -264,13 +264,18 @@ end
 function PotatoUI:SetupXPBar()
   if self.xpBar then return end
 
-  local bar = CreateFrame("StatusBar", "PotatoUIXPBar", self.actionPanel)
+  local parent = self.actionPanel or UIParent
+  local bar = CreateFrame("StatusBar", "PotatoUIXPBar", parent)
   bar:SetWidth(442)
   bar:SetHeight(12)
-  bar:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
+  if self.actionPanel then
+    bar:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
+  else
+    bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
+  end
   bar:SetStatusBarTexture(self.media.statusbar)
   bar:SetStatusBarColor(.38, .28, .78)
-  bar:SetFrameLevel(self.actionPanel:GetFrameLevel() + 3)
+  bar:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
   bar:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -381,5 +386,4 @@ function PotatoUI:SetupActionBars()
   -- original controller frames remain invisible so their update code works.
   self:PositionAuxiliaryBars()
 
-  self:SetupXPBar()
 end

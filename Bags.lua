@@ -65,6 +65,14 @@ local function AutoSellGreyItems()
   end
 end
 
+function PotatoUI:SetupAutoSell()
+  if self.autoSellFrame then return end
+  local frame = CreateFrame("Frame", "PotatoUIAutoSellEvents")
+  frame:RegisterEvent("MERCHANT_SHOW")
+  frame:SetScript("OnEvent", AutoSellGreyItems)
+  self.autoSellFrame = frame
+end
+
 local function HandleItemClick()
   local bag, slot = this.bag, this.slot
   local link = GetContainerItemLink(bag, slot)
@@ -600,7 +608,6 @@ function PotatoUI:SetupBags()
   events:SetScript("OnEvent", function()
     if event == "MERCHANT_SHOW" then
       PotatoUI:OpenBags()
-      AutoSellGreyItems()
     elseif event == "PLAYER_MONEY" then
       if PotatoUI.bagFrame and PotatoUI.bagFrame:IsShown() then
         UpdateMoneyText(PotatoUI.bagFrame)

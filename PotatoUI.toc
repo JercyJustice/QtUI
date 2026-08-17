@@ -2,10 +2,11 @@
 ## Title: |cffffcc00Potato|rUI
 ## Notes: Compact Emberveil interface with dual chat, unit frames and data text
 ## Author: PotatoAnimation
-## Version: 0.9.10
+## Version: 0.10.2
 ## SavedVariables: PotatoUIDB
 
 Core.lua
+Settings.lua
 ActionBars.lua
 Auras.lua
 UnitFrames.lua

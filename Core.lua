@@ -1,5 +1,5 @@
 PotatoUI = CreateFrame("Frame", "PotatoUIEventFrame", UIParent)
-PotatoUI.version = "0.9.10"
+PotatoUI.version = "0.10.2"
 PotatoUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -44,6 +44,7 @@ function PotatoUI:EnsureDB()
   -- Discard values saved by versions that offered UI scaling. Emberveil does
   -- not apply frame transforms consistently, so PotatoUI now uses fixed sizes.
   PotatoUIDB.scale = nil
+  if self.EnsureFeatureDefaults then self:EnsureFeatureDefaults() end
 end
 
 function PotatoUI:Initialize()
@@ -51,15 +52,18 @@ function PotatoUI:Initialize()
   self.initialized = true
   self:EnsureDB()
 
-  if self.SetupActionBars then self:SetupActionBars() end
-  if self.SetupUnitFrames then self:SetupUnitFrames() end
-  if self.SetupCastBar then self:SetupCastBar() end
-  if self.SetupPartyFrames then self:SetupPartyFrames() end
-  if self.SetupBags then self:SetupBags() end
-  if self.SetupMinimap then self:SetupMinimap() end
-  if self.SetupWorldMap then self:SetupWorldMap() end
-  if self.SetupAutoLoot then self:SetupAutoLoot() end
-  if self.SetupDataText then self:SetupDataText() end
+  if self:IsFeatureEnabled("actionBars") and self.SetupActionBars then self:SetupActionBars() end
+  if self:IsFeatureEnabled("experienceBar") and self.SetupXPBar then self:SetupXPBar() end
+  if self:IsFeatureEnabled("unitFrames") and self.SetupUnitFrames then self:SetupUnitFrames() end
+  if self:IsFeatureEnabled("castBar") and self.SetupCastBar then self:SetupCastBar() end
+  if self:IsFeatureEnabled("partyFrames") and self.SetupPartyFrames then self:SetupPartyFrames() end
+  if self:IsFeatureEnabled("bags") and self.SetupBags then self:SetupBags() end
+  if self:IsFeatureEnabled("minimap") and self.SetupMinimap then self:SetupMinimap() end
+  if self:IsFeatureEnabled("mapReveal") and self.SetupWorldMap then self:SetupWorldMap() end
+  if self:IsFeatureEnabled("autoLoot") and self.SetupAutoLoot then self:SetupAutoLoot() end
+  if self:IsFeatureEnabled("autoSell") and self.SetupAutoSell then self:SetupAutoSell() end
+  if self:IsFeatureEnabled("dataText") and self.SetupDataText then self:SetupDataText() end
+  if self.SetupSettingsButton then self:SetupSettingsButton() end
   if self.SetupMoveMode then self:SetupMoveMode() end
 
   SLASH_POTATOUI1 = "/potatoui"
@@ -89,8 +93,10 @@ function PotatoUI:Initialize()
       PotatoUI:ToggleBags()
     elseif command == "move" then
       PotatoUI:ToggleMoveMode()
+    elseif command == "settings" or command == "config" then
+      PotatoUI:ToggleSettings()
     else
-      Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui move, /pui bags, /pui reload, /pui reset")
+      Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui settings, /pui move, /pui bags, /pui reload, /pui reset")
     end
   end
 

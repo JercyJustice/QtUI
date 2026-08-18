@@ -127,16 +127,124 @@ local function ReanchorOverlay(overlay)
   overlay:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 0, 0)
 end
 
+local function UIScale()
+  if UIParent.GetEffectiveScale then
+    local scale = UIParent:GetEffectiveScale()
+    if scale and scale > 0 then return scale end
+  end
+  if UIParent.GetScale then
+    local scale = UIParent:GetScale()
+    if scale and scale > 0 then return scale end
+  end
+  return 1
+end
+
+local function ScreenSize()
+  local width = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+  local height = (UIParent.GetHeight and UIParent:GetHeight()) or 768
+  if width < 200 then width = 1024 end
+  if height < 200 then height = 768 end
+  return width, height
+end
+
+local function ClampToScreen(left, bottom, width, height)
+  local screenW, screenH = ScreenSize()
+  if not left or not bottom then return left, bottom end
+  width = width or 0
+  height = height or 0
+  if width > screenW then width = screenW end
+  if height > screenH then height = screenH end
+  if left < 0 then left = 0 end
+  if bottom < 0 then bottom = 0 end
+  if left + width > screenW then left = screenW - width end
+  if bottom + height > screenH then bottom = screenH - height end
+  return left, bottom
+end
+
+local function PlaceFrame(frame, left, bottom)
+  if not frame then return end
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+end
+
+local function FrameSize(frame)
+  if not frame then return 0, 0 end
+  local width = frame.GetWidth and frame:GetWidth() or 0
+  local height = frame.GetHeight and frame:GetHeight() or 0
+  local left = frame.GetLeft and frame:GetLeft()
+  local right = frame.GetRight and frame:GetRight()
+  local top = frame.GetTop and frame:GetTop()
+  local bottom = frame.GetBottom and frame:GetBottom()
+  if (not width or width < 8) and left and right then width = right - left end
+  if (not height or height < 8) and top and bottom then height = top - bottom end
+  return width or 0, height or 0
+end
+
+-- Emberveil often drops SetWidth after ClearAllPoints. Keep a hit box with
+-- a second corner so OnDragStop / mouse-up still land on the overlay.
+local function PlaceSized(frame, left, bottom, width, height)
+  if not frame then return end
+  width = width or 0
+  height = height or 0
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+  if width > 1 and height > 1 then
+    frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
+    if frame.SetWidth then
+      frame:SetWidth(width + 1)
+      if frame.SetHeight then frame:SetHeight(height + 1) end
+      frame:SetWidth(width)
+      if frame.SetHeight then frame:SetHeight(height) end
+    end
+  end
+end
+
+local function MouseLeftDown()
+  if type(IsMouseButtonDown) ~= "function" then return true end
+  local ok, held = pcall(IsMouseButtonDown, "LeftButton")
+  if not ok then return true end
+  return held == true or held == 1 or held == "1"
+end
+
 local function SaveOverlayPosition(overlay)
   local left, bottom = overlay:GetLeft(), overlay:GetBottom()
   if not left or not bottom then return end
+  local width, height = FrameSize(overlay)
+  left, bottom = ClampToScreen(left, bottom, width, height)
 
   local entry = overlay.entry
   local target = entry.frame
   QtUIDB.positions[entry.key] = { x = left, y = bottom }
-  target:ClearAllPoints()
-  target:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-  ReanchorOverlay(overlay)
+  PlaceFrame(target, left, bottom)
+  PlaceSized(overlay, left, bottom, width, height)
+end
+
+local function StopOverlayDrag(overlay)
+  if not overlay or not overlay.dragging then return end
+  overlay.dragging = nil
+  overlay:SetScript("OnUpdate", nil)
+  SaveOverlayPosition(overlay)
+end
+
+local function DragOverlay()
+  if not this.dragging then return end
+  if not MouseLeftDown() then
+    StopOverlayDrag(this)
+    return
+  end
+  local scale = UIScale()
+  local cursorX, cursorY = GetCursorPosition()
+  cursorX = (cursorX or 0) / scale
+  cursorY = (cursorY or 0) / scale
+  local width = this.dragW or 0
+  local height = this.dragH or 0
+  local left = cursorX - (this.dragX or 0)
+  local bottom = cursorY - (this.dragY or 0)
+  left, bottom = ClampToScreen(left, bottom, width, height)
+  PlaceSized(this, left, bottom, width, height)
+  if this.entry and this.entry.frame then
+    PlaceFrame(this.entry.frame, left, bottom)
+  end
 end
 
 local function CreateMoveOverlay(entry, index)
@@ -166,17 +274,25 @@ local function CreateMoveOverlay(entry, index)
 
   overlay:SetScript("OnDragStart", function()
     local left, bottom = this:GetLeft(), this:GetBottom()
-    local width, height = this:GetWidth(), this:GetHeight()
+    local width, height = FrameSize(this)
     if not left or not bottom then return end
-    this:ClearAllPoints()
-    this:SetWidth(width)
-    this:SetHeight(height)
-    this:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-    this:StartMoving()
+    this.dragW = width
+    this.dragH = height
+    PlaceSized(this, left, bottom, width, height)
+    local scale = UIScale()
+    local cursorX, cursorY = GetCursorPosition()
+    cursorX = (cursorX or 0) / scale
+    cursorY = (cursorY or 0) / scale
+    this.dragX = cursorX - left
+    this.dragY = cursorY - bottom
+    this.dragging = true
+    this:SetScript("OnUpdate", DragOverlay)
   end)
   overlay:SetScript("OnDragStop", function()
-    this:StopMovingOrSizing()
-    SaveOverlayPosition(this)
+    StopOverlayDrag(this)
+  end)
+  overlay:SetScript("OnMouseUp", function()
+    StopOverlayDrag(this)
   end)
   overlay:SetScript("OnClick", function()
     if arg1 == "RightButton" then QtUI:ResetMovable(entry.key) end
@@ -199,6 +315,29 @@ function QtUI:RegisterMovable(key, label, frame, alwaysShow)
   if not frame then return end
   if not self.movableEntries then self.movableEntries = {} end
 
+  local _, existing
+  for _, existing in ipairs(self.movableEntries) do
+    if existing.key == key then
+      existing.frame = frame
+      existing.label = label
+      existing.alwaysShow = alwaysShow
+      if existing.overlay then
+        existing.overlay.entry = existing
+        if existing.overlay.label then
+          existing.overlay.label:SetText("|cffffff33" .. label .. "|r")
+        end
+        ReanchorOverlay(existing.overlay)
+      end
+      local saved = QtUIDB.positions and QtUIDB.positions[key]
+      if saved and saved.x and saved.y then
+        local width, height = FrameSize(frame)
+        local left, bottom = ClampToScreen(saved.x, saved.y, width, height)
+        PlaceFrame(frame, left, bottom)
+      end
+      return
+    end
+  end
+
   local entry = { key = key, label = label, frame = frame, alwaysShow = alwaysShow }
   local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
   entry.default = {
@@ -210,8 +349,10 @@ function QtUI:RegisterMovable(key, label, frame, alwaysShow)
   }
   local saved = QtUIDB.positions and QtUIDB.positions[key]
   if saved and saved.x and saved.y then
-    frame:ClearAllPoints()
-    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
+    local width = frame.GetWidth and frame:GetWidth() or 0
+    local height = frame.GetHeight and frame:GetHeight() or 0
+    local left, bottom = ClampToScreen(saved.x, saved.y, width, height)
+    PlaceFrame(frame, left, bottom)
   end
 
   if frame.SetClampedToScreen then frame:SetClampedToScreen(false) end
@@ -255,6 +396,7 @@ function QtUI:SetMoveMode(enabled)
   if self.movableEntries then
     local _, entry
     for _, entry in ipairs(self.movableEntries) do
+      if entry.overlay then StopOverlayDrag(entry.overlay) end
       local shown = self.moveMode and entry.frame
       if shown and not entry.alwaysShow then
         local ok, isShown = pcall(entry.frame.IsShown, entry.frame)
@@ -313,6 +455,7 @@ function QtUI:SetupMoveMode()
 
   self:RegisterMovable("player", "Player", self.playerFrame)
   self:RegisterMovable("combo", "Combo Points", self.comboFrame)
+  self:RegisterMovable("damageMeter", "Damage Meter", self.meterFrame)
   self:RegisterMovable("target", "Target", self.targetFrame)
   self:RegisterMovable("targettarget", "Target of Target", self.targetTargetFrame)
   self:RegisterMovable("cast", "Cast Bar", self.castBar, true)

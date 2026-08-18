@@ -1,5 +1,26 @@
 local BAG_COLUMNS = 10
 local SLOT_SIZE = 36
+local SLOT_WELL = "Interface\\AddOns\\QtUI\\Media\\HDActionBarBtn"
+
+local function ApplySlotWell(button, pad)
+  if not button then return end
+  pad = pad or 2
+  if not button.well then
+    button.well = button:CreateTexture(nil, "BACKGROUND")
+  end
+  button.well:ClearAllPoints()
+  button.well:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+  button.well:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+  button.well:SetTexture(SLOT_WELL)
+  if button.well.Show then pcall(button.well.Show, button.well) end
+  if button.SetBackdrop then pcall(button.SetBackdrop, button, nil) end
+end
+
+local function TintSlotWell(button, r, g, b, a)
+  if button and button.well and button.well.SetVertexColor then
+    button.well:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
+  end
+end
 local SLOT_GAP = 3
 local WINDOW_PADDING = 12
 
@@ -198,6 +219,42 @@ local function OpenQtStackSplit(button, count)
   if frame.Raise then frame:Raise() end
 end
 
+local function GetEquipLoc(link)
+  if not link or type(GetItemInfo) ~= "function" then return nil end
+  local _, _, _, _, _, _, g, h, i = GetItemInfo(link)
+  if type(h) == "string" and string.find(h, "INVTYPE_", 1, 1) then return h end
+  if type(i) == "string" and string.find(i, "INVTYPE_", 1, 1) then return i end
+  if type(g) == "string" and string.find(g, "INVTYPE_", 1, 1) then return g end
+  return nil
+end
+
+local function CursorHasBagItem()
+  if type(CursorHasItem) ~= "function" then return nil end
+  local ok, value = pcall(CursorHasItem)
+  return ok and IsTruthy(value)
+end
+
+-- Slot-to-slot in the backpack goes through PickupContainerItem, which is
+-- what Emberveil uses for the item-move sound. UseContainerItem is silent.
+local function EquipFromBag(bag, slot)
+  if type(PickupContainerItem) ~= "function" then
+    UseContainerItem(bag, slot)
+    return
+  end
+  PickupContainerItem(bag, slot)
+  if CursorHasBagItem() and type(AutoEquipCursorItem) == "function" then
+    pcall(AutoEquipCursorItem)
+    if CursorHasBagItem() then
+      PickupContainerItem(bag, slot)
+    end
+    return
+  end
+  if CursorHasBagItem() then
+    PickupContainerItem(bag, slot)
+  end
+  UseContainerItem(bag, slot)
+end
+
 local function HandleItemClick()
   local bag, slot = this.bag, this.slot
   local link = GetContainerItemLink(bag, slot)
@@ -226,7 +283,13 @@ local function HandleItemClick()
   end
 
   if arg1 == "RightButton" then
-    UseContainerItem(bag, slot)
+    local loc = GetEquipLoc(link)
+    local atMerchant = MerchantFrame and MerchantFrame.IsShown and MerchantFrame:IsShown()
+    if loc and loc ~= "INVTYPE_BAG" and loc ~= "INVTYPE_AMMO" and loc ~= "INVTYPE_QUIVER" and not atMerchant then
+      EquipFromBag(bag, slot)
+    else
+      UseContainerItem(bag, slot)
+    end
   else
     PickupContainerItem(bag, slot)
   end
@@ -238,14 +301,11 @@ local function CreateItemButton(parent, index)
   button:SetHeight(SLOT_SIZE)
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   button:RegisterForDrag("LeftButton")
-  button:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-  })
-  button:SetBackdropColor(.025, .03, .035, .72)
+  ApplySlotWell(button, 2)
 
   button.icon = button:CreateTexture(nil, "ARTWORK")
-  button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 3, -3)
-  button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
+  button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 4, -4)
+  button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 4)
   button.icon:SetTexCoord(.07, .93, .07, .93)
 
   button.bagHighlight = button:CreateTexture(nil, "OVERLAY")
@@ -347,20 +407,11 @@ local function CreateEquippedBagButton(parent, bag)
   button.inventorySlot = bag > 0 and BagInventorySlot(bag) or nil
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   button:RegisterForDrag("LeftButton")
-  button:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true,
-    tileSize = 8,
-    edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-  })
-  button:SetBackdropColor(.025, .03, .035, .9)
-  button:SetBackdropBorderColor(.25, .3, .32, 1)
+  ApplySlotWell(button, 2)
 
   button.icon = button:CreateTexture(nil, "ARTWORK")
-  button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 3, -3)
-  button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -3, 3)
+  button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 4, -4)
+  button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 4)
   button.icon:SetTexCoord(.07, .93, .07, .93)
 
   button.slots = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
@@ -436,14 +487,12 @@ local function UpdateSlot(button, bag, slot, isKeySlot)
     quality = itemQuality
   end
   if isKeySlot then
-    -- The icon is inset, so this single inexpensive background texture also
-    -- serves as the yellow key-slot border.
-    button:SetBackdropColor(.55, .38, .02, .9)
+    TintSlotWell(button, 1, .72, .18, 1)
   elseif quality and quality > 1 and type(GetItemQualityColor) == "function" then
     local r, g, b = GetItemQualityColor(quality)
-    button:SetBackdropColor((r or .16) * .8, (g or .2) * .8, (b or .22) * .8, .95)
+    TintSlotWell(button, r or 1, g or 1, b or 1, 1)
   else
-    button:SetBackdropColor(.025, .03, .035, .82)
+    TintSlotWell(button, 1, 1, 1, 1)
   end
 
   button:Show()
@@ -655,17 +704,10 @@ function QtUI:SetupBags()
   frame.bagMenuButton:SetHeight(28)
   frame.bagMenuButton:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 11, 5)
   frame.bagMenuButton:SetFrameLevel(frame:GetFrameLevel() + 6)
-  frame.bagMenuButton:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 8, edgeSize = 9,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-  })
-  frame.bagMenuButton:SetBackdropColor(.025, .03, .035, .9)
-  frame.bagMenuButton:SetBackdropBorderColor(.25, .3, .32, 1)
+  ApplySlotWell(frame.bagMenuButton, 2)
   frame.bagMenuButton.icon = frame.bagMenuButton:CreateTexture(nil, "ARTWORK")
-  frame.bagMenuButton.icon:SetPoint("TOPLEFT", frame.bagMenuButton, "TOPLEFT", 3, -3)
-  frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -3, 3)
+  frame.bagMenuButton.icon:SetPoint("TOPLEFT", frame.bagMenuButton, "TOPLEFT", 4, -4)
+  frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -4, 4)
   frame.bagMenuButton.icon:SetTexture("Interface\\Buttons\\Button-Backpack-Up")
 
   frame.bagMenu = self:CreatePanel("QtUIBagMenu", frame, frame:GetFrameLevel() + 8)

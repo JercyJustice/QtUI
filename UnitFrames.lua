@@ -159,21 +159,93 @@ function QtUI:ApplyUnitTexts(frame, style)
   end
 end
 
+function QtUI:EnsurePortrait(frame)
+  if not frame then return nil end
+  if frame.portrait then return frame.portrait end
+  local port = CreateFrame("Frame", nil, frame)
+  local level = 3
+  if frame.GetFrameLevel then level = (frame:GetFrameLevel() or 3) + 2 end
+  if port.SetFrameLevel then port:SetFrameLevel(level) end
+  if port.EnableMouse then port:EnableMouse(false) end
+  -- Light well so Emberveil's dim SetPortraitTexture is not lost on dark chrome.
+  port.well = port:CreateTexture(nil, "BACKGROUND")
+  port.well:SetPoint("TOPLEFT", port, "TOPLEFT", 0, 0)
+  port.well:SetPoint("BOTTOMRIGHT", port, "BOTTOMRIGHT", 0, 0)
+  port.well:SetTexture("Interface\\Buttons\\WHITE8X8")
+  if port.well.SetVertexColor then port.well:SetVertexColor(.18, .2, .22, 1) end
+  port.tex = port:CreateTexture(nil, "OVERLAY")
+  port.tex:SetPoint("TOPLEFT", port, "TOPLEFT", 1, -1)
+  port.tex:SetPoint("BOTTOMRIGHT", port, "BOTTOMRIGHT", -1, 1)
+  -- Zoom into the circular SetPortraitTexture so the face fills the square.
+  if port.tex.SetTexCoord then port.tex:SetTexCoord(.18, .82, .14, .86) end
+  if port.tex.SetVertexColor then port.tex:SetVertexColor(1, 1, 1, 1) end
+  frame.portrait = port
+  return port
+end
+
+function QtUI:UpdatePortrait(frame)
+  if not frame then return end
+  local port = frame.portrait
+  if not frame.portraitOn then
+    if port then
+      if port.tex and port.tex.SetTexture then port.tex:SetTexture(nil) end
+      port:ClearAllPoints()
+      port:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+      port:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -1960, 1960)
+      if port.Hide then pcall(port.Hide, port) end
+    end
+    return
+  end
+  port = self:EnsurePortrait(frame)
+  if type(SetPortraitTexture) == "function" and frame.unit and port.tex then
+    pcall(SetPortraitTexture, port.tex, frame.unit)
+    if port.tex.SetTexCoord then port.tex:SetTexCoord(.18, .82, .14, .86) end
+    if port.tex.SetVertexColor then port.tex:SetVertexColor(1, 1, 1, 1) end
+    if port.tex.SetDesaturated then pcall(port.tex.SetDesaturated, port.tex, nil) end
+    if port.tex.Show then pcall(port.tex.Show, port.tex) end
+  end
+  if port.well and port.well.Show then pcall(port.well.Show, port.well) end
+  if port.Show then pcall(port.Show, port) end
+end
+
 function QtUI:ApplyUnitBarSizes(frame, style)
   if not frame or not style then return end
   local pad = 4
   local gap = 3
   local width = style.width or 260
   local height = style.height or 54
-  frame:SetWidth(width)
+  local portraitOn = style.portrait == true
+  frame.portraitOn = portraitOn
+  local portraitSize = height - 4
+  if portraitSize < 20 then portraitSize = 20 end
+  local leftPad = pad
+  if portraitOn then
+    leftPad = pad + portraitSize + 3
+    if frame.SetWidth then frame:SetWidth(width + portraitSize + 3) end
+  else
+    if frame.SetWidth then frame:SetWidth(width) end
+  end
   frame:SetHeight(height)
+
+  if portraitOn then
+    local port = self:EnsurePortrait(frame)
+    port:ClearAllPoints()
+    port:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -2)
+    port:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
+    port:SetPoint("TOPRIGHT", frame, "TOPLEFT", 2 + portraitSize, -2)
+    if port.Show then pcall(port.Show, port) end
+    self:UpdatePortrait(frame)
+  else
+    self:UpdatePortrait(frame)
+  end
+
   if not frame.health then return end
   if frame.power and style.powerHeight then
     local powerH = style.powerHeight or 13
     local healthH = height - pad * 2 - powerH - gap
     if healthH < 14 then healthH = 14 end
     frame.health:ClearAllPoints()
-    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -pad)
+    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", leftPad, -pad)
     frame.health:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pad, -pad)
     frame.health:SetHeight(healthH)
     frame.power:ClearAllPoints()
@@ -182,7 +254,7 @@ function QtUI:ApplyUnitBarSizes(frame, style)
     frame.power:SetHeight(powerH)
   else
     frame.health:ClearAllPoints()
-    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -pad)
+    frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", leftPad, -pad)
     frame.health:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, pad)
   end
 end
@@ -213,6 +285,65 @@ local function HandleUnitClick()
     dropdown.unit = unit
     dropdown.name = UnitName(unit)
     ToggleDropDownMenu(1, nil, dropdown, "cursor", 0, 0)
+  end
+end
+
+local RAID_ICON_TEX = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
+
+local function RaidIconCoords(index)
+  index = (tonumber(index) or 1) - 1
+  if index < 0 then index = 0 end
+  if index > 7 then index = 7 end
+  local col = math.mod(index, 4)
+  local row = math.floor(index / 4)
+  return col * .25, (col + 1) * .25, row * .25, (row + 1) * .25
+end
+
+function QtUI:UpdateRaidIcon(frame)
+  if not frame then return end
+  local holder = frame.raidIconHolder
+  if not holder then
+    local parent = frame.click or frame
+    holder = CreateFrame("Frame", nil, parent)
+    if holder.EnableMouse then holder:EnableMouse(false) end
+    local level = 6
+    if parent.GetFrameLevel then level = (parent:GetFrameLevel() or 5) + 1 end
+    if holder.SetFrameLevel then holder:SetFrameLevel(level) end
+    holder.icon = holder:CreateTexture(nil, "OVERLAY")
+    holder.icon:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+    holder.icon:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 0, 0)
+    frame.raidIconHolder = holder
+  end
+
+  local index
+  if frame.unit and type(GetRaidTargetIndex) == "function" then
+    local ok, value = pcall(GetRaidTargetIndex, frame.unit)
+    if ok then index = tonumber(value) end
+  end
+
+  if index and index >= 1 and index <= 8 then
+    holder:ClearAllPoints()
+    holder:SetPoint("TOPLEFT", frame, "TOPRIGHT", -20, 10)
+    holder:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 4, -14)
+    local icon = holder.icon
+    if icon.SetTexture then icon:SetTexture(RAID_ICON_TEX) end
+    if type(SetRaidTargetIconTexture) == "function" then
+      pcall(SetRaidTargetIconTexture, icon, index)
+    else
+      icon:SetTexCoord(RaidIconCoords(index))
+    end
+    if icon.SetAlpha then icon:SetAlpha(1) end
+    if icon.Show then pcall(icon.Show, icon) end
+    if holder.Show then pcall(holder.Show, holder) end
+  else
+    local icon = holder.icon
+    if icon and icon.SetTexture then icon:SetTexture(nil) end
+    if icon and icon.SetAlpha then icon:SetAlpha(0) end
+    if icon and icon.Hide then pcall(icon.Hide, icon) end
+    holder:ClearAllPoints()
+    holder:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+    holder:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -1976, 1976)
+    if holder.Hide then pcall(holder.Hide, holder) end
   end
 end
 
@@ -303,6 +434,8 @@ local function UpdateUnitFrame(frame, skipAuras)
   local unit = frame.unit
   if (unit == "target" or unit == "targettarget") and not UnitName(unit) then
     frame:Hide()
+    if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
+    if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
     return
   end
   frame:Show()
@@ -384,6 +517,8 @@ local function UpdateUnitFrame(frame, skipAuras)
     QtUI:UpdateAuraRow(frame.debuffs)
     QtUI:UpdateAuraRow(frame.buffs)
   end
+  if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
+  if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
 end
 
 local function SetPlayerCombatOutline(inCombat)
@@ -401,6 +536,25 @@ local function PlayerIsInCombat()
   local ok, value = pcall(UnitAffectingCombat, "player")
   if not ok then return nil end
   return value == true or value == 1 or value == "1"
+end
+
+local function ComboSettings()
+  local layout = QtUI:GetLayout()
+  local size = tonumber(layout.comboPointSize) or 15
+  if size < 8 then size = 8 end
+  if size > 28 then size = 28 end
+  local spacing = tonumber(layout.comboSpacing)
+  if spacing == nil then spacing = 2 end
+  if spacing < 0 then spacing = 0 end
+  if spacing > 12 then spacing = 12 end
+  local color = layout.comboColor or { r = 1, g = .42, b = .08 }
+  local showBg = layout.comboShowBackground
+  if showBg == false or showBg == 0 or showBg == "0" then
+    showBg = nil
+  else
+    showBg = true
+  end
+  return size, spacing, color, showBg
 end
 
 local function UpdateComboPoints()
@@ -421,15 +575,50 @@ local function UpdateComboPoints()
     if not ok then ok, value = pcall(GetComboPoints, "player", "target") end
     if ok then count = tonumber(value) or 0 end
   end
+  local _, _, color = ComboSettings()
+  local r = color.r or 1
+  local g = color.g or .42
+  local b = color.b or .08
   local i
   for i = 1, 5 do
     if i <= count then
-      frame.points[i]:SetVertexColor(1, .42, .08, 1)
+      frame.points[i]:SetVertexColor(r, g, b, 1)
     else
       frame.points[i]:SetVertexColor(.08, .09, .1, .92)
     end
   end
   frame:Show()
+end
+
+function QtUI:ApplyComboLayout()
+  local frame = self.comboFrame
+  if not frame then return end
+  local size, spacing, _, showBg = ComboSettings()
+  local pad = 4
+  local width = pad * 2 + size * 5 + spacing * 4
+  local height = pad * 2 + size
+  if frame.SetWidth then frame:SetWidth(width) end
+  if frame.SetHeight then frame:SetHeight(height) end
+
+  local i
+  for i = 1, 5 do
+    local slot = frame.slots and frame.slots[i]
+    if slot then
+      local x = pad + (i - 1) * (size + spacing)
+      slot:ClearAllPoints()
+      slot:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -pad)
+      slot:SetPoint("BOTTOMRIGHT", frame, "TOPLEFT", x + size, -pad - size)
+    end
+  end
+
+  if showBg then
+    frame:SetBackdropColor(.015, .02, .025, .76)
+    frame:SetBackdropBorderColor(.18, .24, .28, 1)
+  else
+    frame:SetBackdropColor(0, 0, 0, 0)
+    frame:SetBackdropBorderColor(0, 0, 0, 0)
+  end
+  UpdateComboPoints()
 end
 
 function QtUI:SetupComboPoints()
@@ -438,21 +627,18 @@ function QtUI:SetupComboPoints()
   local frame = self:CreatePanel("QtUIComboPoints", UIParent,
     self.playerFrame:GetFrameLevel() + 2)
   frame:SetFrameStrata("MEDIUM")
-  frame:SetWidth(96)
-  frame:SetHeight(22)
   frame:SetPoint("RIGHT", self.playerFrame, "LEFT", -8, 0)
-  frame:SetBackdropColor(.015, .02, .025, .76)
   frame.points = {}
+  frame.slots = {}
 
   local i
   for i = 1, 5 do
     local slot = CreateFrame("Frame", nil, frame)
-    slot:SetWidth(15)
-    slot:SetHeight(14)
-    slot:SetPoint("LEFT", frame, "LEFT", 6 + (i - 1) * 17, 0)
     slot.fill = slot:CreateTexture(nil, "ARTWORK")
-    slot.fill:SetAllPoints(slot)
+    slot.fill:SetPoint("TOPLEFT", slot, "TOPLEFT", 0, 0)
+    slot.fill:SetPoint("BOTTOMRIGHT", slot, "BOTTOMRIGHT", 0, 0)
     slot.fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+    frame.slots[i] = slot
     frame.points[i] = slot.fill
   end
 
@@ -465,7 +651,7 @@ function QtUI:SetupComboPoints()
 
   self.comboFrame = frame
   self.comboEvents = events
-  UpdateComboPoints()
+  self:ApplyComboLayout()
 end
 
 function QtUI:ApplyUnitFrameLayout()
@@ -494,6 +680,7 @@ function QtUI:ApplyUnitFrameLayout()
     if self.PlaceCastBar then self:PlaceCastBar() end
   end
   if self.RefreshEnergyTick then self:RefreshEnergyTick() end
+  if self.ApplyComboLayout then self:ApplyComboLayout() end
 end
 
 function QtUI:UpdateUnitFrames(skipAuras)
@@ -732,6 +919,8 @@ function QtUI:SetupUnitFrames()
   events:RegisterEvent("UNIT_LEVEL")
   events:RegisterEvent("UNIT_NAME_UPDATE")
   events:RegisterEvent("PLAYER_ENTERING_WORLD")
+  pcall(events.RegisterEvent, events, "UNIT_PORTRAIT_UPDATE")
+  pcall(events.RegisterEvent, events, "RAID_TARGET_UPDATE")
   pcall(events.RegisterEvent, events, "PLAYER_ENTER_COMBAT")
   pcall(events.RegisterEvent, events, "PLAYER_LEAVE_COMBAT")
   pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")
@@ -752,7 +941,17 @@ function QtUI:SetupUnitFrames()
     elseif event == "PLAYER_ENTERING_WORLD" then
       SetPlayerCombatOutline(PlayerIsInCombat())
     end
-    if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" or arg1 == "player" or arg1 == "target" then
+    if event == "RAID_TARGET_UPDATE" then
+      QtUI:UpdateUnitFrames(true)
+      if QtUI.UpdatePartyFrames then QtUI:UpdatePartyFrames(true) end
+    elseif event == "UNIT_PORTRAIT_UPDATE" then
+      if arg1 == "player" or arg1 == "target" or arg1 == "targettarget" or not arg1 then
+        QtUI:UpdateUnitFrames(true)
+      end
+      if arg1 and string.find(arg1, "party", 1, true) and QtUI.UpdatePartyFrames then
+        QtUI:UpdatePartyFrames(true)
+      end
+    elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" or arg1 == "player" or arg1 == "target" then
       local refreshAuras = event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD"
       QtUI:UpdateUnitFrames(not refreshAuras)
     end

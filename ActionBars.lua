@@ -190,25 +190,30 @@ local function InstallActionResolvers()
     return nil
   end
 
+  local function IsShapeshiftButton(button)
+    local name = button and button.GetName and button:GetName()
+    if name and string.find(name, "ShapeshiftButton", 1, true) then return true end
+    return nil
+  end
+
   local function TintActionIcon(button)
-    if not button or not RangeColorOn() then return end
+    if not button then return end
     local name = button.GetName and button:GetName()
     if not name then return end
     local icon = getglobal(name .. "Icon")
     if not icon or not icon.SetVertexColor then return end
+    -- Native usable/range tint on stance buttons can leave them unusable.
+    if IsShapeshiftButton(button) then
+      icon:SetVertexColor(1, 1, 1)
+      return
+    end
+    if not RangeColorOn() then return end
     local slot = ActionSlotForButton(button)
     if not slot then return end
     if type(HasAction) == "function" then
       local ok, has = pcall(HasAction, slot)
       if not ok or not (has == true or has == 1 or has == "1") then
         icon:SetVertexColor(1, 1, 1)
-        return
-      end
-    end
-    if type(IsActionInRange) == "function" then
-      local ok, inRange = pcall(IsActionInRange, slot)
-      if ok and inRange == 0 then
-        icon:SetVertexColor(1, .16, .16)
         return
       end
     end
@@ -220,9 +225,18 @@ local function InstallActionResolvers()
           return
         end
         if not (usable == true or usable == 1 or usable == "1") then
-          icon:SetVertexColor(.4, .4, .4)
+          icon:SetVertexColor(.45, .45, .45)
           return
         end
+      end
+    end
+    if type(IsActionInRange) == "function" then
+      local ok, inRange = pcall(IsActionInRange, slot)
+      if ok and inRange == 0 then
+        -- Invalid or out-of-reach targets report 0 for every spell. Gray,
+        -- not red, so it reads as "can't use" rather than "too far".
+        icon:SetVertexColor(.45, .45, .45)
+        return
       end
     end
     icon:SetVertexColor(1, 1, 1)
@@ -961,6 +975,7 @@ local function InstallAutoUnshift()
   local passing
   local lastSlot, lastCheckCursor, lastOnSelf
   local lastSpell
+  local lastUseTime
   local pending = CreateFrame("Frame", "QtUIAutoUnshift")
   pending:Hide()
 
@@ -1088,14 +1103,16 @@ local function InstallAutoUnshift()
 
   local function HandleError(text)
     if not FeatureOn() or not IsShapeshiftError(text) then return nil end
+    -- Right-clicking a friendly (inspect, trade, follow) is interact, not a cast.
     if getglobal("ERR_CANT_INTERACT_SHAPESHIFTED") and text == ERR_CANT_INTERACT_SHAPESHIFTED then
-      if type(UnitAffectingCombat) == "function" then
-        local ok, combat = pcall(UnitAffectingCombat, "player")
-        if ok and (combat == true or combat == 1 or combat == "1") then return nil end
-      end
+      return nil
+    end
+    local now = GetTime()
+    if (not lastSlot and not lastSpell) or not lastUseTime or (now - lastUseTime) > .5 then
+      return nil
     end
     LeaveShapeshift()
-    if lastSlot or lastSpell then QueueRecast() end
+    QueueRecast()
     return true
   end
 
@@ -1129,6 +1146,7 @@ local function InstallAutoUnshift()
         lastCheckCursor = checkCursor
         lastOnSelf = onSelf
         lastSpell = nil
+        lastUseTime = GetTime()
       end
       return originalUseAction(slot, checkCursor, onSelf)
     end
@@ -1140,6 +1158,7 @@ local function InstallAutoUnshift()
       if not passing and name then
         lastSpell = name
         lastSlot = nil
+        lastUseTime = GetTime()
       end
       return originalCast(name, onSelf)
     end

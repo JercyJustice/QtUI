@@ -1,3 +1,12 @@
+local GAP = 24
+local MS_W = 54
+local FPS_W = 66
+local CLOCK_W = 44
+local BAGS_W = 86
+local GOLD_W = 110
+local TEXT_FONT = "Fonts\\FRIZQT__.TTF"
+local TEXT_SIZE = 11
+
 local function FormatMoney(copper)
   copper = copper or 0
   local gold = math.floor(copper / 10000)
@@ -31,25 +40,122 @@ local function FormatBagSpace(free, total)
   return "|cff" .. color .. free .. "/" .. total .. " slots|r"
 end
 
-local function GetLocalTime()
-  if os and type(os.date) == "function" then
-    local ok, localTime = pcall(os.date, "*t")
-    if ok and type(localTime) == "table" then
-      return tonumber(localTime.hour) or 0, tonumber(localTime.min) or 0
-    end
+local function FormatHM(hour, minute)
+  return string.format("%02d:%02d", tonumber(hour) or 0, tonumber(minute) or 0)
+end
+
+local function GetServerClock()
+  local hour, minute = GetGameTime()
+  return tonumber(hour) or 0, tonumber(minute) or 0
+end
+
+local function GetClientClock()
+  local fn = date
+  if type(fn) ~= "function" and os and type(os.date) == "function" then
+    fn = os.date
   end
-  return GetGameTime()
+  if type(fn) ~= "function" then return nil end
+
+  local ok, stamp = pcall(fn, "*t")
+  if ok and type(stamp) == "table" then
+    return tonumber(stamp.hour) or 0, tonumber(stamp.min) or 0
+  end
+
+  ok, stamp = pcall(fn, "%H:%M")
+  if ok and type(stamp) == "string" then
+    local _, _, hour, minute = string.find(stamp, "(%d+):(%d+)")
+    if hour then return tonumber(hour), tonumber(minute) end
+  end
+  return nil
+end
+
+local function ClockUsesLocal()
+  if not QtUI.GetLayout then return nil end
+  local layout = QtUI:GetLayout()
+  return layout and layout.clockLocal == true
+end
+
+-- Emberveil ignores SetWidth. Size cells with corner anchors so hit boxes
+-- and column widths stay put when 99 fps becomes 164 fps.
+local function PlaceCell(cell, bar, rightFrame, width, gap)
+  cell:ClearAllPoints()
+  cell:SetPoint("TOP", bar, "TOP", 0, 0)
+  cell:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
+  if rightFrame == bar then
+    cell:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    cell:SetPoint("LEFT", bar, "RIGHT", -width, 0)
+  else
+    cell:SetPoint("RIGHT", rightFrame, "LEFT", -gap, 0)
+    cell:SetPoint("LEFT", rightFrame, "LEFT", -gap - width, 0)
+  end
+end
+
+local function LabelInCell(parent, align)
+  local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  if text.SetFont then pcall(text.SetFont, text, TEXT_FONT, TEXT_SIZE, "") end
+  text:ClearAllPoints()
+  -- One shared vertical point so every column sits on the same baseline.
+  -- Stretching LEFT+RIGHT without TOP/BOTTOM lets Emberveil pick a random Y.
+  if align == "CENTER" then
+    text:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    if text.SetJustifyH then text:SetJustifyH("CENTER") end
+  else
+    text:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    if text.SetJustifyH then text:SetJustifyH("RIGHT") end
+  end
+  if text.SetJustifyV then text:SetJustifyV("MIDDLE") end
+  return text
 end
 
 local function UpdateDataText(frame)
-  local hour, minute = GetLocalTime()
   local fps = math.floor((GetFramerate() or 0) + .5)
   local _, _, latency = GetNetStats()
   latency = math.floor((latency or 0) + .5)
 
-  frame.left:SetText(FormatMoney(GetMoney()))
-  frame.right:SetText(FormatBagSpace(frame.freeBagSlots or 0, frame.totalBagSlots or 0) ..
-    string.format("   |cffffffff%02d:%02d|r   |cff7fdfff%d fps|r   |cff7fff7f%d ms|r", hour, minute, fps, latency))
+  frame.gold:SetText(FormatMoney(GetMoney()))
+  frame.bags:SetText(FormatBagSpace(frame.freeBagSlots or 0, frame.totalBagSlots or 0))
+  frame.fps:SetText(string.format("|cff7fdfff%d fps|r", fps))
+  frame.ms:SetText(string.format("|cff7fff7f%d ms|r", latency))
+
+  local hour, minute
+  if ClockUsesLocal() then
+    hour, minute = GetClientClock()
+  end
+  if hour == nil then
+    hour, minute = GetServerClock()
+  end
+  frame.clock.text:SetText(string.format("|cffffffff%s|r", FormatHM(hour, minute)))
+end
+
+local function PlaceClockTooltip(owner)
+  if not GameTooltip or not owner then return end
+  GameTooltip:ClearAllPoints()
+  GameTooltip:SetPoint("BOTTOM", owner, "TOP", 0, 8)
+end
+
+local function ShowClockTooltip()
+  if not GameTooltip then return end
+  local owner = this
+  GameTooltip:SetOwner(owner, "ANCHOR_NONE")
+  GameTooltip:ClearLines()
+
+  local server = FormatHM(GetServerClock())
+  local ch, cm = GetClientClock()
+  local localText = "n/a"
+  if ch ~= nil then localText = FormatHM(ch, cm) end
+
+  local useLocal = ClockUsesLocal() and ch ~= nil
+  if useLocal then
+    GameTooltip:AddLine("Local Time")
+  else
+    GameTooltip:AddLine("Server Time")
+  end
+  GameTooltip:AddDoubleLine("Server", "|cffffffff" .. server .. "|r")
+  GameTooltip:AddDoubleLine("Local", "|cffffffff" .. localText .. "|r")
+  GameTooltip:AddLine(" ")
+  GameTooltip:AddLine("Click to switch", .7, .75, .8)
+  GameTooltip:Show()
+  PlaceClockTooltip(owner)
 end
 
 function QtUI:SetupDataText()
@@ -57,21 +163,68 @@ function QtUI:SetupDataText()
   -- modifies either chat window.
   local parent = UIParent
   local bar = CreateFrame("Frame", "QtUIDataBar", parent)
-  bar:SetWidth(math.min(430, UIParent:GetWidth() * .27))
+  bar:SetWidth(math.min(460, UIParent:GetWidth() * .3))
   if self.utilityActionPanel then
     bar:SetPoint("BOTTOMRIGHT", self.utilityActionPanel, "TOPRIGHT", 0, 4)
   else
     bar:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 62)
   end
   bar:SetHeight(20)
+  if bar.EnableMouse then bar:EnableMouse(false) end
 
-  bar.left = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  bar.left:SetPoint("LEFT", bar, "LEFT", 3, 0)
-  bar.left:SetJustifyH("LEFT")
+  bar.msCell = CreateFrame("Frame", nil, bar)
+  PlaceCell(bar.msCell, bar, bar, MS_W, GAP)
+  if bar.msCell.EnableMouse then bar.msCell:EnableMouse(false) end
+  bar.ms = LabelInCell(bar.msCell)
 
-  bar.right = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  bar.right:SetPoint("RIGHT", bar, "RIGHT", -3, 0)
-  bar.right:SetJustifyH("RIGHT")
+  bar.fpsCell = CreateFrame("Frame", nil, bar)
+  PlaceCell(bar.fpsCell, bar, bar.msCell, FPS_W, GAP)
+  if bar.fpsCell.EnableMouse then bar.fpsCell:EnableMouse(false) end
+  bar.fps = LabelInCell(bar.fpsCell)
+
+  -- Frame, not Button: Emberveil Button padding shifts the clock off the row.
+  -- Real hit box via corner anchors; a leftover SetWidth(48) was ignored
+  -- and left the clock unclickable.
+  bar.clock = CreateFrame("Frame", "QtUIDataClock", bar)
+  PlaceCell(bar.clock, bar, bar.fpsCell, CLOCK_W, GAP)
+  if bar.clock.EnableMouse then bar.clock:EnableMouse(true) end
+  if bar.clock.SetFrameLevel then
+    bar.clock:SetFrameLevel((bar:GetFrameLevel() or 1) + 5)
+  end
+  -- Invisible fill so Emberveil actually hit-tests the cell.
+  bar.clock.hit = bar.clock:CreateTexture(nil, "BACKGROUND")
+  bar.clock.hit:SetPoint("TOPLEFT", bar.clock, "TOPLEFT", 0, 0)
+  bar.clock.hit:SetPoint("BOTTOMRIGHT", bar.clock, "BOTTOMRIGHT", 0, 0)
+  bar.clock.hit:SetTexture("Interface\\Buttons\\WHITE8X8")
+  if bar.clock.hit.SetVertexColor then bar.clock.hit:SetVertexColor(0, 0, 0, 0) end
+  bar.clock.text = LabelInCell(bar.clock, "CENTER")
+  local function ToggleClock()
+    local layout = QtUI:GetLayout()
+    if layout.clockLocal then
+      layout.clockLocal = false
+    else
+      layout.clockLocal = true
+    end
+    UpdateDataText(bar)
+    if GameTooltip and GameTooltip.IsShown and GameTooltip:IsShown() then ShowClockTooltip() end
+  end
+  bar.clock:SetScript("OnMouseUp", function()
+    if arg1 == "LeftButton" then ToggleClock() end
+  end)
+  bar.clock:SetScript("OnEnter", ShowClockTooltip)
+  bar.clock:SetScript("OnLeave", function()
+    if GameTooltip then GameTooltip:Hide() end
+  end)
+
+  bar.bagsCell = CreateFrame("Frame", nil, bar)
+  PlaceCell(bar.bagsCell, bar, bar.clock, BAGS_W, GAP)
+  if bar.bagsCell.EnableMouse then bar.bagsCell:EnableMouse(false) end
+  bar.bags = LabelInCell(bar.bagsCell)
+
+  bar.goldCell = CreateFrame("Frame", nil, bar)
+  PlaceCell(bar.goldCell, bar, bar.bagsCell, GOLD_W, GAP)
+  if bar.goldCell.EnableMouse then bar.goldCell:EnableMouse(false) end
+  bar.gold = LabelInCell(bar.goldCell)
 
   bar.elapsed = 0
   bar:RegisterEvent("BAG_UPDATE")

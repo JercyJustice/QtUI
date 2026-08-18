@@ -10,7 +10,9 @@ local FEATURE_OPTIONS = {
   { key = "castBar", label = "Cast Bar", description = "Replace the native player casting bar." },
   { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling and controls." },
   { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
-  { key = "dataText", label = "Gold / Time / Performance", description = "Show money, game time, FPS and latency." },
+  { key = "dataText", label = "Gold / Time / Performance", description = "Show money, clock, FPS and latency. Click the clock to switch server and local time." },
+  { key = "questLog", label = "Dragonflight Quest Log", description = "Replace the quest log parchment with the Dragonflight artwork. Open the log to preview; other features still need a relog.", default = false },
+  { key = "damageMeter", label = "Damage Meter", description = "Minimal ShaguDPS-style meter. Left-click title: Damage/DPS/Heal. Right-click: Current/Overall. Shift-click: reset." },
 }
 
 QtUI.featureOptions = FEATURE_OPTIONS
@@ -20,7 +22,11 @@ function QtUI:EnsureFeatureDefaults()
   local _, option
   for _, option in ipairs(FEATURE_OPTIONS) do
     if QtUIDB.features[option.key] == nil then
-      QtUIDB.features[option.key] = true
+      if option.default == false then
+        QtUIDB.features[option.key] = false
+      else
+        QtUIDB.features[option.key] = true
+      end
     end
   end
 end
@@ -33,6 +39,19 @@ end
 function QtUI:SetFeatureEnabled(key, enabled)
   self:EnsureFeatureDefaults()
   QtUIDB.features[key] = enabled and true or false
+  if key == "questLog" then
+    if enabled then
+      if self.SetupQuestLog then self:SetupQuestLog() end
+    elseif self.RestoreQuestLogArt then
+      self:RestoreQuestLogArt()
+    end
+  elseif key == "damageMeter" then
+    if enabled then
+      if self.SetupDamageMeter then self:SetupDamageMeter() end
+    elseif self.HideDamageMeter then
+      self:HideDamageMeter()
+    end
+  end
 end
 
 local function UpdateFeatureRow(row)
@@ -599,6 +618,8 @@ function QtUI:SetupSettingsWindow()
   AddNav("unit-tot", "Target of Target", true)
   AddNav("unit-party", "Party", true)
   AddNav("unit-pet", "Pet", true)
+  AddNav("unit-combo", "Combo Points", true)
+  AddNav("damagemeter", "Damage Meter")
 
   local general = AddPage("general")
   general.note = general:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -623,9 +644,12 @@ function QtUI:SetupSettingsWindow()
 
   frame.rows = {}
   local index, option
+  -- Two columns of 7 so a 13th toggle does not sit on top of item 7.
+  local featureRows = 7
   for index, option in ipairs(FEATURE_OPTIONS) do
-    local column = index > 6 and 1 or 0
-    local rowIndex = math.mod(index - 1, 6)
+    local column = 0
+    if index > featureRows then column = 1 end
+    local rowIndex = math.mod(index - 1, featureRows)
     table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 4))
   end
 
@@ -665,36 +689,42 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().slotShowBackground = value and true or false
   end)
-  CreateColorRow(bars, -158, "Slot background", function()
+  CreateToggleRow(bars, -158, "Show button frame", function()
+    local value = QtUI:GetLayout().slotShowRim
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().slotShowRim = value and true or false
+  end)
+  CreateColorRow(bars, -184, "Slot background", function()
     return QtUI:GetLayout().slotBackground
   end, function(color)
     local current = QtUI:GetLayout().slotBackground
     color.a = current.a or .96
     QtUI:GetLayout().slotBackground = color
   end)
-  CreateStepper(bars, -184, "Slot opacity", function()
+  CreateStepper(bars, -210, "Slot opacity", function()
     return QtUI:GetLayout().slotBackground.a or .96
   end, function(value)
     QtUI:GetLayout().slotBackground.a = value
   end, 0.1, 1, 0.05, 2)
-  CreateColorRow(bars, -210, "Slot border", function()
+  CreateColorRow(bars, -236, "Slot border", function()
     return QtUI:GetLayout().slotBorder
   end, function(color)
     QtUI:GetLayout().slotBorder = color
   end)
-  CreateToggleRow(bars, -236, "Leave shapeshift to cast", function()
+  CreateToggleRow(bars, -262, "Leave shapeshift to cast", function()
     local value = QtUI:GetLayout().unshiftToCast
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().unshiftToCast = value and true or false
   end)
-  CreateToggleRow(bars, -262, "Cooldown numbers", function()
+  CreateToggleRow(bars, -288, "Cooldown numbers", function()
     local value = QtUI:GetLayout().cooldownText
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().cooldownText = value and true or false
   end)
-  CreateToggleRow(bars, -288, "Color out of range / OOM", function()
+  CreateToggleRow(bars, -314, "Color out of range / OOM", function()
     local value = QtUI:GetLayout().barRangeColor
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
@@ -856,6 +886,14 @@ function QtUI:SetupSettingsWindow()
       end)
       y = y - 26
     end
+    if extras.portrait then
+      CreateToggleRow(page, y, "Show portrait", function()
+        return QtUI:GetUnitStyle(styleKey).portrait == true
+      end, function(value)
+        QtUI:GetUnitStyle(styleKey).portrait = value and true or false
+      end)
+      y = y - 26
+    end
     CreateAlignPicker(page, y, "Name", function()
       return QtUI:GetUnitStyle(styleKey).nameAlign
     end, function(value)
@@ -887,12 +925,12 @@ function QtUI:SetupSettingsWindow()
   end
 
   BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors.", {
-    height = true, powerHeight = true, powerText = true,
+    height = true, powerHeight = true, powerText = true, portrait = true,
     classColor = "Health uses class color", classColorKey = "playerClassColor",
     minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors.", {
-    height = true, powerHeight = true, powerText = true, classText = true,
+    height = true, powerHeight = true, powerText = true, classText = true, portrait = true,
     minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-tot", "targettarget", "Target-of-target size, mana bar and text anchors.", {
@@ -900,13 +938,74 @@ function QtUI:SetupSettingsWindow()
     minWidth = 80, widthStep = 5, minHeight = 24, maxHeight = 80,
   })
   BuildUnitPage("unit-party", "party", "Party frames. Text anchors apply to every member.", {
-    height = true, powerHeight = true, powerText = true, spacing = true,
+    height = true, powerHeight = true, powerText = true, spacing = true, portrait = true,
     classColor = "Health uses class color", classColorKey = "partyClassColor",
     minHeight = 32, maxHeight = 80,
   })
   BuildUnitPage("unit-pet", "pet", "Player and party pet frames.", {
     height = true, minHeight = 20, maxHeight = 50,
   })
+
+  local combo = AddPage("unit-combo")
+  combo.note = combo:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  combo.note:SetPoint("TOPLEFT", combo, "TOPLEFT", 12, 0)
+  combo.note:SetWidth(450)
+  combo.note:SetJustifyH("LEFT")
+  combo.note:SetText("Rogue and cat-form combo points. Drag the bar in Toggle Anchor.")
+  CreateStepper(combo, -28, "Point size", function()
+    return QtUI:GetLayout().comboPointSize
+  end, function(value)
+    QtUI:GetLayout().comboPointSize = value
+  end, 8, 28, 1, 0)
+  CreateStepper(combo, -54, "Spacing", function()
+    return QtUI:GetLayout().comboSpacing
+  end, function(value)
+    QtUI:GetLayout().comboSpacing = value
+  end, 0, 12, 1, 0)
+  CreateToggleRow(combo, -80, "Show bar background", function()
+    local value = QtUI:GetLayout().comboShowBackground
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().comboShowBackground = value and true or false
+  end)
+  CreateColorRow(combo, -106, "Point color", function()
+    return QtUI:GetLayout().comboColor
+  end, function(color)
+    local current = QtUI:GetLayout().comboColor
+    color.a = current.a or 1
+    QtUI:GetLayout().comboColor = color
+  end)
+
+  local meter = AddPage("damagemeter")
+  meter.note = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  meter.note:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, 0)
+  meter.note:SetWidth(450)
+  meter.note:SetJustifyH("LEFT")
+  meter.note:SetText("Damage meter window size. Height adds or removes rows. Applies immediately.")
+  CreateStepper(meter, -28, "Width", function()
+    return QtUI:GetLayout().meterWidth
+  end, function(value)
+    QtUI:GetLayout().meterWidth = value
+  end, 140, 400, 10, 0)
+  CreateStepper(meter, -54, "Height", function()
+    local layout = QtUI:GetLayout()
+    local bars = tonumber(layout.meterBars) or 8
+    local barH = tonumber(layout.meterBarHeight) or 16
+    return 20 + bars * barH + 6
+  end, function(value)
+    local layout = QtUI:GetLayout()
+    local barH = tonumber(layout.meterBarHeight) or 16
+    if barH < 12 then barH = 12 end
+    local bars = math.floor((value - 26) / barH + .5)
+    if bars < 3 then bars = 3 end
+    if bars > 16 then bars = 16 end
+    layout.meterBars = bars
+  end, 62, 410, 16, 0)
+  CreateStepper(meter, -80, "Bar height", function()
+    return QtUI:GetLayout().meterBarHeight
+  end, function(value)
+    QtUI:GetLayout().meterBarHeight = value
+  end, 12, 24, 1, 0)
 
   CreateSmallButton(frame, "Reload UI", 18, function()
     if SlashCmdList and SlashCmdList["QTUI"] then

@@ -156,6 +156,8 @@ local function UpdatePartyMember(frame, skipAuras)
   local unit = frame.unit
   if not UnitIsPresent(unit) then
     frame:Hide()
+    if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
+    if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
     return
   end
   frame:Show()
@@ -206,12 +208,15 @@ local function UpdatePartyMember(frame, skipAuras)
     QtUI:UpdateAuraRow(frame.debuffs)
     QtUI:UpdateAuraRow(frame.buffs)
   end
+  if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
+  if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
 end
 
 local function UpdatePetFrame(frame)
   local unit = frame.unit
   if not UnitIsPresent(unit) then
     frame:Hide()
+    if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
     return
   end
   frame:Show()
@@ -224,6 +229,7 @@ local function UpdatePetFrame(frame)
   QtUI:PaintStatusBar(frame.health, .18, .68, .28)
   frame.name:SetText(UnitName(unit) or "Pet")
   frame.healthText:SetText(QtUI.ShortNumber(health) .. " / " .. QtUI.ShortNumber(healthMax))
+  if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
 end
 
 function QtUI:ApplyPartyFrameLayout()
@@ -313,6 +319,8 @@ function QtUI:SetupPartyFrames()
   events:RegisterEvent("UNIT_NAME_UPDATE")
   events:RegisterEvent("UNIT_PET")
   events:RegisterEvent("PET_UI_UPDATE")
+  pcall(events.RegisterEvent, events, "RAID_TARGET_UPDATE")
+  pcall(events.RegisterEvent, events, "UNIT_PORTRAIT_UPDATE")
   events:SetScript("OnEvent", function()
     local unit = arg1
     if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" or event == "UNIT_MANA"

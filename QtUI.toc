@@ -2,7 +2,7 @@
 ## Title: |cffffcc00Qt|rUI
 ## Notes: Compact Emberveil interface with dual chat, unit frames and data text
 ## Author: JercyJustice
-## Version: 0.10.8
+## Version: 0.10.11
 ## SavedVariables: QtUIDB
 
 Core.lua
@@ -16,8 +16,10 @@ VendorPrices.lua
 Bags.lua
 Minimap.lua
 WorldMap.lua
+QuestLog.lua
 AutoLoot.lua
 DataText.lua
 MoveMode.lua
 Cooldowns.lua
 EqCompare.lua
+DamageMeter.lua

@@ -255,6 +255,33 @@ local function ScanAuraTooltip(unit, index, auraType)
   return auraName, duration, remaining
 end
 
+-- Emberveil sometimes hands durations in milliseconds. Session GetTime()
+-- is seconds; anything beyond a day is not a real aura length.
+local function AsSeconds(value)
+  value = tonumber(value)
+  if not value or value <= 0 then return nil end
+  if value > 86400 then return value / 1000 end
+  return value
+end
+
+local function AsExpiration(value)
+  value = AsSeconds(value)
+  if not value then return nil end
+  local now = GetTime()
+  if value > now then return value end
+  if value < 86400 then return now + value end
+  return nil
+end
+
+local function UnitIsPlayerUnit(unit)
+  if unit == "player" then return true end
+  if type(UnitIsUnit) == "function" then
+    local ok, same = pcall(UnitIsUnit, unit, "player")
+    if ok and (same == true or same == 1 or same == "1") then return true end
+  end
+  return nil
+end
+
 local function GetPlayerAura(index, auraType)
   if type(GetPlayerBuff) ~= "function" then return nil end
   local filter = "HELPFUL"
@@ -281,7 +308,7 @@ local function GetPlayerAura(index, auraType)
   local timeLeft
   if type(GetPlayerBuffTimeLeft) == "function" then
     local timeOk, remaining = pcall(GetPlayerBuffTimeLeft, buffIndex)
-    if timeOk then timeLeft = tonumber(remaining) end
+    if timeOk then timeLeft = AsSeconds(remaining) end
   end
 
   local auraName
@@ -309,7 +336,7 @@ local function GetPlayerAura(index, auraType)
 end
 
 local function GetAura(unit, index, auraType)
-  if unit == "player" then
+  if UnitIsPlayerUnit(unit) then
     local texture, applications, auraKind, duration, expiration, auraName =
       GetPlayerAura(index, auraType)
     if texture then
@@ -329,14 +356,14 @@ local function GetAura(unit, index, auraType)
     texture = third
     applications = fourth
     auraKind = fifth
-    duration = tonumber(sixth)
-    expiration = tonumber(seventh)
+    duration = AsSeconds(sixth)
+    expiration = AsExpiration(seventh)
   else
     texture = first
     applications = second
     auraKind = third
-    duration = tonumber(fourth)
-    expiration = tonumber(fifth)
+    duration = AsSeconds(fourth)
+    expiration = AsExpiration(fifth)
   end
 
   if not duration or duration <= 0 then
@@ -367,8 +394,8 @@ local function GetAura(unit, index, auraType)
 end
 
 local function FormatAuraTime(seconds)
-  if seconds >= 3600 then return math.ceil(seconds / 3600) .. "h" end
-  if seconds >= 60 then return math.ceil(seconds / 60) .. "m" end
+  if seconds >= 3600 then return math.floor(seconds / 3600) .. "h" end
+  if seconds >= 60 then return math.floor(seconds / 60) .. "m" end
   return math.ceil(seconds) .. "s"
 end
 

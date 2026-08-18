@@ -512,20 +512,17 @@ local function UpdateMoneyText(frame)
 end
 
 local function UpdateSpaceText(frame)
-  local free, total, keySlots = 0, 0, 0
+  local free, total = 0, 0
   local bagOrder = { 0, 1, 2, 3, 4, -2 }
   for _, bag in ipairs(bagOrder) do
     local slots = GetContainerNumSlots(bag) or 0
     total = total + slots
-    if bag == -2 then keySlots = slots end
     for slot = 1, slots do
       if not GetContainerItemLink(bag, slot) then free = free + 1 end
     end
   end
-  if keySlots > 0 then
-    frame.space:SetText(free .. " / " .. total .. " free  |cffffcc00(" .. keySlots .. " key slots)|r")
-  else
-    frame.space:SetText(free .. " / " .. total .. " slots free")
+  if frame.space then
+    frame.space:SetText(free .. " / " .. total)
   end
 end
 
@@ -640,8 +637,8 @@ function QtUI:SetupBags()
   else
     frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -18, 220)
   end
-  frame:SetBackdropColor(.015, .02, .025, .68)
-  frame:SetBackdropBorderColor(.18, .25, .28, .95)
+  frame:SetBackdropColor(.025, .035, .045, .92)
+  frame:SetBackdropBorderColor(.18, .24, .28, 1)
   frame:SetMovable(true)
   frame:SetClampedToScreen(true)
   frame:EnableMouse(true)
@@ -649,13 +646,6 @@ function QtUI:SetupBags()
   frame:SetScript("OnDragStart", function() this:StartMoving() end)
   frame:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
   frame.items = {}
-
-  frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 13, -13)
-  frame.title:SetText("|cffffcc00Qt|r Bags")
-
-  frame.space = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  frame.space:SetPoint("TOP", frame, "TOP", 0, -15)
 
   -- Item buttons consume mouse input, so provide a full-width header handle
   -- that always starts movement and stores its final screen position.
@@ -683,16 +673,34 @@ function QtUI:SetupBags()
     end
   end)
 
+  frame.space = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 12, 0)
+  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -28, 0)
+  frame.space:SetJustifyH("LEFT")
+
   frame.close = CreateFrame("Button", "QtUIBagClose", frame)
-  frame.close:SetWidth(24)
-  frame.close:SetHeight(24)
-  frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
+  frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -8)
+  frame.close:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", -24, -26)
   frame.close:SetFrameLevel(frame:GetFrameLevel() + 10)
-  frame.close.text = frame.close:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  frame.close.text:SetAllPoints(frame.close)
-  frame.close.text:SetJustifyH("CENTER")
-  frame.close.text:SetText("|cffff5555X|r")
+  if frame.close.SetNormalTexture then
+    frame.close:SetNormalTexture("Interface\\AddOns\\QtUI\\Media\\close_normal")
+  end
+  if frame.close.SetPushedTexture then
+    frame.close:SetPushedTexture("Interface\\AddOns\\QtUI\\Media\\close_pushed")
+  end
+  frame.close:EnableMouse(true)
+  frame.close:RegisterForClicks("LeftButtonUp")
   frame.close:SetScript("OnClick", function() QtUI:CloseBags() end)
+  frame.close:SetScript("OnEnter", function()
+    if this.GetNormalTexture and this:GetNormalTexture() then
+      this:GetNormalTexture():SetVertexColor(.4, 1, .8)
+    end
+  end)
+  frame.close:SetScript("OnLeave", function()
+    if this.GetNormalTexture and this:GetNormalTexture() then
+      this:GetNormalTexture():SetVertexColor(1, 1, 1)
+    end
+  end)
 
   frame.money = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   frame.money:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -13, 12)

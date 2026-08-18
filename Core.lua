@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.10.13"
+QtUI.version = "0.11.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -713,6 +713,7 @@ function QtUI:EnsureDB()
   QtUIDB.scale = nil
   if self.EnsureFeatureDefaults then self:EnsureFeatureDefaults() end
   if self.EnsureLayoutDefaults then self:EnsureLayoutDefaults() end
+  if self.EnsureProfiles then self:EnsureProfiles() end
 end
 
 function QtUI:Initialize()

@@ -360,6 +360,24 @@ function QtUI:RegisterMovable(key, label, frame, alwaysShow)
   entry.overlay = CreateMoveOverlay(entry, table.getn(self.movableEntries))
 end
 
+function QtUI:ApplySavedPositions()
+  if not QtUIDB.positions then return end
+  if self.movableEntries then
+    local _, entry
+    for _, entry in ipairs(self.movableEntries) do
+      local saved = QtUIDB.positions[entry.key]
+      if saved and saved.x and saved.y and entry.frame then
+        local width, height = FrameSize(entry.frame)
+        local left, bottom = ClampToScreen(saved.x, saved.y, width, height)
+        PlaceFrame(entry.frame, left, bottom)
+        if entry.overlay then ReanchorOverlay(entry.overlay) end
+      end
+    end
+  end
+  if self.PlaceCastBar then self:PlaceCastBar() end
+  if self.RestoreQuestTimerPosition then self:RestoreQuestTimerPosition() end
+end
+
 function QtUI:ResetMovable(key)
   if not self.movableEntries then return end
   local _, entry

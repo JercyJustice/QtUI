@@ -226,6 +226,173 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
   return row
 end
 
+local function CreateHeader(parent, y, text)
+  local row = CreateFrame("Frame", nil, parent)
+  row:SetWidth(460)
+  row:SetHeight(20)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+  row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  row.title:SetPoint("LEFT", row, "LEFT", 0, 0)
+  row.title:SetText("|cff33ffcc" .. text .. "|r")
+  row.line = row:CreateTexture(nil, "ARTWORK")
+  row.line:SetTexture(.18, .5, .46, .7)
+  row.line:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 1)
+  row.line:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 1)
+  if row.line.SetHeight then
+    row.line:SetHeight(2)
+    row.line:SetHeight(1)
+  end
+  return row
+end
+
+local activeDrop
+
+local function CloseActiveDrop()
+  if activeDrop and activeDrop.menu then
+    activeDrop.menu:ClearAllPoints()
+    activeDrop.menu:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+    if activeDrop.menu.Hide then pcall(activeDrop.menu.Hide, activeDrop.menu) end
+    if activeDrop.menu.EnableMouse then activeDrop.menu:EnableMouse(false) end
+  end
+  activeDrop = nil
+end
+
+local function OptionLabel(options, key)
+  local i
+  for i = 1, table.getn(options) do
+    if options[i].key == key then return options[i].label end
+  end
+  return tostring(key or "")
+end
+
+local function CreateDropdown(parent, y, label, getter, setter, options)
+  local row = CreateFrame("Frame", nil, parent)
+  row:SetWidth(460)
+  row:SetHeight(24)
+  -- Emberveil ignores SetWidth/SetHeight; opposite corners give the row a real box.
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+  row:SetPoint("BOTTOMRIGHT", parent, "TOPLEFT", 470, y - 24)
+  row.options = options
+
+  row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  row.caption:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+  row.caption:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+  row.caption:SetPoint("RIGHT", row, "LEFT", 160, 0)
+  row.caption:SetJustifyH("LEFT")
+  if row.caption.SetJustifyV then row.caption:SetJustifyV("MIDDLE") end
+  row.caption:SetText(label)
+  row.caption:SetTextColor(.82, .84, .86)
+
+  row.button = CreateFrame("Button", nil, row)
+  row.button:SetPoint("TOPLEFT", row, "TOPLEFT", 168, 0)
+  row.button:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -20, 0)
+  row.button:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 10,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+  })
+  row.button:SetBackdropColor(.04, .05, .06, .96)
+  row.button:SetBackdropBorderColor(.22, .28, .3, 1)
+  row.button.text = row.button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  -- Fill the inner face so the value sits in the well, not on the tooltip border.
+  row.button.text:SetPoint("TOPLEFT", row.button, "TOPLEFT", 10, -5)
+  row.button.text:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -22, 5)
+  row.button.text:SetJustifyH("LEFT")
+  if row.button.text.SetJustifyV then row.button.text:SetJustifyV("MIDDLE") end
+  row.button.arrow = row.button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  row.button.arrow:SetPoint("TOPRIGHT", row.button, "TOPRIGHT", -7, -5)
+  row.button.arrow:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -7, 5)
+  row.button.arrow:SetJustifyH("RIGHT")
+  if row.button.arrow.SetJustifyV then row.button.arrow:SetJustifyV("MIDDLE") end
+  row.button.arrow:SetText("|cff888888v|r")
+
+  row.menu = CreateFrame("Frame", nil, UIParent)
+  row.menu:SetFrameStrata("TOOLTIP")
+  row.menu:SetFrameLevel(250)
+  row.menu:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 10,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  row.menu:SetBackdropColor(.03, .035, .04, .98)
+  row.menu:SetBackdropBorderColor(.25, .34, .36, 1)
+  row.menu:EnableMouse(true)
+  row.menu.buttons = {}
+
+  local function RebuildMenu()
+    local i
+    for i = 1, table.getn(row.menu.buttons) do
+      row.menu.buttons[i]:Hide()
+    end
+    local count = table.getn(row.options)
+    local height = 8 + count * 18
+    row.menu:ClearAllPoints()
+    row.menu:SetPoint("TOPLEFT", row.button, "BOTTOMLEFT", 0, -2)
+    row.menu:SetPoint("TOPRIGHT", row.button, "BOTTOMRIGHT", 0, -2)
+    row.menu:SetPoint("BOTTOMLEFT", row.button, "BOTTOMLEFT", 0, -2 - height)
+    for i = 1, count do
+      local spec = row.options[i]
+      local btn = row.menu.buttons[i]
+      if not btn then
+        btn = CreateFrame("Button", nil, row.menu)
+        btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        btn.text:SetPoint("TOPLEFT", btn, "TOPLEFT", 8, 0)
+        btn.text:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -6, 0)
+        btn.text:SetJustifyH("LEFT")
+        if btn.text.SetJustifyV then btn.text:SetJustifyV("MIDDLE") end
+        btn:EnableMouse(true)
+        btn:RegisterForClicks("LeftButtonUp")
+        btn:SetScript("OnEnter", function()
+          if this.text then this.text:SetTextColor(1, .9, .48) end
+        end)
+        btn:SetScript("OnLeave", function()
+          if this.text then this.text:SetTextColor(.82, .84, .86) end
+        end)
+        btn:SetScript("OnClick", function()
+          setter(this.optionKey)
+          row.Refresh()
+          CloseActiveDrop()
+          QtUI:ApplyLayout()
+        end)
+        row.menu.buttons[i] = btn
+      end
+      btn.optionKey = spec.key
+      btn.text:SetText(spec.label)
+      btn.text:SetTextColor(.82, .84, .86)
+      btn:ClearAllPoints()
+      btn:SetPoint("TOPLEFT", row.menu, "TOPLEFT", 4, -(4 + (i - 1) * 18))
+      btn:SetPoint("TOPRIGHT", row.menu, "TOPRIGHT", -4, -(4 + (i - 1) * 18))
+      btn:SetPoint("BOTTOMLEFT", row.menu, "TOPLEFT", 4, -(4 + i * 18))
+      btn:Show()
+    end
+  end
+
+  local function Refresh()
+    row.button.text:SetText(OptionLabel(row.options, getter()))
+  end
+
+  row.button:SetScript("OnClick", function()
+    if activeDrop == row then
+      CloseActiveDrop()
+      return
+    end
+    CloseActiveDrop()
+    RebuildMenu()
+    if row.menu.Show then pcall(row.menu.Show, row.menu) end
+    if row.menu.EnableMouse then row.menu:EnableMouse(true) end
+    activeDrop = row
+  end)
+
+  CloseActiveDrop()
+  row.menu:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+  if row.menu.Hide then pcall(row.menu.Hide, row.menu) end
+  Refresh()
+  row.Refresh = Refresh
+  return row
+end
+
 local COLOR_PRESETS = {
   { .78, .12, .12 }, { .15, .72, .22 }, { .2, .75, .25 }, { .82, .68, .16 },
   { .12, .38, .82 }, { .88, .58, .16 }, { .96, .55, .73 }, { .78, .61, .43 },
@@ -401,78 +568,23 @@ local function CreateGridPicker(parent, y, barKey)
 end
 
 local ALIGN_OPTIONS = {
-  { key = "topleft", label = "TL" },
-  { key = "top", label = "T" },
-  { key = "topright", label = "TR" },
-  { key = "left", label = "L" },
-  { key = "center", label = "C" },
-  { key = "right", label = "R" },
-  { key = "bottomleft", label = "BL" },
-  { key = "bottom", label = "B" },
-  { key = "bottomright", label = "BR" },
+  { key = "topleft", label = "Top Left" },
+  { key = "top", label = "Top" },
+  { key = "topright", label = "Top Right" },
+  { key = "left", label = "Left" },
+  { key = "center", label = "Center" },
+  { key = "right", label = "Right" },
+  { key = "bottomleft", label = "Bottom Left" },
+  { key = "bottom", label = "Bottom" },
+  { key = "bottomright", label = "Bottom Right" },
 }
 
 local function CreateAlignPicker(parent, y, label, getter, setter)
-  local row = CreateFrame("Frame", nil, parent)
-  row:SetWidth(460)
-  row:SetHeight(24)
-  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
-
-  row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  row.caption:SetPoint("LEFT", row, "LEFT", 0, 0)
-  row.caption:SetWidth(86)
-  row.caption:SetJustifyH("LEFT")
-  row.caption:SetText(label)
-
-  row.buttons = {}
-  local i
-  for i = 1, table.getn(ALIGN_OPTIONS) do
-    local option = ALIGN_OPTIONS[i]
-    local button = CreateFrame("Button", nil, row)
-    button:SetWidth(28)
-    button:SetHeight(20)
-    button:SetPoint("LEFT", row, "LEFT", 90 + (i - 1) * 30, 0)
-    button:SetBackdrop({
-      bgFile = "Interface\\Buttons\\WHITE8X8",
-      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = true, tileSize = 8, edgeSize = 8,
-      insets = { left = 1, right = 1, top = 1, bottom = 1 },
-    })
-    button.alignKey = option.key
-    button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
-    button.text:SetText(option.label)
-    button:SetScript("OnClick", function()
-      setter(this.alignKey)
-      row.Refresh()
-      QtUI:ApplyLayout()
-    end)
-    table.insert(row.buttons, button)
-  end
-
-  local function Refresh()
-    local current = getter()
-    local n
-    for n = 1, table.getn(row.buttons) do
-      local button = row.buttons[n]
-      if button.alignKey == current then
-        button:SetBackdropColor(.08, .4, .64, .95)
-        button:SetBackdropBorderColor(.25, .72, 1, 1)
-        button.text:SetTextColor(1, .9, .48)
-      else
-        button:SetBackdropColor(.04, .05, .06, .95)
-        button:SetBackdropBorderColor(.25, .28, .3, 1)
-        button.text:SetTextColor(.78, .8, .82)
-      end
-    end
-  end
-
-  Refresh()
-  row.Refresh = Refresh
-  return row
+  return CreateDropdown(parent, y, label, getter, setter, ALIGN_OPTIONS)
 end
 
 local function ShowPage(frame, key)
+  CloseActiveDrop()
   local name, page
   for name, page in pairs(frame.pages) do
     if name == key then page:Show() else page:Hide() end
@@ -480,15 +592,20 @@ local function ShowPage(frame, key)
   local _, button
   for _, button in ipairs(frame.navButtons) do
     if button.pageKey == key then
-      button:SetBackdropColor(.08, .4, .64, .95)
-      button:SetBackdropBorderColor(.25, .72, 1, 1)
+      button:SetBackdropColor(.16, .16, .18, .95)
+      button:SetBackdropBorderColor(.45, .38, .18, 1)
+      if button.text then button.text:SetTextColor(1, .82, .2) end
     else
-      button:SetBackdropColor(.03, .04, .05, .94)
-      button:SetBackdropBorderColor(.22, .28, .3, 1)
+      button:SetBackdropColor(.03, .035, .04, .7)
+      button:SetBackdropBorderColor(.16, .18, .2, 1)
+      if button.text then button.text:SetTextColor(.72, .74, .76) end
     end
   end
   if key == "damagemeter" and frame.RefreshMeterWindows then
     frame.RefreshMeterWindows()
+  end
+  if key == "profiles" and frame.RefreshProfiles then
+    frame.RefreshProfiles()
   end
 end
 
@@ -500,7 +617,7 @@ function QtUI:SetupSettingsWindow()
   local frame = self:CreatePanel("QtUISettingsFrame", UIParent, 40)
   frame:SetFrameStrata("DIALOG")
   frame:SetWidth(640)
-  frame:SetHeight(460)
+  frame:SetHeight(500)
   frame:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
   frame:SetBackdropColor(.012, .018, .024, .97)
   frame:SetBackdropBorderColor(.4, .52, .54, 1)
@@ -552,7 +669,11 @@ function QtUI:SetupSettingsWindow()
   frame.close.text:SetAllPoints(frame.close)
   frame.close.text:SetJustifyH("CENTER")
   frame.close.text:SetText("|cffff6666X|r")
-  frame.close:SetScript("OnClick", function() QtUI.settingsFrame:Hide() end)
+  frame.close:SetScript("OnClick", function()
+    CloseActiveDrop()
+    QtUI.settingsFrame:Hide()
+  end)
+  frame:SetScript("OnHide", function() CloseActiveDrop() end)
 
   local nav = CreateFrame("Frame", nil, frame)
   nav:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -34)
@@ -569,16 +690,19 @@ function QtUI:SetupSettingsWindow()
   frame.navButtons = {}
 
   local navY = 0
+  local function AddNavHeader(label)
+    local header = nav:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    header:SetPoint("TOPLEFT", nav, "TOPLEFT", 4, -navY - 2)
+    header:SetText("|cff33ffcc" .. string.upper(label) .. "|r")
+    navY = navY + 16
+    return header
+  end
+
   local function AddNav(key, label, child)
     local button = CreateFrame("Button", nil, nav)
-    local height = 24
-    local x = 0
-    local width = 122
-    if child then
-      height = 20
-      x = 10
-      width = 112
-    end
+    local height = child and 18 or 22
+    local x = child and 8 or 0
+    local width = child and 114 or 122
     button:SetWidth(width)
     button:SetHeight(height)
     button:SetPoint("TOPLEFT", nav, "TOPLEFT", x, -navY)
@@ -586,15 +710,18 @@ function QtUI:SetupSettingsWindow()
       bgFile = "Interface\\Buttons\\WHITE8X8",
       edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
       tile = true, tileSize = 8, edgeSize = 8,
-      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
+    button:SetBackdropColor(.03, .035, .04, .7)
+    button:SetBackdropBorderColor(.16, .18, .2, 1)
     button.pageKey = key
     button.text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    button.text:SetPoint("LEFT", button, "LEFT", child and 8 or 10, 0)
+    button.text:SetPoint("LEFT", button, "LEFT", child and 8 or 8, 0)
     button.text:SetText(label)
+    button.text:SetTextColor(.72, .74, .76)
     button:SetScript("OnClick", function() ShowPage(frame, this.pageKey) end)
     table.insert(frame.navButtons, button)
-    navY = navY + height + 3
+    navY = navY + height + 2
     return button
   end
 
@@ -607,38 +734,44 @@ function QtUI:SetupSettingsWindow()
     return page
   end
 
-  AddNav("general", "General")
-  AddNav("actionbars", "Action Bars")
+  AddNavHeader("General")
+  AddNav("general", "Features")
+  AddNav("profiles", "Profiles")
+  AddNavHeader("Action Bars")
+  AddNav("actionbars", "General")
   AddNav("bar-main", "Main Bar", true)
   AddNav("bar-extra", "Extra Bar", true)
   AddNav("bar-utility", "Utility Bar", true)
   AddNav("bar-aux", "Stance / Pet", true)
   AddNav("bar-sideright", "Right Side", true)
   AddNav("bar-sideleft", "Left Side", true)
-  AddNav("unitframes", "Unit Frames")
+  AddNavHeader("Unit Frames")
+  AddNav("unitframes", "General")
   AddNav("unit-player", "Player", true)
   AddNav("unit-target", "Target", true)
   AddNav("unit-tot", "Target of Target", true)
   AddNav("unit-party", "Party", true)
   AddNav("unit-pet", "Pet", true)
   AddNav("unit-combo", "Combo Points", true)
+  AddNavHeader("Meters")
   AddNav("damagemeter", "Damage Meter")
 
   local general = AddPage("general")
+  CreateHeader(general, 0, "General")
   general.note = general:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  general.note:SetPoint("TOPLEFT", general, "TOPLEFT", 12, 0)
+  general.note:SetPoint("TOPLEFT", general, "TOPLEFT", 12, -22)
   general.note:SetText("Feature toggles need a relog. Bag size applies immediately.")
-  CreateStepper(general, -22, "Bag slot size", function()
+  CreateStepper(general, -44, "Bag slot size", function()
     return QtUI:GetLayout().bagSlotSize
   end, function(value)
     QtUI:GetLayout().bagSlotSize = value
   end, 24, 52, 2, 0)
-  CreateStepper(general, -48, "Bag columns", function()
+  CreateStepper(general, -70, "Bag columns", function()
     return QtUI:GetLayout().bagColumns
   end, function(value)
     QtUI:GetLayout().bagColumns = value
   end, 6, 16, 1, 0)
-  CreateToggleRow(general, -74, "Compare equipped items", function()
+  CreateToggleRow(general, -96, "Compare equipped items", function()
     local value = QtUI:GetLayout().eqCompare
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
@@ -653,17 +786,330 @@ function QtUI:SetupSettingsWindow()
     local column = 0
     if index > featureRows then column = 1 end
     local rowIndex = math.mod(index - 1, featureRows)
-    table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 4))
+    table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 5))
   end
 
+  local function SizeDialog(dialog, width, height)
+    dialog:ClearAllPoints()
+    dialog:SetWidth(width)
+    dialog:SetHeight(height)
+    dialog:SetPoint("TOPLEFT", UIParent, "CENTER", -(width / 2), (height / 2) + 20)
+    dialog:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", width / 2, -(height / 2) + 20)
+  end
+
+  local function ParkFrame(f)
+    if not f then return end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    if f.Hide then pcall(f.Hide, f) end
+  end
+
+  local function PlaceDialogButton(button, dialog, x)
+    button:ClearAllPoints()
+    button:SetPoint("BOTTOMLEFT", dialog, "BOTTOMLEFT", x, 12)
+    button:SetPoint("TOPRIGHT", dialog, "BOTTOMLEFT", x + 90, 38)
+    if button.Show then pcall(button.Show, button) end
+  end
+
+  local function PlaceLine(box, dialog, top)
+    box:ClearAllPoints()
+    box:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, top)
+    box:SetPoint("BOTTOMRIGHT", dialog, "TOPLEFT", 504, top - 24)
+    if box.SetWidth then
+      box:SetWidth(489)
+      box:SetWidth(488)
+    end
+    if box.SetHeight then
+      box:SetHeight(23)
+      box:SetHeight(22)
+    end
+    if box.Show then pcall(box.Show, box) end
+  end
+
+  local function TryCopyText(text)
+    local names = { "CopyToClipboard", "SetClipboard", "SetClipboardText" }
+    local i
+    for i = 1, table.getn(names) do
+      local fn = getglobal(names[i])
+      if type(fn) == "function" then
+        local ok = pcall(fn, text)
+        if ok then return true end
+      end
+    end
+    local clipApi = getglobal("C_Clipboard")
+    if type(clipApi) == "table" then
+      if type(clipApi.CopyToClipboard) == "function" then
+        local ok = pcall(clipApi.CopyToClipboard, text)
+        if ok then return true end
+      elseif type(clipApi.SetClipboard) == "function" then
+        local ok = pcall(clipApi.SetClipboard, text)
+        if ok then return true end
+      end
+    end
+    return nil
+  end
+
+  local function EnsureProfileDialog()
+    if frame.profileDialog then return frame.profileDialog end
+    local dialog = CreateFrame("Frame", "QtUIProfileDialog", UIParent)
+    dialog:SetFrameStrata("FULLSCREEN_DIALOG")
+    dialog:SetFrameLevel(300)
+    SizeDialog(dialog, 520, 170)
+    dialog:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 14,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    dialog:SetBackdropColor(.015, .018, .022, .98)
+    dialog:SetBackdropBorderColor(.4, .52, .54, 1)
+    dialog:EnableMouse(true)
+    dialog.title = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    dialog.title:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -12)
+    dialog.note = dialog:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    dialog.note:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -32)
+    dialog.note:SetPoint("TOPRIGHT", dialog, "TOPRIGHT", -16, -32)
+    dialog.note:SetPoint("BOTTOMLEFT", dialog, "TOPLEFT", 16, -52)
+    dialog.note:SetJustifyH("LEFT")
+    if dialog.note.SetJustifyV then dialog.note:SetJustifyV("TOP") end
+    dialog.nameLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    dialog.nameLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -54)
+    dialog.nameLabel:SetText("Name")
+    dialog.nameBox = CreateFrame("EditBox", "QtUIProfileNameBox", dialog)
+    dialog.nameBox:SetAutoFocus(false)
+    if dialog.nameBox.SetFontObject then dialog.nameBox:SetFontObject(GameFontHighlightSmall) end
+    dialog.nameBox:SetTextInsets(6, 6, 4, 4)
+    if dialog.nameBox.SetMaxLetters then dialog.nameBox:SetMaxLetters(60) end
+    dialog.nameBox:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    dialog.nameBox:SetBackdropColor(.04, .05, .06, 1)
+    PlaceLine(dialog.nameBox, dialog, -70)
+
+    dialog.dataLabel = dialog:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    dialog.dataLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -98)
+    dialog.dataLabel:SetText("Data")
+    -- Single-line only. A multiline EditBox on Emberveil grows through the UI.
+    dialog.data = CreateFrame("EditBox", "QtUIProfileDataBox", dialog)
+    dialog.data:SetAutoFocus(false)
+    if dialog.data.SetMultiLine then dialog.data:SetMultiLine(nil) end
+    if dialog.data.SetFontObject then dialog.data:SetFontObject(GameFontHighlightSmall) end
+    dialog.data:SetTextInsets(6, 6, 4, 4)
+    if dialog.data.SetMaxLetters then dialog.data:SetMaxLetters(40000) end
+    dialog.data:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    dialog.data:SetBackdropColor(.04, .05, .06, 1)
+    dialog.data:SetScript("OnEditFocusGained", function()
+      if this.HighlightText then pcall(this.HighlightText, this) end
+    end)
+    dialog.data:SetScript("OnMouseDown", function()
+      if this.SetFocus then this:SetFocus() end
+      if this.HighlightText then pcall(this.HighlightText, this) end
+    end)
+    dialog.data:SetScript("OnEscapePressed", function()
+      if this.ClearFocus then this:ClearFocus() end
+    end)
+    PlaceLine(dialog.data, dialog, -114)
+
+    dialog.accept = CreateSmallButton(dialog, "OK", 16, function()
+      if dialog.onAccept then dialog.onAccept(dialog) end
+    end, 90)
+    dialog.cancel = CreateSmallButton(dialog, "Close", 116, function()
+      dialog:Hide()
+    end, 90)
+    dialog.copy = CreateSmallButton(dialog, "Copy", 216, function()
+      local text = ""
+      if dialog.data and dialog.data.GetText then text = dialog.data:GetText() or "" end
+      if text == "" then
+        QtUI:Print("Nothing to copy.")
+        return
+      end
+      if dialog.data.SetFocus then dialog.data:SetFocus() end
+      if dialog.data.HighlightText then pcall(dialog.data.HighlightText, dialog.data) end
+      if TryCopyText(text) then
+        QtUI:Print("Profile copied.")
+        if dialog.copy.text then dialog.copy.text:SetText("Copied") end
+      else
+        QtUI:Print("Selected. Press Ctrl+C.")
+        if dialog.copy.text then dialog.copy.text:SetText("Ctrl+C") end
+      end
+    end, 90)
+    dialog:Hide()
+    frame.profileDialog = dialog
+    return dialog
+  end
+
+  local function OpenProfileDialog(kind)
+    local dialog = EnsureProfileDialog()
+    dialog.kind = kind
+    dialog.nameBox:SetText("")
+    dialog.data:SetText("")
+    if kind == "save" then
+      SizeDialog(dialog, 520, 150)
+      dialog.title:SetText("|cff33ffccSave Profile|r")
+      dialog.note:SetText("Store the current UI as a named profile.")
+      dialog.nameLabel:Show()
+      PlaceLine(dialog.nameBox, dialog, -70)
+      dialog.dataLabel:Hide()
+      ParkFrame(dialog.data)
+      ParkFrame(dialog.copy)
+      PlaceDialogButton(dialog.accept, dialog, 16)
+      PlaceDialogButton(dialog.cancel, dialog, 116)
+      dialog.onAccept = function(d)
+        local name = QtUI:SaveProfile(d.nameBox:GetText())
+        if name then
+          QtUI:Print("Saved profile '" .. name .. "'.")
+          d:Hide()
+          if frame.RefreshProfiles then frame.RefreshProfiles() end
+        else
+          QtUI:Print("Enter a profile name.")
+        end
+      end
+    elseif kind == "export" then
+      SizeDialog(dialog, 520, 170)
+      dialog.title:SetText("|cff33ffccExport Profile|r")
+      dialog.note:SetText("Copy, then Ctrl+C if needed. Positions scale on import.")
+      ParkFrame(dialog.nameBox)
+      dialog.nameLabel:Hide()
+      dialog.dataLabel:Show()
+      dialog.dataLabel:ClearAllPoints()
+      dialog.dataLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -54)
+      PlaceLine(dialog.data, dialog, -70)
+      dialog.data:SetText(QtUI:ExportProfile() or "")
+      if dialog.data.SetFocus then dialog.data:SetFocus() end
+      if dialog.data.HighlightText then pcall(dialog.data.HighlightText, dialog.data) end
+      PlaceDialogButton(dialog.copy, dialog, 16)
+      PlaceDialogButton(dialog.cancel, dialog, 116)
+      ParkFrame(dialog.accept)
+      if dialog.copy.text then dialog.copy.text:SetText("Copy") end
+      dialog.onAccept = function(d) d:Hide() end
+    else
+      SizeDialog(dialog, 520, 200)
+      dialog.title:SetText("|cff33ffccImport Profile|r")
+      dialog.note:SetText("Name is required. Duplicate names get a number suffix.")
+      dialog.nameLabel:Show()
+      PlaceLine(dialog.nameBox, dialog, -70)
+      dialog.dataLabel:Show()
+      dialog.dataLabel:ClearAllPoints()
+      dialog.dataLabel:SetPoint("TOPLEFT", dialog, "TOPLEFT", 16, -98)
+      PlaceLine(dialog.data, dialog, -114)
+      ParkFrame(dialog.copy)
+      PlaceDialogButton(dialog.accept, dialog, 16)
+      PlaceDialogButton(dialog.cancel, dialog, 116)
+      dialog.onAccept = function(d)
+        local name, err = QtUI:ImportProfile(d.nameBox:GetText(), d.data:GetText())
+        if name then
+          QtUI:Print("Imported as '" .. name .. "'.")
+          d:Hide()
+          if frame.RefreshProfiles then frame.RefreshProfiles() end
+        else
+          QtUI:Print(err or "Import failed.")
+        end
+      end
+    end
+    dialog:Show()
+  end
+
+  local profiles = AddPage("profiles")
+  CreateHeader(profiles, 0, "Profiles")
+  profiles.note = profiles:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  profiles.note:SetPoint("TOPLEFT", profiles, "TOPLEFT", 12, -22)
+  profiles.note:SetWidth(450)
+  profiles.note:SetJustifyH("LEFT")
+  profiles.note:SetText("Save the current layout, load another profile, or share JSON. Import always creates a new named copy. Frame positions scale to the other screen.")
+
+  local profileOptions = { { key = "Default", label = "Default" } }
+  local profileDrop = CreateDropdown(profiles, -48, "Profile", function()
+    return QtUIDB.activeProfile or "Default"
+  end, function(value)
+    QtUIDB.activeProfile = value
+  end, profileOptions)
+
+  local function RefreshProfiles()
+    QtUI:EnsureProfiles()
+    local names = QtUI:ProfileNames()
+    local opts = {}
+    local i
+    for i = 1, table.getn(names) do
+      table.insert(opts, { key = names[i], label = names[i] })
+    end
+    if table.getn(opts) < 1 then
+      table.insert(opts, { key = "Default", label = "Default" })
+    end
+    profileDrop.options = opts
+    profileDrop.Refresh()
+  end
+  frame.RefreshProfiles = RefreshProfiles
+  RefreshProfiles()
+
+  CreateHeader(profiles, -80, "Manage")
+  local loadBtn = CreateSmallButton(profiles, "Load", 12, function()
+    local name = QtUIDB.activeProfile
+    if QtUI:LoadProfile(name) then
+      QtUI:Print("Loaded '" .. name .. "'. Some toggles need a relog.")
+      RefreshSettingsRows()
+      RefreshProfiles()
+    end
+  end, 90)
+  loadBtn:ClearAllPoints()
+  loadBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 12, -104)
+
+  local saveBtn = CreateSmallButton(profiles, "Save", 110, function()
+    local name = QtUIDB.activeProfile
+    if name and QtUI:SaveProfile(name) then
+      QtUI:Print("Saved '" .. name .. "'.")
+      RefreshProfiles()
+    end
+  end, 90)
+  saveBtn:ClearAllPoints()
+  saveBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 110, -104)
+
+  local saveAsBtn = CreateSmallButton(profiles, "Save As", 208, function()
+    OpenProfileDialog("save")
+  end, 90)
+  saveAsBtn:ClearAllPoints()
+  saveAsBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 208, -104)
+
+  local delBtn = CreateSmallButton(profiles, "Delete", 306, function()
+    local name = QtUIDB.activeProfile
+    if name then
+      QtUI:DeleteProfile(name)
+      QtUI:Print("Deleted '" .. name .. "'.")
+      RefreshProfiles()
+    end
+  end, 90)
+  delBtn:ClearAllPoints()
+  delBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 306, -104)
+
+  CreateHeader(profiles, -140, "Share")
+  local exportBtn = CreateSmallButton(profiles, "Export", 12, function()
+    OpenProfileDialog("export")
+  end, 90)
+  exportBtn:ClearAllPoints()
+  exportBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 12, -164)
+
+  local importBtn = CreateSmallButton(profiles, "Import", 110, function()
+    OpenProfileDialog("import")
+  end, 90)
+  importBtn:ClearAllPoints()
+  importBtn:SetPoint("TOPLEFT", profiles, "TOPLEFT", 110, -164)
+
   local bars = AddPage("actionbars")
+  CreateHeader(bars, 0, "Action Bars")
   bars.note = bars:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  bars.note:SetPoint("TOPLEFT", bars, "TOPLEFT", 12, 0)
+  bars.note:SetPoint("TOPLEFT", bars, "TOPLEFT", 12, -22)
   bars.note:SetWidth(450)
   bars.note:SetJustifyH("LEFT")
-  bars.note:SetText("Shared chrome for every bar. Open a bar on the left to set its size, spacing and 1x12 / 2x6 / 3x4 / 4x3 / 6x2 / 12x1 layout.")
+  bars.note:SetText("Shared chrome for every bar. Open a bar on the left to set its size, spacing and layout.")
 
-  CreateToggleRow(bars, -28, "Show action-bar background", function()
+  CreateToggleRow(bars, -46, "Show action-bar background", function()
     local value = QtUI:GetLayout().barShowBackground
     return value == true or value == 1 or value == "1"
   end, function(value)
@@ -783,8 +1229,9 @@ function QtUI:SetupSettingsWindow()
   BuildBarPage("bar-sideleft", "sideLeft", "Left side bar. All 12 buttons stay visible.")
 
   local units = AddPage("unitframes")
+  CreateHeader(units, 0, "Unit Frames")
   units.note = units:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  units.note:SetPoint("TOPLEFT", units, "TOPLEFT", 12, 0)
+  units.note:SetPoint("TOPLEFT", units, "TOPLEFT", 12, -22)
   units.note:SetWidth(450)
   units.note:SetJustifyH("LEFT")
   units.note:SetText("Shared colors and gradient. Open Player, Target, Party or Pet for size, mana height and text positions.")
@@ -851,6 +1298,8 @@ function QtUI:SetupSettingsWindow()
     page.note:SetJustifyH("LEFT")
     page.note:SetText(blurb)
     local y = -24
+    CreateHeader(page, y, "Size")
+    y = y - 24
     CreateStepper(page, y, "Width", function()
       return QtUI:GetUnitStyle(styleKey).width
     end, function(value)
@@ -897,20 +1346,22 @@ function QtUI:SetupSettingsWindow()
       end)
       y = y - 26
     end
+    CreateHeader(page, y, "Labels")
+    y = y - 24
     CreateAlignPicker(page, y, "Name", function()
       return QtUI:GetUnitStyle(styleKey).nameAlign
     end, function(value)
       QtUI:GetUnitStyle(styleKey).nameAlign = value
     end)
     y = y - 26
-    CreateAlignPicker(page, y, "Health text", function()
+    CreateAlignPicker(page, y, "Health", function()
       return QtUI:GetUnitStyle(styleKey).healthAlign
     end, function(value)
       QtUI:GetUnitStyle(styleKey).healthAlign = value
     end)
     y = y - 26
     if extras.powerText then
-      CreateAlignPicker(page, y, "Mana text", function()
+      CreateAlignPicker(page, y, "Mana", function()
         return QtUI:GetUnitStyle(styleKey).powerAlign
       end, function(value)
         QtUI:GetUnitStyle(styleKey).powerAlign = value
@@ -1212,4 +1663,10 @@ function QtUI:SetupSettingsButton()
     if GameTooltip then GameTooltip:Hide() end
   end)
   self.settingsButton = button
+end
+
+function QtUI:RefreshSettingsButton()
+  if not self.settingsButton then return end
+  local saved = QtUIDB and QtUIDB.settingsButtonPosition
+  PlaceMinimapIcon(self.settingsButton, saved and saved.x, saved and saved.y)
 end

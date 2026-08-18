@@ -821,8 +821,9 @@ function QtUI:LayoutSideBars()
 end
 
 local function UpdateXPBar()
-  local bar = QtUI.xpBar
-  if not bar then return end
+  local wrap = QtUI.xpBar
+  local bar = wrap and wrap.status
+  if not wrap or not bar then return end
 
   local current = UnitXP("player") or 0
   local maximum = UnitXPMax("player") or 0
@@ -837,10 +838,10 @@ local function UpdateXPBar()
 
   if resting then
     bar:SetStatusBarColor(.18, .48, .92)
-    bar:SetBackdropBorderColor(.35, .62, 1, 1)
+    if wrap.SetBackdropBorderColor then wrap:SetBackdropBorderColor(.35, .62, 1, 1) end
   else
     bar:SetStatusBarColor(.38, .28, .78)
-    bar:SetBackdropBorderColor(.18, .22, .28, 1)
+    if wrap.SetBackdropBorderColor then wrap:SetBackdropBorderColor(.18, .22, .28, 1) end
   end
 
   if maximum > 0 then
@@ -848,66 +849,71 @@ local function UpdateXPBar()
     bar:SetMinMaxValues(0, maximum)
     bar:SetValue(current)
     if resting and rested > 0 then
-      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting  -  Rested " .. rested .. "|r")
+      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting  -  Rested " .. rested .. "|r")
     elseif resting then
-      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting|r")
+      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting|r")
     elseif rested > 0 then
-      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffRested " .. rested .. "|r")
+      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffRested " .. rested .. "|r")
     else
-      bar.text:SetText("Level " .. level .. "  -  " .. percent .. "%")
+      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%")
     end
   else
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
     if resting then
-      bar.text:SetText("Level " .. level .. "  -  Maximum Level  |cff66aaffResting|r")
+      wrap.text:SetText("Level " .. level .. "  -  Maximum Level  |cff66aaffResting|r")
     else
-      bar.text:SetText("Level " .. level .. "  -  Maximum Level")
+      wrap.text:SetText("Level " .. level .. "  -  Maximum Level")
     end
   end
 
-  bar.current = current
-  bar.maximum = maximum
-  bar.rested = rested
-  bar.resting = resting
+  wrap.current = current
+  wrap.maximum = maximum
+  wrap.rested = rested
+  wrap.resting = resting
 end
 
 function QtUI:SetupXPBar()
   if self.xpBar then return end
 
   local parent = self.actionPanel or UIParent
-  local bar = CreateFrame("StatusBar", "QtUIXPBar", parent)
-  bar:SetWidth(442)
-  bar:SetHeight(12)
+  local wrap = CreateFrame("Frame", "QtUIXPBar", parent)
+  wrap:SetWidth(442)
+  wrap:SetHeight(14)
   if self.actionPanel then
-    bar:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
+    wrap:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
   else
-    bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
+    wrap:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
   end
-  bar:SetStatusBarTexture(self.media.statusbar)
-  bar:SetStatusBarColor(.38, .28, .78)
-  bar:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
-  bar:SetBackdrop({
+  wrap:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
+  wrap:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true,
     tileSize = 8,
-    edgeSize = 8,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    edgeSize = 14,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
   })
-  bar:SetBackdropColor(.025, .03, .04, .8)
-  bar:SetBackdropBorderColor(.18, .22, .28, 1)
+  wrap:SetBackdropColor(.025, .03, .04, .9)
+  wrap:SetBackdropBorderColor(.18, .22, .28, 1)
+
+  local bar = CreateFrame("StatusBar", "QtUIXPBarStatus", wrap)
+  bar:SetPoint("TOPLEFT", wrap, "TOPLEFT", 3, -3)
+  bar:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -3, 3)
+  bar:SetStatusBarTexture(self.media.statusbar)
+  bar:SetStatusBarColor(.38, .28, .78)
+  wrap.status = bar
 
   bar.background = bar:CreateTexture(nil, "BACKGROUND")
   bar.background:SetAllPoints()
   bar.background:SetTexture(self.media.statusbar)
   bar.background:SetVertexColor(.035, .04, .055, .9)
 
-  bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  bar.text:SetPoint("CENTER", bar, "CENTER", 0, 0)
+  wrap.text = wrap:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  wrap.text:SetPoint("CENTER", wrap, "CENTER", 0, 0)
 
-  bar:EnableMouse(true)
-  bar:SetScript("OnEnter", function()
+  wrap:EnableMouse(true)
+  wrap:SetScript("OnEnter", function()
     GameTooltip:SetOwner(this, "ANCHOR_TOP")
     GameTooltip:SetText("Experience")
     if this.maximum and this.maximum > 0 then
@@ -921,7 +927,7 @@ function QtUI:SetupXPBar()
     if this.resting then GameTooltip:AddLine("Currently resting", .4, .65, 1) end
     GameTooltip:Show()
   end)
-  bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  wrap:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
   local events = CreateFrame("Frame", "QtUIXPEvents")
   events:RegisterEvent("PLAYER_XP_UPDATE")
@@ -931,7 +937,7 @@ function QtUI:SetupXPBar()
   pcall(events.RegisterEvent, events, "PLAYER_UPDATE_RESTING")
   events:SetScript("OnEvent", UpdateXPBar)
 
-  self.xpBar = bar
+  self.xpBar = wrap
   UpdateXPBar()
 end
 

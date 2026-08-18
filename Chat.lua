@@ -50,19 +50,19 @@ local function PreservePrimaryChat(frame)
   frame:Show()
 end
 
-function PotatoUI:SetupChat()
+function QtUI:SetupChat()
   local width = math.min(430, UIParent:GetWidth() * .27)
   local height = 190
 
   -- These are positioning anchors only. Chat text remains, but the two large
-  -- side panels from the first PotatoUI build are intentionally removed.
-  local left = CreateFrame("Frame", "PotatoUILeftChatPanel", UIParent)
+  -- side panels from the first QtUI build are intentionally removed.
+  local left = CreateFrame("Frame", "QtUILeftChatPanel", UIParent)
   left:SetWidth(width)
   left:SetHeight(height)
   left:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 14, 14)
   self.leftChatPanel = left
 
-  local right = CreateFrame("Frame", "PotatoUIRightChatPanel", UIParent)
+  local right = CreateFrame("Frame", "QtUIRightChatPanel", UIParent)
   right:SetWidth(width)
   right:SetHeight(height)
   right:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
@@ -71,7 +71,7 @@ function PotatoUI:SetupChat()
   local chat1 = ChatFrame1
   local chat2 = ChatFrame2
   if not chat2 and type(FCF_OpenNewWindow) == "function" then
-    pcall(FCF_OpenNewWindow, "Potato Social")
+    pcall(FCF_OpenNewWindow, "Qt Social")
     chat2 = getglobal("ChatFrame" .. (NUM_CHAT_WINDOWS or 2))
   end
 

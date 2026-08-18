@@ -52,11 +52,11 @@ local function UpdateDataText(frame)
     string.format("   |cffffffff%02d:%02d|r   |cff7fdfff%d fps|r   |cff7fff7f%d ms|r", hour, minute, fps, latency))
 end
 
-function PotatoUI:SetupDataText()
-  -- Keep data text independent from chat frames; PotatoUI no longer owns or
+function QtUI:SetupDataText()
+  -- Keep data text independent from chat frames; QtUI no longer owns or
   -- modifies either chat window.
   local parent = UIParent
-  local bar = CreateFrame("Frame", "PotatoUIDataBar", parent)
+  local bar = CreateFrame("Frame", "QtUIDataBar", parent)
   bar:SetWidth(math.min(430, UIParent:GetWidth() * .27))
   if self.utilityActionPanel then
     bar:SetPoint("BOTTOMRIGHT", self.utilityActionPanel, "TOPRIGHT", 0, 4)

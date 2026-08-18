@@ -1,42 +1,42 @@
 local FEATURE_OPTIONS = {
-  { key = "bags", label = "Custom Bags", description = "Use PotatoUI's combined bag window and item layout." },
+  { key = "bags", label = "Custom Bags", description = "Use QtUI's combined bag window and item layout." },
   { key = "autoLoot", label = "Auto Loot", description = "Loot opened containers automatically unless Shift is held." },
   { key = "autoSell", label = "Auto-Sell Greys", description = "Sell grey-quality items when a merchant opens." },
   { key = "unitFrames", label = "Player / Target Frames", description = "Replace the native player, target and combo-point frames." },
   { key = "partyFrames", label = "Party / Pet Frames", description = "Replace native party and pet frames." },
-  { key = "auras", label = "Aura Displays", description = "Show PotatoUI buff and debuff rows on enabled unit frames." },
-  { key = "actionBars", label = "Action Bar Edits", description = "Use PotatoUI's main, utility, stance and pet action-bar layout." },
-  { key = "experienceBar", label = "Experience Bar", description = "Show the PotatoUI level and rested-experience bar." },
+  { key = "auras", label = "Aura Displays", description = "Show QtUI buff and debuff rows on enabled unit frames." },
+  { key = "actionBars", label = "Action Bar Edits", description = "Use QtUI's main, utility, stance and pet action-bar layout." },
+  { key = "experienceBar", label = "Experience Bar", description = "Show the QtUI level and rested-experience bar." },
   { key = "castBar", label = "Cast Bar", description = "Replace the native player casting bar." },
-  { key = "minimap", label = "Minimap Edits", description = "Use PotatoUI's compact minimap styling and controls." },
+  { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling and controls." },
   { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
   { key = "dataText", label = "Gold / Time / Performance", description = "Show money, game time, FPS and latency." },
 }
 
-PotatoUI.featureOptions = FEATURE_OPTIONS
+QtUI.featureOptions = FEATURE_OPTIONS
 
-function PotatoUI:EnsureFeatureDefaults()
-  if not PotatoUIDB.features then PotatoUIDB.features = {} end
+function QtUI:EnsureFeatureDefaults()
+  if not QtUIDB.features then QtUIDB.features = {} end
   local _, option
   for _, option in ipairs(FEATURE_OPTIONS) do
-    if PotatoUIDB.features[option.key] == nil then
-      PotatoUIDB.features[option.key] = true
+    if QtUIDB.features[option.key] == nil then
+      QtUIDB.features[option.key] = true
     end
   end
 end
 
-function PotatoUI:IsFeatureEnabled(key)
-  if not PotatoUIDB or not PotatoUIDB.features then return true end
-  return PotatoUIDB.features[key] ~= false
+function QtUI:IsFeatureEnabled(key)
+  if not QtUIDB or not QtUIDB.features then return true end
+  return QtUIDB.features[key] ~= false
 end
 
-function PotatoUI:SetFeatureEnabled(key, enabled)
+function QtUI:SetFeatureEnabled(key, enabled)
   self:EnsureFeatureDefaults()
-  PotatoUIDB.features[key] = enabled and true or false
+  QtUIDB.features[key] = enabled and true or false
 end
 
 local function UpdateFeatureRow(row)
-  local enabled = PotatoUI:IsFeatureEnabled(row.featureKey)
+  local enabled = QtUI:IsFeatureEnabled(row.featureKey)
   row.mark:SetText("")
   if enabled then
     row.box:SetBackdropColor(.08, .4, .64, .95)
@@ -50,7 +50,7 @@ local function UpdateFeatureRow(row)
 end
 
 local function RefreshSettingsRows()
-  local frame = PotatoUI.settingsFrame
+  local frame = QtUI.settingsFrame
   if not frame then return end
   local _, row
   for _, row in ipairs(frame.rows) do UpdateFeatureRow(row) end
@@ -86,7 +86,7 @@ local function CreateFeatureRow(parent, option, column, rowIndex)
   row.label:SetText(option.label)
 
   row:SetScript("OnClick", function()
-    PotatoUI:SetFeatureEnabled(this.featureKey, not PotatoUI:IsFeatureEnabled(this.featureKey))
+    QtUI:SetFeatureEnabled(this.featureKey, not QtUI:IsFeatureEnabled(this.featureKey))
     UpdateFeatureRow(this)
   end)
   row:SetScript("OnEnter", function()
@@ -172,7 +172,7 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
     if value < minValue then value = minValue end
     setter(value)
     Refresh()
-    PotatoUI:ApplyLayout()
+    QtUI:ApplyLayout()
   end)
 
   row.value = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -199,7 +199,7 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
     if value > maxValue then value = maxValue end
     setter(value)
     Refresh()
-    PotatoUI:ApplyLayout()
+    QtUI:ApplyLayout()
   end)
 
   Refresh()
@@ -258,7 +258,7 @@ local function CreateColorRow(parent, y, label, getter, setter)
     swatch:SetScript("OnClick", function()
       setter({ r = preset[1], g = preset[2], b = preset[3] })
       Refresh()
-      PotatoUI:ApplyLayout()
+      QtUI:ApplyLayout()
     end)
   end
 
@@ -301,7 +301,7 @@ local function CreateToggleRow(parent, y, label, getter, setter)
   row:SetScript("OnClick", function()
     setter(not getter())
     Refresh()
-    PotatoUI:ApplyLayout()
+    QtUI:ApplyLayout()
   end)
   Refresh()
   row.Refresh = Refresh
@@ -349,17 +349,17 @@ local function CreateGridPicker(parent, y, barKey)
     button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
     button.text:SetText(preset.label)
     button:SetScript("OnClick", function()
-      local bar = PotatoUI:GetBarConfig(this.barKey)
+      local bar = QtUI:GetBarConfig(this.barKey)
       bar.columns = this.gridColumns
       bar.rows = this.gridRows
       row.Refresh()
-      PotatoUI:ApplyLayout()
+      QtUI:ApplyLayout()
     end)
     table.insert(row.buttons, button)
   end
 
   local function Refresh()
-    local bar = PotatoUI:GetBarConfig(row.barKey)
+    local bar = QtUI:GetBarConfig(row.barKey)
     local columns = bar.columns or 12
     local n
     for n = 1, table.getn(row.buttons) do
@@ -426,7 +426,7 @@ local function CreateAlignPicker(parent, y, label, getter, setter)
     button:SetScript("OnClick", function()
       setter(this.alignKey)
       row.Refresh()
-      PotatoUI:ApplyLayout()
+      QtUI:ApplyLayout()
     end)
     table.insert(row.buttons, button)
   end
@@ -470,12 +470,12 @@ local function ShowPage(frame, key)
   end
 end
 
-function PotatoUI:SetupSettingsWindow()
+function QtUI:SetupSettingsWindow()
   if self.settingsFrame then return end
   self:EnsureFeatureDefaults()
   self:EnsureLayoutDefaults()
 
-  local frame = self:CreatePanel("PotatoUISettingsFrame", UIParent, 40)
+  local frame = self:CreatePanel("QtUISettingsFrame", UIParent, 40)
   frame:SetFrameStrata("DIALOG")
   frame:SetWidth(640)
   frame:SetHeight(460)
@@ -485,17 +485,17 @@ function PotatoUI:SetupSettingsWindow()
   frame:SetMovable(true)
   frame:SetClampedToScreen(true)
   frame:EnableMouse(true)
-  if PotatoUIDB.settingsX and PotatoUIDB.settingsY then
+  if QtUIDB.settingsX and QtUIDB.settingsY then
     frame:ClearAllPoints()
-    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", PotatoUIDB.settingsX, PotatoUIDB.settingsY)
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", QtUIDB.settingsX, QtUIDB.settingsY)
   end
 
   local function StopSettingsDrag()
     frame:StopMovingOrSizing()
     local left, bottom = frame:GetLeft(), frame:GetBottom()
     if left and bottom then
-      PotatoUIDB.settingsX = left
-      PotatoUIDB.settingsY = bottom
+      QtUIDB.settingsX = left
+      QtUIDB.settingsY = bottom
       frame:ClearAllPoints()
       frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
     end
@@ -505,7 +505,7 @@ function PotatoUI:SetupSettingsWindow()
   frame:SetScript("OnDragStart", function() this:StartMoving() end)
   frame:SetScript("OnDragStop", StopSettingsDrag)
 
-  frame.dragHandle = CreateFrame("Button", "PotatoUISettingsDragHandle", frame)
+  frame.dragHandle = CreateFrame("Button", "QtUISettingsDragHandle", frame)
   frame.dragHandle:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   frame.dragHandle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
   frame.dragHandle:SetHeight(30)
@@ -519,7 +519,7 @@ function PotatoUI:SetupSettingsWindow()
 
   frame.title = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   frame.title:SetPoint("LEFT", frame.dragHandle, "LEFT", 16, 0)
-  frame.title:SetText("|cffffcc00Potato|rUI Settings")
+  frame.title:SetText("|cffffcc00Qt|rUI Settings")
 
   frame.close = CreateFrame("Button", nil, frame)
   frame.close:SetWidth(28)
@@ -530,7 +530,7 @@ function PotatoUI:SetupSettingsWindow()
   frame.close.text:SetAllPoints(frame.close)
   frame.close.text:SetJustifyH("CENTER")
   frame.close.text:SetText("|cffff6666X|r")
-  frame.close:SetScript("OnClick", function() PotatoUI.settingsFrame:Hide() end)
+  frame.close:SetScript("OnClick", function() QtUI.settingsFrame:Hide() end)
 
   local nav = CreateFrame("Frame", nil, frame)
   nav:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -34)
@@ -604,22 +604,28 @@ function PotatoUI:SetupSettingsWindow()
   general.note:SetPoint("TOPLEFT", general, "TOPLEFT", 12, 0)
   general.note:SetText("Feature toggles need a relog. Bag size applies immediately.")
   CreateStepper(general, -22, "Bag slot size", function()
-    return PotatoUI:GetLayout().bagSlotSize
+    return QtUI:GetLayout().bagSlotSize
   end, function(value)
-    PotatoUI:GetLayout().bagSlotSize = value
+    QtUI:GetLayout().bagSlotSize = value
   end, 24, 52, 2, 0)
   CreateStepper(general, -48, "Bag columns", function()
-    return PotatoUI:GetLayout().bagColumns
+    return QtUI:GetLayout().bagColumns
   end, function(value)
-    PotatoUI:GetLayout().bagColumns = value
+    QtUI:GetLayout().bagColumns = value
   end, 6, 16, 1, 0)
+  CreateToggleRow(general, -74, "Compare equipped items", function()
+    local value = QtUI:GetLayout().eqCompare
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().eqCompare = value and true or false
+  end)
 
   frame.rows = {}
   local index, option
   for index, option in ipairs(FEATURE_OPTIONS) do
     local column = index > 6 and 1 or 0
     local rowIndex = math.mod(index - 1, 6)
-    table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 3))
+    table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 4))
   end
 
   local bars = AddPage("actionbars")
@@ -630,50 +636,68 @@ function PotatoUI:SetupSettingsWindow()
   bars.note:SetText("Shared chrome for every bar. Open a bar on the left to set its size, spacing and 1x12 / 2x6 / 3x4 / 4x3 / 6x2 / 12x1 layout.")
 
   CreateToggleRow(bars, -28, "Show action-bar background", function()
-    local value = PotatoUI:GetLayout().barShowBackground
+    local value = QtUI:GetLayout().barShowBackground
     return value == true or value == 1 or value == "1"
   end, function(value)
-    PotatoUI:GetLayout().barShowBackground = value and true or false
+    QtUI:GetLayout().barShowBackground = value and true or false
   end)
   CreateColorRow(bars, -54, "Bar background", function()
-    return PotatoUI:GetLayout().barBackground
+    return QtUI:GetLayout().barBackground
   end, function(color)
-    local current = PotatoUI:GetLayout().barBackground
+    local current = QtUI:GetLayout().barBackground
     color.a = current.a or .85
-    PotatoUI:GetLayout().barBackground = color
+    QtUI:GetLayout().barBackground = color
   end)
   CreateStepper(bars, -80, "Background opacity", function()
-    return PotatoUI:GetLayout().barBackground.a or .85
+    return QtUI:GetLayout().barBackground.a or .85
   end, function(value)
-    PotatoUI:GetLayout().barBackground.a = value
+    QtUI:GetLayout().barBackground.a = value
   end, 0.1, 1, 0.05, 2)
   CreateColorRow(bars, -106, "Bar border", function()
-    return PotatoUI:GetLayout().barBorder
+    return QtUI:GetLayout().barBorder
   end, function(color)
-    PotatoUI:GetLayout().barBorder = color
+    QtUI:GetLayout().barBorder = color
   end)
   CreateToggleRow(bars, -132, "Show slot background", function()
-    local value = PotatoUI:GetLayout().slotShowBackground
+    local value = QtUI:GetLayout().slotShowBackground
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
-    PotatoUI:GetLayout().slotShowBackground = value and true or false
+    QtUI:GetLayout().slotShowBackground = value and true or false
   end)
   CreateColorRow(bars, -158, "Slot background", function()
-    return PotatoUI:GetLayout().slotBackground
+    return QtUI:GetLayout().slotBackground
   end, function(color)
-    local current = PotatoUI:GetLayout().slotBackground
+    local current = QtUI:GetLayout().slotBackground
     color.a = current.a or .96
-    PotatoUI:GetLayout().slotBackground = color
+    QtUI:GetLayout().slotBackground = color
   end)
   CreateStepper(bars, -184, "Slot opacity", function()
-    return PotatoUI:GetLayout().slotBackground.a or .96
+    return QtUI:GetLayout().slotBackground.a or .96
   end, function(value)
-    PotatoUI:GetLayout().slotBackground.a = value
+    QtUI:GetLayout().slotBackground.a = value
   end, 0.1, 1, 0.05, 2)
   CreateColorRow(bars, -210, "Slot border", function()
-    return PotatoUI:GetLayout().slotBorder
+    return QtUI:GetLayout().slotBorder
   end, function(color)
-    PotatoUI:GetLayout().slotBorder = color
+    QtUI:GetLayout().slotBorder = color
+  end)
+  CreateToggleRow(bars, -236, "Leave shapeshift to cast", function()
+    local value = QtUI:GetLayout().unshiftToCast
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().unshiftToCast = value and true or false
+  end)
+  CreateToggleRow(bars, -262, "Cooldown numbers", function()
+    local value = QtUI:GetLayout().cooldownText
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().cooldownText = value and true or false
+  end)
+  CreateToggleRow(bars, -288, "Color out of range / OOM", function()
+    local value = QtUI:GetLayout().barRangeColor
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().barRangeColor = value and true or false
   end)
 
   local function BuildBarPage(pageKey, barKey, blurb)
@@ -684,35 +708,35 @@ function PotatoUI:SetupSettingsWindow()
     page.note:SetJustifyH("LEFT")
     page.note:SetText(blurb)
     CreateToggleRow(page, -28, "Show this bar", function()
-      return PotatoUI:GetBarConfig(barKey).enabled ~= false
+      return QtUI:GetBarConfig(barKey).enabled ~= false
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).enabled = value and true or false
+      QtUI:GetBarConfig(barKey).enabled = value and true or false
     end)
     CreateStepper(page, -54, "Button size", function()
-      return PotatoUI:GetBarConfig(barKey).size
+      return QtUI:GetBarConfig(barKey).size
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).size = value
+      QtUI:GetBarConfig(barKey).size = value
     end, 20, 52, 2, 0)
     CreateStepper(page, -80, "Spacing", function()
-      return PotatoUI:GetBarConfig(barKey).spacing
+      return QtUI:GetBarConfig(barKey).spacing
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).spacing = value
+      QtUI:GetBarConfig(barKey).spacing = value
     end, 0, 12, 1, 0)
     CreateGridPicker(page, -114, barKey)
     CreateAlignPicker(page, -170, "Hotkey", function()
-      return PotatoUI:GetBarConfig(barKey).hotkeyAlign
+      return QtUI:GetBarConfig(barKey).hotkeyAlign
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).hotkeyAlign = value
+      QtUI:GetBarConfig(barKey).hotkeyAlign = value
     end)
     CreateStepper(page, -196, "Hotkey size", function()
-      return PotatoUI:GetBarConfig(barKey).hotkeySize
+      return QtUI:GetBarConfig(barKey).hotkeySize
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).hotkeySize = value
+      QtUI:GetBarConfig(barKey).hotkeySize = value
     end, 7, 16, 1, 0)
     CreateStepper(page, -222, "Hotkey shadow", function()
-      return PotatoUI:GetBarConfig(barKey).hotkeyShadow
+      return QtUI:GetBarConfig(barKey).hotkeyShadow
     end, function(value)
-      PotatoUI:GetBarConfig(barKey).hotkeyShadow = value
+      QtUI:GetBarConfig(barKey).hotkeyShadow = value
     end, 0, 4, 1, 0)
     return page
   end
@@ -732,35 +756,57 @@ function PotatoUI:SetupSettingsWindow()
   units.note:SetText("Shared colors and gradient. Open Player, Target, Party or Pet for size, mana height and text positions.")
 
   CreateToggleRow(units, -22, "Gradient bars", function()
-    local value = PotatoUI:GetLayout().unitGradient
+    local value = QtUI:GetLayout().unitGradient
     return value == true or value == 1 or value == "1"
   end, function(value)
-    PotatoUI:GetLayout().unitGradient = value and true or false
+    QtUI:GetLayout().unitGradient = value and true or false
   end)
+  CreateToggleRow(units, -190, "Target of target", function()
+    local value = QtUI:GetLayout().showTargetTarget
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().showTargetTarget = value and true or false
+  end)
+  CreateToggleRow(units, -216, "Energy / mana tick", function()
+    local value = QtUI:GetLayout().energyTick
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().energyTick = value and true or false
+  end)
+  CreateStepper(units, -242, "Tick width", function()
+    return QtUI:GetLayout().energyTickWidth or 1
+  end, function(value)
+    QtUI:GetLayout().energyTickWidth = value
+  end, 1, 8, 1, 0)
+  CreateStepper(units, -268, "Tick opacity", function()
+    return QtUI:GetLayout().energyTickAlpha or .95
+  end, function(value)
+    QtUI:GetLayout().energyTickAlpha = value
+  end, 0.1, 1, 0.05, 2)
   CreateColorRow(units, -50, "Player health", function()
-    return PotatoUI:GetLayout().playerHealth
+    return QtUI:GetLayout().playerHealth
   end, function(color)
-    PotatoUI:GetLayout().playerHealth = color
+    QtUI:GetLayout().playerHealth = color
   end)
   CreateColorRow(units, -78, "Enemy health", function()
-    return PotatoUI:GetLayout().enemyHealth
+    return QtUI:GetLayout().enemyHealth
   end, function(color)
-    PotatoUI:GetLayout().enemyHealth = color
+    QtUI:GetLayout().enemyHealth = color
   end)
   CreateColorRow(units, -106, "Friend health", function()
-    return PotatoUI:GetLayout().friendHealth
+    return QtUI:GetLayout().friendHealth
   end, function(color)
-    PotatoUI:GetLayout().friendHealth = color
+    QtUI:GetLayout().friendHealth = color
   end)
   CreateColorRow(units, -134, "Neutral health", function()
-    return PotatoUI:GetLayout().neutralHealth
+    return QtUI:GetLayout().neutralHealth
   end, function(color)
-    PotatoUI:GetLayout().neutralHealth = color
+    QtUI:GetLayout().neutralHealth = color
   end)
   CreateColorRow(units, -162, "Party health", function()
-    return PotatoUI:GetLayout().partyHealth
+    return QtUI:GetLayout().partyHealth
   end, function(color)
-    PotatoUI:GetLayout().partyHealth = color
+    QtUI:GetLayout().partyHealth = color
   end)
 
   local function BuildUnitPage(pageKey, styleKey, blurb, extras)
@@ -772,68 +818,68 @@ function PotatoUI:SetupSettingsWindow()
     page.note:SetText(blurb)
     local y = -24
     CreateStepper(page, y, "Width", function()
-      return PotatoUI:GetUnitStyle(styleKey).width
+      return QtUI:GetUnitStyle(styleKey).width
     end, function(value)
-      PotatoUI:GetUnitStyle(styleKey).width = value
+      QtUI:GetUnitStyle(styleKey).width = value
     end, 100, 420, 10, 0)
     y = y - 26
     if extras.height then
       CreateStepper(page, y, "Height", function()
-        return PotatoUI:GetUnitStyle(styleKey).height
+        return QtUI:GetUnitStyle(styleKey).height
       end, function(value)
-        PotatoUI:GetUnitStyle(styleKey).height = value
+        QtUI:GetUnitStyle(styleKey).height = value
       end, extras.minHeight or 32, extras.maxHeight or 100, 2, 0)
       y = y - 26
     end
     if extras.powerHeight then
       CreateStepper(page, y, "Mana bar height", function()
-        return PotatoUI:GetUnitStyle(styleKey).powerHeight
+        return QtUI:GetUnitStyle(styleKey).powerHeight
       end, function(value)
-        PotatoUI:GetUnitStyle(styleKey).powerHeight = value
+        QtUI:GetUnitStyle(styleKey).powerHeight = value
       end, 6, 28, 1, 0)
       y = y - 26
     end
     if extras.spacing then
       CreateStepper(page, y, "Space between frames", function()
-        return PotatoUI:GetUnitStyle(styleKey).spacing
+        return QtUI:GetUnitStyle(styleKey).spacing
       end, function(value)
-        PotatoUI:GetUnitStyle(styleKey).spacing = value
+        QtUI:GetUnitStyle(styleKey).spacing = value
       end, 4, 40, 1, 0)
       y = y - 26
     end
     if extras.classColor then
       CreateToggleRow(page, y, extras.classColor, function()
-        return PotatoUI:GetLayout()[extras.classColorKey]
+        return QtUI:GetLayout()[extras.classColorKey]
       end, function(value)
-        PotatoUI:GetLayout()[extras.classColorKey] = value and true or false
+        QtUI:GetLayout()[extras.classColorKey] = value and true or false
       end)
       y = y - 26
     end
     CreateAlignPicker(page, y, "Name", function()
-      return PotatoUI:GetUnitStyle(styleKey).nameAlign
+      return QtUI:GetUnitStyle(styleKey).nameAlign
     end, function(value)
-      PotatoUI:GetUnitStyle(styleKey).nameAlign = value
+      QtUI:GetUnitStyle(styleKey).nameAlign = value
     end)
     y = y - 26
     CreateAlignPicker(page, y, "Health text", function()
-      return PotatoUI:GetUnitStyle(styleKey).healthAlign
+      return QtUI:GetUnitStyle(styleKey).healthAlign
     end, function(value)
-      PotatoUI:GetUnitStyle(styleKey).healthAlign = value
+      QtUI:GetUnitStyle(styleKey).healthAlign = value
     end)
     y = y - 26
     if extras.powerText then
       CreateAlignPicker(page, y, "Mana text", function()
-        return PotatoUI:GetUnitStyle(styleKey).powerAlign
+        return QtUI:GetUnitStyle(styleKey).powerAlign
       end, function(value)
-        PotatoUI:GetUnitStyle(styleKey).powerAlign = value
+        QtUI:GetUnitStyle(styleKey).powerAlign = value
       end)
       y = y - 26
     end
     if extras.classText then
       CreateAlignPicker(page, y, "Elite / rare", function()
-        return PotatoUI:GetUnitStyle(styleKey).classAlign
+        return QtUI:GetUnitStyle(styleKey).classAlign
       end, function(value)
-        PotatoUI:GetUnitStyle(styleKey).classAlign = value
+        QtUI:GetUnitStyle(styleKey).classAlign = value
       end)
     end
     return page
@@ -858,40 +904,40 @@ function PotatoUI:SetupSettingsWindow()
   })
 
   CreateSmallButton(frame, "Reload UI", 18, function()
-    if SlashCmdList and SlashCmdList["POTATOUI"] then
-      SlashCmdList["POTATOUI"]("reload")
+    if SlashCmdList and SlashCmdList["QTUI"] then
+      SlashCmdList["QTUI"]("reload")
     end
   end)
   CreateSmallButton(frame, "Apply", 130, function()
-    PotatoUI:ApplyLayout()
+    QtUI:ApplyLayout()
   end)
   CreateSmallButton(frame, "Toggle Anchor", 242, function()
-    PotatoUI.moveFromSettings = true
-    if PotatoUI.settingsFrame then PotatoUI.settingsFrame:Hide() end
-    if PotatoUI.SetMoveMode then PotatoUI:SetMoveMode(true) end
-    PotatoUI:Print("Anchors unlocked. Drag the green fields. Press Escape to lock and return here.")
+    QtUI.moveFromSettings = true
+    if QtUI.settingsFrame then QtUI.settingsFrame:Hide() end
+    if QtUI.SetMoveMode then QtUI:SetMoveMode(true) end
+    QtUI:Print("Anchors unlocked. Drag the green fields. Press Escape to lock and return here.")
   end, 118)
 
   ShowPage(frame, "general")
   frame:Hide()
   self.settingsFrame = frame
-  if UISpecialFrames then table.insert(UISpecialFrames, "PotatoUISettingsFrame") end
+  if UISpecialFrames then table.insert(UISpecialFrames, "QtUISettingsFrame") end
 end
 
-function PotatoUI:ToggleSettings()
+function QtUI:ToggleSettings()
   self:SetupSettingsWindow()
   RefreshSettingsRows()
   if self.settingsFrame:IsShown() then self.settingsFrame:Hide() else self.settingsFrame:Show() end
 end
 
-function PotatoUI:SetupSettingsButton()
+function QtUI:SetupSettingsButton()
   if self.settingsButton then return end
   local parent = Minimap or UIParent
-  local button = CreateFrame("Button", "PotatoUISettingsButton", parent)
+  local button = CreateFrame("Button", "QtUISettingsButton", parent)
   button:SetWidth(31)
   button:SetHeight(31)
   if Minimap then
-    local saved = PotatoUIDB.settingsButtonPosition
+    local saved = QtUIDB.settingsButtonPosition
     button:SetPoint("CENTER", Minimap, "CENTER",
       saved and saved.x or -65, saved and saved.y or 65)
   else
@@ -910,7 +956,7 @@ function PotatoUI:SetupSettingsButton()
   button.icon:SetWidth(20)
   button.icon:SetHeight(20)
   button.icon:SetPoint("CENTER", button, "CENTER", 1, 1)
-  button.icon:SetTexture("Interface\\AddOns\\PotatoUI\\Media\\PotatoIcon")
+  button.icon:SetTexture("Interface\\AddOns\\QtUI\\Media\\QtIcon")
   button.icon:SetTexCoord(.05, .95, .05, .95)
 
   button.overlay = button:CreateTexture(nil, "OVERLAY")
@@ -939,7 +985,7 @@ function PotatoUI:SetupSettingsButton()
       local mapX, mapY = Minimap:GetCenter()
       if buttonX and buttonY and mapX and mapY then
         local x, y = buttonX - mapX, buttonY - mapY
-        PotatoUIDB.settingsButtonPosition = { x = x, y = y }
+        QtUIDB.settingsButtonPosition = { x = x, y = y }
         this:ClearAllPoints()
         this:SetPoint("CENTER", Minimap, "CENTER", x, y)
       end
@@ -950,11 +996,11 @@ function PotatoUI:SetupSettingsButton()
       this.justDragged = nil
       return
     end
-    PotatoUI:ToggleSettings()
+    QtUI:ToggleSettings()
   end)
   button:SetScript("OnEnter", function()
     GameTooltip:SetOwner(this, "ANCHOR_LEFT")
-    GameTooltip:SetText("PotatoUI Settings")
+    GameTooltip:SetText("QtUI Settings")
     GameTooltip:AddLine("Click to configure the addon.", .8, .85, .9, 1)
     GameTooltip:AddLine("Shift-drag to move this button.", .45, .8, 1, 1)
     GameTooltip:Show()

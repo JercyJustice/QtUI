@@ -19,13 +19,13 @@ local function GetVendorSellPrice(link)
   if not link then return nil end
 
   -- Some custom clients append sellPrice to GetItemInfo. Prefer that when it
-  -- is present, then fall back to PotatoUI's Vanilla database.
+  -- is present, then fall back to QtUI's Vanilla database.
   local _, _, _, _, _, _, _, _, _, _, apiSellPrice = GetItemInfo(link)
   if apiSellPrice and tonumber(apiSellPrice) then return tonumber(apiSellPrice) end
 
   local _, _, itemID = string.find(link, "item:(%d+)")
   itemID = tonumber(itemID)
-  local value = itemID and PotatoUI.vendorPrices and PotatoUI.vendorPrices[itemID]
+  local value = itemID and QtUI.vendorPrices and QtUI.vendorPrices[itemID]
   if not value then return nil end
 
   local _, _, sell = string.find(value, "^(%d+),")
@@ -60,14 +60,14 @@ local function AutoSellGreyItems()
   end
 
   if soldStacks > 0 and DEFAULT_CHAT_FRAME then
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00PotatoUI|r: Sold " .. soldItems ..
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00QtUI|r: Sold " .. soldItems ..
       " grey item" .. (soldItems == 1 and "" or "s") .. " for " .. FormatMoney(totalValue) .. ".")
   end
 end
 
-function PotatoUI:SetupAutoSell()
+function QtUI:SetupAutoSell()
   if self.autoSellFrame then return end
-  local frame = CreateFrame("Frame", "PotatoUIAutoSellEvents")
+  local frame = CreateFrame("Frame", "QtUIAutoSellEvents")
   frame:RegisterEvent("MERCHANT_SHOW")
   frame:SetScript("OnEvent", AutoSellGreyItems)
   self.autoSellFrame = frame
@@ -103,15 +103,15 @@ local function StyleSplitButton(button, width, height)
   end)
 end
 
-local function OpenPotatoStackSplit(button, count)
-  if PotatoUI.splitFrame and not PotatoUI.splitFrame.layoutV2 then
-    PotatoUI.splitFrame:Hide()
-    PotatoUI.splitFrame = nil
+local function OpenQtStackSplit(button, count)
+  if QtUI.splitFrame and not QtUI.splitFrame.layoutV2 then
+    QtUI.splitFrame:Hide()
+    QtUI.splitFrame = nil
   end
 
-  local frame = PotatoUI.splitFrame
+  local frame = QtUI.splitFrame
   if not frame then
-    frame = CreateFrame("Frame", "PotatoUIStackSplit", UIParent)
+    frame = CreateFrame("Frame", "QtUIStackSplit", UIParent)
     frame.layoutV2 = true
     frame:SetWidth(176)
     frame:SetHeight(108)
@@ -136,10 +136,10 @@ local function OpenPotatoStackSplit(button, count)
     frame.minus:SetPoint("TOP", frame, "TOP", -40, -38)
     frame.minus.text:SetText("-")
     frame.minus:SetScript("OnClick", function()
-      local split = PotatoUI.splitFrame.split - 1
+      local split = QtUI.splitFrame.split - 1
       if split < 1 then split = 1 end
-      PotatoUI.splitFrame.split = split
-      PotatoUI.splitFrame.value:SetText(split)
+      QtUI.splitFrame.split = split
+      QtUI.splitFrame.value:SetText(split)
     end)
 
     frame.value = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -153,12 +153,12 @@ local function OpenPotatoStackSplit(button, count)
     frame.plus:SetPoint("TOP", frame, "TOP", 40, -38)
     frame.plus.text:SetText("+")
     frame.plus:SetScript("OnClick", function()
-      local split = PotatoUI.splitFrame.split + 1
-      local maxStack = PotatoUI.splitFrame.maxStack or 1
+      local split = QtUI.splitFrame.split + 1
+      local maxStack = QtUI.splitFrame.maxStack or 1
       if split > maxStack - 1 then split = maxStack - 1 end
       if split < 1 then split = 1 end
-      PotatoUI.splitFrame.split = split
-      PotatoUI.splitFrame.value:SetText(split)
+      QtUI.splitFrame.split = split
+      QtUI.splitFrame.value:SetText(split)
     end)
 
     frame.ok = CreateFrame("Button", nil, frame)
@@ -166,9 +166,9 @@ local function OpenPotatoStackSplit(button, count)
     frame.ok:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 12)
     frame.ok.text:SetText("OK")
     frame.ok:SetScript("OnClick", function()
-      local owner = PotatoUI.splitFrame.owner
-      local split = PotatoUI.splitFrame.split
-      PotatoUI.splitFrame:Hide()
+      local owner = QtUI.splitFrame.owner
+      local split = QtUI.splitFrame.split
+      QtUI.splitFrame:Hide()
       if owner and owner.bag and owner.slot and type(SplitContainerItem) == "function" then
         SplitContainerItem(owner.bag, owner.slot, split)
       end
@@ -179,10 +179,10 @@ local function OpenPotatoStackSplit(button, count)
     frame.cancel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 12)
     frame.cancel.text:SetText("Cancel")
     frame.cancel:SetScript("OnClick", function()
-      PotatoUI.splitFrame:Hide()
+      QtUI.splitFrame:Hide()
     end)
 
-    PotatoUI.splitFrame = frame
+    QtUI.splitFrame = frame
   end
 
   frame.owner = button
@@ -215,7 +215,7 @@ local function HandleItemClick()
           SplitContainerItem(button.bag, button.slot, split)
         end
       end
-      OpenPotatoStackSplit(this, count)
+      OpenQtStackSplit(this, count)
       return
     end
   end
@@ -233,7 +233,7 @@ local function HandleItemClick()
 end
 
 local function CreateItemButton(parent, index)
-  local button = CreateFrame("Button", "PotatoUIBagItem" .. index, parent)
+  local button = CreateFrame("Button", "QtUIBagItem" .. index, parent)
   button:SetWidth(SLOT_SIZE)
   button:SetHeight(SLOT_SIZE)
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -289,7 +289,7 @@ local function CreateItemButton(parent, index)
 end
 
 local function HighlightBagSlots(bag, show)
-  local frame = PotatoUI.bagFrame
+  local frame = QtUI.bagFrame
   if not frame then return end
   for _, button in ipairs(frame.items) do
     if button.bag == bag and button:IsShown() then
@@ -340,7 +340,7 @@ local function HandleEquippedBagClick()
 end
 
 local function CreateEquippedBagButton(parent, bag)
-  local button = CreateFrame("Button", "PotatoUIEquippedBag" .. bag, parent)
+  local button = CreateFrame("Button", "QtUIEquippedBag" .. bag, parent)
   button:SetWidth(36)
   button:SetHeight(36)
   button.bag = bag
@@ -425,6 +425,11 @@ local function UpdateSlot(button, bag, slot, isKeySlot)
     button.count:SetText("")
   end
 
+  if QtUI.SetCooldownText and type(GetContainerItemCooldown) == "function" then
+    local start, duration, enable = GetContainerItemCooldown(bag, slot)
+    QtUI:SetCooldownText(button, start, duration, enable, 12)
+  end
+
   local quality
   if link then
     local _, _, itemQuality = GetItemInfo(link)
@@ -496,11 +501,11 @@ local function UpdateOneSlot(frame, bag, slot)
   if button then UpdateSlot(button, bag, slot, bag == -2) end
 end
 
-function PotatoUI:UpdateBags()
+function QtUI:UpdateBags()
   local frame = self.bagFrame
   if not frame then return end
 
-  local layout = PotatoUI.GetLayout and PotatoUI:GetLayout()
+  local layout = QtUI.GetLayout and QtUI:GetLayout()
   local slotSize = (layout and layout.bagSlotSize) or SLOT_SIZE
   local columns = (layout and layout.bagColumns) or BAG_COLUMNS
   if slotSize < 24 then slotSize = 24 end
@@ -558,13 +563,13 @@ function PotatoUI:UpdateBags()
   UpdateEquippedBags(frame)
 end
 
-function PotatoUI:OpenBags()
+function QtUI:OpenBags()
   if not self.bagFrame then return end
   self:UpdateBags()
   self.bagFrame:Show()
 end
 
-function PotatoUI:CloseBags()
+function QtUI:CloseBags()
   if self.bagFrame then
     if self.bagFrame.bagMenu then self.bagFrame.bagMenu:Hide() end
     self.bagFrame:Hide()
@@ -573,16 +578,16 @@ function PotatoUI:CloseBags()
   if StackSplitFrame and StackSplitFrame.Hide then StackSplitFrame:Hide() end
 end
 
-function PotatoUI:ToggleBags()
+function QtUI:ToggleBags()
   if not self.bagFrame then return end
   if self.bagFrame:IsShown() then self:CloseBags() else self:OpenBags() end
 end
 
-function PotatoUI:SetupBags()
-  local frame = self:CreatePanel("PotatoUIBagFrame", UIParent, 8)
+function QtUI:SetupBags()
+  local frame = self:CreatePanel("QtUIBagFrame", UIParent, 8)
   frame:SetFrameStrata("HIGH")
-  if PotatoUIDB.bagX and PotatoUIDB.bagY then
-    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", PotatoUIDB.bagX, PotatoUIDB.bagY)
+  if QtUIDB.bagX and QtUIDB.bagY then
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", QtUIDB.bagX, QtUIDB.bagY)
   else
     frame:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -18, 220)
   end
@@ -598,14 +603,14 @@ function PotatoUI:SetupBags()
 
   frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 13, -13)
-  frame.title:SetText("|cffffcc00Potato|r Bags")
+  frame.title:SetText("|cffffcc00Qt|r Bags")
 
   frame.space = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   frame.space:SetPoint("TOP", frame, "TOP", 0, -15)
 
   -- Item buttons consume mouse input, so provide a full-width header handle
   -- that always starts movement and stores its final screen position.
-  frame.dragHandle = CreateFrame("Button", "PotatoUIBagDragHandle", frame)
+  frame.dragHandle = CreateFrame("Button", "QtUIBagDragHandle", frame)
   frame.dragHandle:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   frame.dragHandle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
   frame.dragHandle:SetHeight(38)
@@ -619,17 +624,17 @@ function PotatoUI:SetupBags()
     parent:StopMovingOrSizing()
     local left, bottom = parent:GetLeft(), parent:GetBottom()
     if left and bottom then
-      PotatoUIDB.bagX = left
-      PotatoUIDB.bagY = bottom
-      if PotatoUIDB.positions then
-        PotatoUIDB.positions.bags = { x = left, y = bottom }
+      QtUIDB.bagX = left
+      QtUIDB.bagY = bottom
+      if QtUIDB.positions then
+        QtUIDB.positions.bags = { x = left, y = bottom }
       end
       parent:ClearAllPoints()
       parent:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
     end
   end)
 
-  frame.close = CreateFrame("Button", "PotatoUIBagClose", frame)
+  frame.close = CreateFrame("Button", "QtUIBagClose", frame)
   frame.close:SetWidth(24)
   frame.close:SetHeight(24)
   frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
@@ -638,14 +643,14 @@ function PotatoUI:SetupBags()
   frame.close.text:SetAllPoints(frame.close)
   frame.close.text:SetJustifyH("CENTER")
   frame.close.text:SetText("|cffff5555X|r")
-  frame.close:SetScript("OnClick", function() PotatoUI:CloseBags() end)
+  frame.close:SetScript("OnClick", function() QtUI:CloseBags() end)
 
   frame.money = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   frame.money:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -13, 12)
   frame.money:SetJustifyH("RIGHT")
 
   -- Bag-management button and popover.
-  frame.bagMenuButton = CreateFrame("Button", "PotatoUIBagMenuButton", frame)
+  frame.bagMenuButton = CreateFrame("Button", "QtUIBagMenuButton", frame)
   frame.bagMenuButton:SetWidth(28)
   frame.bagMenuButton:SetHeight(28)
   frame.bagMenuButton:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 11, 5)
@@ -663,7 +668,7 @@ function PotatoUI:SetupBags()
   frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -3, 3)
   frame.bagMenuButton.icon:SetTexture("Interface\\Buttons\\Button-Backpack-Up")
 
-  frame.bagMenu = self:CreatePanel("PotatoUIBagMenu", frame, frame:GetFrameLevel() + 8)
+  frame.bagMenu = self:CreatePanel("QtUIBagMenu", frame, frame:GetFrameLevel() + 8)
   frame.bagMenu:SetFrameStrata("DIALOG")
   frame.bagMenu:SetWidth(212)
   frame.bagMenu:SetHeight(62)
@@ -686,7 +691,7 @@ function PotatoUI:SetupBags()
   frame.bagMenuButton:SetScript("OnClick", function()
     local menu = this:GetParent().bagMenu
     if menu:IsShown() then menu:Hide() else
-      PotatoUI:UpdateBags()
+      QtUI:UpdateBags()
       menu:Show()
     end
   end)
@@ -702,14 +707,14 @@ function PotatoUI:SetupBags()
   self.bagFrame = frame
 
   -- Replace every standard backpack entry point with the combined window.
-  ToggleBackpack = function() PotatoUI:ToggleBags() end
-  OpenBackpack = function() PotatoUI:OpenBags() end
-  CloseBackpack = function() PotatoUI:CloseBags() end
-  OpenAllBags = function() PotatoUI:OpenBags() end
-  CloseAllBags = function() PotatoUI:CloseBags() end
-  ToggleBag = function() PotatoUI:ToggleBags() end
+  ToggleBackpack = function() QtUI:ToggleBags() end
+  OpenBackpack = function() QtUI:OpenBags() end
+  CloseBackpack = function() QtUI:CloseBags() end
+  OpenAllBags = function() QtUI:OpenBags() end
+  CloseAllBags = function() QtUI:CloseBags() end
+  ToggleBag = function() QtUI:ToggleBags() end
 
-  local bagsOk, bagsErr = pcall(function() PotatoUI:UpdateBags() end)
+  local bagsOk, bagsErr = pcall(function() QtUI:UpdateBags() end)
   if bagsOk then
     local i
     for i = 1, 13 do self:HideFrame(getglobal("ContainerFrame" .. i)) end
@@ -717,7 +722,7 @@ function PotatoUI:SetupBags()
     self:Print("Bags failed to build: " .. tostring(bagsErr))
   end
 
-  local events = CreateFrame("Frame", "PotatoUIBagEvents")
+  local events = CreateFrame("Frame", "QtUIBagEvents")
   events:RegisterEvent("BAG_UPDATE")
   events:RegisterEvent("ITEM_LOCK_CHANGED")
   events:RegisterEvent("PLAYER_MONEY")
@@ -727,7 +732,7 @@ function PotatoUI:SetupBags()
   events.elapsed = 0
 
   local function FlushBagEvents()
-    local frame = PotatoUI.bagFrame
+    local frame = QtUI.bagFrame
     if not frame or not frame:IsShown() then
       events.dirtyBags = {}
       events.dirtySlots = {}
@@ -738,7 +743,7 @@ function PotatoUI:SetupBags()
     -- requires recreating anchors and rebuilding the location lookup.
     local hasBagChanges = next(events.dirtyBags)
     if frame.layoutSignature ~= BagLayoutSignature() then
-      PotatoUI:UpdateBags()
+      QtUI:UpdateBags()
     else
       for bag in pairs(events.dirtyBags) do UpdateOneBag(frame, bag) end
       for key, location in pairs(events.dirtySlots) do
@@ -767,10 +772,10 @@ function PotatoUI:SetupBags()
 
   events:SetScript("OnEvent", function()
     if event == "MERCHANT_SHOW" then
-      PotatoUI:OpenBags()
+      QtUI:OpenBags()
     elseif event == "PLAYER_MONEY" then
-      if PotatoUI.bagFrame and PotatoUI.bagFrame:IsShown() then
-        UpdateMoneyText(PotatoUI.bagFrame)
+      if QtUI.bagFrame and QtUI.bagFrame:IsShown() then
+        UpdateMoneyText(QtUI.bagFrame)
       end
     elseif event == "BAG_UPDATE" then
       local bag = tonumber(arg1)

@@ -43,14 +43,14 @@ local function StartCast(frame, spellName, durationMS, channeling)
   frame:Show()
 end
 
-function PotatoUI:SetupCastBar()
+function QtUI:SetupCastBar()
   if self.castBar or not self.playerFrame then return end
 
   -- The original bar is positioned for Blizzard's unit frames and otherwise
-  -- appears underneath PotatoUI's replacements.
+  -- appears underneath QtUI's replacements.
   self:HideFrame(CastingBarFrame)
 
-  local bar = CreateFrame("StatusBar", "PotatoUICastBar", self.playerFrame)
+  local bar = CreateFrame("StatusBar", "QtUICastBar", self.playerFrame)
   bar:SetWidth(260)
   bar:SetHeight(14)
   bar:SetPoint("TOP", self.playerFrame, "BOTTOM", 0, -3)
@@ -82,7 +82,7 @@ function PotatoUI:SetupCastBar()
   bar.time:SetJustifyH("RIGHT")
   bar:Hide()
 
-  local events = CreateFrame("Frame", "PotatoUICastEvents")
+  local events = CreateFrame("Frame", "QtUICastEvents")
   events:RegisterEvent("SPELLCAST_START")
   events:RegisterEvent("SPELLCAST_STOP")
   events:RegisterEvent("SPELLCAST_FAILED")

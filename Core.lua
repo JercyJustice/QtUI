@@ -1,16 +1,16 @@
-PotatoUI = CreateFrame("Frame", "PotatoUIEventFrame", UIParent)
-PotatoUI.version = "0.10.8"
-PotatoUI.media = {
+QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
+QtUI.version = "0.10.8"
+QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
 
 local function Print(message)
   if DEFAULT_CHAT_FRAME then
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00PotatoUI|r: " .. message)
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffcc00QtUI|r: " .. message)
   end
 end
 
-function PotatoUI:Print(message)
+function QtUI:Print(message)
   Print(message)
 end
 
@@ -20,7 +20,7 @@ end
 
 -- Default UI: while a friendly spell is waiting for a target, click the
 -- unit frame to cast it (SpellTargetUnit) instead of changing target.
-function PotatoUI:UsePendingActionOnUnit(unit)
+function QtUI:UsePendingActionOnUnit(unit)
   if not unit then return nil end
 
   -- SpellCanTargetUnit is only true while a spell is waiting for a unit.
@@ -57,7 +57,7 @@ function PotatoUI:UsePendingActionOnUnit(unit)
   return nil
 end
 
-function PotatoUI:CreatePanel(name, parent, level)
+function QtUI:CreatePanel(name, parent, level)
   local panel = CreateFrame("Frame", name, parent or UIParent)
   panel:SetFrameStrata("BACKGROUND")
   panel:SetFrameLevel(level or 1)
@@ -74,7 +74,7 @@ function PotatoUI:CreatePanel(name, parent, level)
   return panel
 end
 
-function PotatoUI:HideFrame(frame)
+function QtUI:HideFrame(frame)
   if not frame then return end
   frame:Hide()
   if type(frame.SetScript) == "function" then
@@ -126,9 +126,9 @@ local function EnsureBar(bars, name, columns, size, rows)
   return bar
 end
 
-function PotatoUI:EnsureLayoutDefaults()
-  if not PotatoUIDB.layout then PotatoUIDB.layout = {} end
-  local layout = PotatoUIDB.layout
+function QtUI:EnsureLayoutDefaults()
+  if not QtUIDB.layout then QtUIDB.layout = {} end
+  local layout = QtUIDB.layout
   layout.scale = nil
   if not layout.unitWidth then layout.unitWidth = 260 end
   if not layout.unitHeight then layout.unitHeight = 54 end
@@ -211,7 +211,24 @@ function PotatoUI:EnsureLayoutDefaults()
     width = layout.petWidth or 180, height = 27,
     nameAlign = "left", healthAlign = "right",
   })
+  EnsureUnitStyle("targettarget", {
+    width = 180, height = 36, powerHeight = 8,
+    nameAlign = "left", healthAlign = "right", powerAlign = "right",
+  })
   if layout.barShowBackground == nil then layout.barShowBackground = false end
+  if layout.unshiftToCast == nil then layout.unshiftToCast = true end
+  if layout.cooldownText == nil then layout.cooldownText = true end
+  if layout.barRangeColor == nil then layout.barRangeColor = true end
+  if layout.energyTick == nil then layout.energyTick = true end
+  layout.energyTickWidth = tonumber(layout.energyTickWidth) or 1
+  if layout.energyTickWidth < 1 then layout.energyTickWidth = 1 end
+  if layout.energyTickWidth > 8 then layout.energyTickWidth = 8 end
+  layout.energyTickAlpha = tonumber(layout.energyTickAlpha)
+  if not layout.energyTickAlpha then layout.energyTickAlpha = .95 end
+  if layout.energyTickAlpha < .1 then layout.energyTickAlpha = .1 end
+  if layout.energyTickAlpha > 1 then layout.energyTickAlpha = 1 end
+  if layout.eqCompare == nil then layout.eqCompare = true end
+  if layout.showTargetTarget == nil then layout.showTargetTarget = true end
   layout.barBackground = EnsureColor(layout.barBackground, .025, .035, .045, .85)
   layout.barBorder = EnsureColor(layout.barBorder, .18, .24, .28, 1)
   if layout.slotShowBackground == nil then layout.slotShowBackground = true end
@@ -254,22 +271,22 @@ function PotatoUI:EnsureLayoutDefaults()
   return layout
 end
 
-function PotatoUI:GetLayout()
+function QtUI:GetLayout()
   return self:EnsureLayoutDefaults()
 end
 
-function PotatoUI:GetBarConfig(name)
+function QtUI:GetBarConfig(name)
   local layout = self:GetLayout()
   return layout.bars[name] or layout.bars.main
 end
 
-function PotatoUI:GetUnitStyle(name)
+function QtUI:GetUnitStyle(name)
   local layout = self:GetLayout()
   if layout.unitStyle and layout.unitStyle[name] then return layout.unitStyle[name] end
   return layout.unitStyle and layout.unitStyle.player
 end
 
-function PotatoUI:IsBarEnabled(name)
+function QtUI:IsBarEnabled(name)
   local bar = self:GetBarConfig(name)
   return not bar or bar.enabled ~= false
 end
@@ -278,13 +295,46 @@ local function LayoutFlagOn(value)
   return value == true or value == 1 or value == "1"
 end
 
-function PotatoUI:ApplyActionBarBackground()
+local function BarPanels(self)
+  return {
+    { self.actionPanel, "main" },
+    { self.extraActionPanel, "extra" },
+    { self.utilityActionPanel, "utility" },
+    { self.auxiliaryPanel, "aux" },
+    { self.sideRightPanel, "sideRight" },
+    { self.sideLeftPanel, "sideLeft" },
+  }
+end
+
+local function NudgeBarPanels(self)
+  -- Emberveil often ignores SetBackdrop until the frame is resized or shown.
+  local panels = BarPanels(self)
+  local i
+  for i = 1, table.getn(panels) do
+    local panel = panels[i][1]
+    local key = panels[i][2]
+    if panel and self:IsBarEnabled(key) and panel.GetWidth and panel.SetWidth then
+      local width = panel:GetWidth() or 0
+      local height = panel.GetHeight and panel:GetHeight() or 0
+      if width > 0 then
+        panel:SetWidth(width + 1)
+        if height > 0 and panel.SetHeight then panel:SetHeight(height + 1) end
+        panel:SetWidth(width)
+        if height > 0 and panel.SetHeight then panel:SetHeight(height) end
+      end
+      if panel.Show then pcall(panel.Show, panel) end
+    end
+  end
+end
+
+function QtUI:ApplyActionBarBackground()
   local layout = self:GetLayout()
-  local function Paint(panel)
+  local function Paint(panel, key)
     if not panel or not panel.SetBackdropColor then return end
     -- Always re-stamp the backdrop. Emberveil can keep a dead GetBackdrop()
     -- after login so a skipped SetBackdrop leaves the bar fully transparent.
     if panel.SetBackdrop then
+      pcall(panel.SetBackdrop, panel, nil)
       panel:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -292,43 +342,44 @@ function PotatoUI:ApplyActionBarBackground()
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
       })
     end
-    if LayoutFlagOn(layout.barShowBackground) then
+    if LayoutFlagOn(layout.barShowBackground) and self:IsBarEnabled(key) then
       local c = layout.barBackground or {}
       local b = layout.barBorder or {}
       panel:SetBackdropColor(c.r or .025, c.g or .035, c.b or .045, c.a or .85)
       panel:SetBackdropBorderColor(b.r or .18, b.g or .24, b.b or .28, b.a or 1)
+      if panel.Show then pcall(panel.Show, panel) end
+      if panel.SetAlpha then pcall(panel.SetAlpha, panel, 1) end
     else
       panel:SetBackdropColor(0, 0, 0, 0)
       panel:SetBackdropBorderColor(0, 0, 0, 0)
     end
   end
-  Paint(self.actionPanel)
-  Paint(self.extraActionPanel)
-  Paint(self.utilityActionPanel)
-  Paint(self.auxiliaryPanel)
-  Paint(self.sideRightPanel)
-  Paint(self.sideLeftPanel)
+  Paint(self.actionPanel, "main")
+  Paint(self.extraActionPanel, "extra")
+  Paint(self.utilityActionPanel, "utility")
+  Paint(self.auxiliaryPanel, "aux")
+  Paint(self.sideRightPanel, "sideRight")
+  Paint(self.sideLeftPanel, "sideLeft")
+  NudgeBarPanels(self)
   -- Backdrop makes frames eat clicks. Only the buttons should be clickable.
-  local panels = {
-    self.actionPanel, self.extraActionPanel, self.utilityActionPanel, self.auxiliaryPanel,
-    self.sideRightPanel, self.sideLeftPanel,
-  }
+  local panels = BarPanels(self)
   local i
   for i = 1, table.getn(panels) do
-    if panels[i] and panels[i].EnableMouse then
-      pcall(panels[i].EnableMouse, panels[i], false)
+    local panel = panels[i][1]
+    if panel and panel.EnableMouse then
+      pcall(panel.EnableMouse, panel, false)
     end
   end
 end
 
-function PotatoUI:EnsureSlotCell(button, panel)
+function QtUI:EnsureSlotCell(button, panel)
   if not button then return end
-  if button.PotatoUISlotBg then
-    button.PotatoUISlotBg:Hide()
-    if button.PotatoUISlotBg.SetTexture then button.PotatoUISlotBg:SetTexture(nil) end
+  if button.QtUISlotBg then
+    button.QtUISlotBg:Hide()
+    if button.QtUISlotBg.SetTexture then button.QtUISlotBg:SetTexture(nil) end
   end
-  if button.PotatoUIBorder then
-    button.PotatoUIBorder:Hide()
+  if button.QtUIBorder then
+    button.QtUIBorder:Hide()
   end
   panel = panel or button:GetParent()
   if not panel then return end
@@ -347,13 +398,16 @@ function PotatoUI:EnsureSlotCell(button, panel)
     inset = 1
   end
 
-  local cell = button.PotatoUICell
+  local cell = button.QtUICell
   if not cell then
     cell = CreateFrame("Frame", nil, panel)
-    button.PotatoUICell = cell
-  else
+    button.QtUICell = cell
+  elseif panel then
     cell:SetParent(panel)
   end
+  local stamp = tostring(size) .. ":" .. extra .. ":" .. edge
+  if not self.forceSlotCell and cell.QtUIStamp == stamp then return cell end
+
   cell:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -368,6 +422,7 @@ function PotatoUI:EnsureSlotCell(button, panel)
   cell:ClearAllPoints()
   cell:SetPoint("TOPLEFT", button, "TOPLEFT", -extra, extra)
   cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", extra, -extra)
+  cell.QtUIStamp = stamp
   return cell
 end
 
@@ -380,7 +435,7 @@ local function SlotHasSpell(button, prefix, index)
     local icon = GetShapeshiftFormInfo(index)
     return icon and icon ~= ""
   end
-  local action = button.PotatoUIAction or button.action
+  local action = button.QtUIAction or button.action
   if not action and button.GetID then action = button:GetID() end
   if action and type(GetActionTexture) == "function" then
     local ok, texture = pcall(GetActionTexture, action)
@@ -393,9 +448,9 @@ local function SlotHasSpell(button, prefix, index)
   return nil
 end
 
-local function ButtonIsOnPotatoBar(button)
+local function ButtonIsOnQtBar(button)
   if not button then return nil end
-  if button.PotatoUIStyled then return true end
+  if button.QtUIStyled then return true end
   if button.IsShown then
     local ok, shown = pcall(button.IsShown, button)
     if ok and (shown == true or shown == 1 or shown == "1") then return true end
@@ -403,23 +458,30 @@ local function ButtonIsOnPotatoBar(button)
   local parent = button.GetParent and button:GetParent()
   if parent and parent.GetName then
     local name = parent:GetName()
-    if name and string.find(name, "PotatoUI", 1, true) then return true end
+    if name and string.find(name, "QtUI", 1, true) then return true end
   end
   return nil
 end
 
-function PotatoUI:EnsureButtonRim(button, size, keepNormalIcon)
+function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
   if not button then return end
   size = size or (button.GetWidth and button:GetWidth()) or 34
+  local keep = keepNormalIcon and 1 or 0
+  -- Native ActionButton_Update can run many times per second. Re-stamping
+  -- the rim on every call is the single biggest idle cost of the bars.
+  if not self.forceButtonRim and button.QtUIRing and button.QtUIRingSize == size and button.QtUIRingKeep == keep then
+    if button.QtUIRing.Show then pcall(button.QtUIRing.Show, button.QtUIRing) end
+    return
+  end
   if not keepNormalIcon and button.SetNormalTexture then
     button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
   end
   -- Emberveil often has no NormalTexture yet at login. An overlay rim
   -- survives the later native ActionButton_Update wipe.
-  if not button.PotatoUIRing then
-    button.PotatoUIRing = button:CreateTexture(nil, "OVERLAY")
+  if not button.QtUIRing then
+    button.QtUIRing = button:CreateTexture(nil, "OVERLAY")
   end
-  local ring = button.PotatoUIRing
+  local ring = button.QtUIRing
   if ring.SetTexture then ring:SetTexture("Interface\\Buttons\\UI-Quickslot2") end
   local pad = math.floor(size * 0.38)
   if pad < 10 then pad = 10 end
@@ -435,9 +497,11 @@ function PotatoUI:EnsureButtonRim(button, size, keepNormalIcon)
     normal:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
     normal:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
   end
+  button.QtUIRingSize = size
+  button.QtUIRingKeep = keep
 end
 
-function PotatoUI:ApplySlotBackgrounds()
+function QtUI:ApplySlotBackgrounds()
   local layout = self:GetLayout()
   local names = {
     "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
@@ -452,7 +516,7 @@ function PotatoUI:ApplySlotBackgrounds()
     for i = 1, last do
       local button = getglobal(names[n] .. i)
       if button then
-        local shown = ButtonIsOnPotatoBar(button)
+        local shown = ButtonIsOnQtBar(button)
         local cell = self:EnsureSlotCell(button, button:GetParent())
         if cell then
           if shown and LayoutFlagOn(layout.slotShowBackground) and not SlotHasSpell(button, names[n], i) then
@@ -472,35 +536,43 @@ function PotatoUI:ApplySlotBackgrounds()
   end
 end
 
-function PotatoUI:RefreshBarChrome()
+function QtUI:RefreshBarChrome()
+  -- Delayed login restamps must rebuild chrome even if size is unchanged;
+  -- Emberveil can wipe backdrops and overlay textures after the first apply.
+  self.forceButtonRim = true
+  self.forceSlotCell = true
   if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
   if self.ApplySlotBackgrounds then self:ApplySlotBackgrounds() end
+  self.forceButtonRim = nil
+  self.forceSlotCell = nil
 end
 
-function PotatoUI:ScheduleBarChromeRefresh()
+function QtUI:ScheduleBarChromeRefresh()
   local frame = self.barChromeRefresher
   if not frame then
-    frame = CreateFrame("Frame", "PotatoUIBarChromeRefresh")
+    frame = CreateFrame("Frame", "QtUIBarChromeRefresh")
     self.barChromeRefresher = frame
   end
+  -- Emberveil wipes bar chrome shortly after login. Three delayed restamps
+  -- are enough; a 0.3s loop for four seconds was a large hitch source.
   frame.elapsed = 0
-  frame.remaining = 4
-  frame.nextPulse = 0.05
+  frame.step = 0
+  frame.times = { 0.4, 1.8, 4.2 }
   frame:SetScript("OnUpdate", function()
     this.elapsed = this.elapsed + (arg1 or 0)
-    this.remaining = this.remaining - (arg1 or 0)
-    if this.elapsed >= this.nextPulse then
-      this.elapsed = 0
-      this.nextPulse = 0.3
-      if PotatoUI.RefreshBarChrome then PotatoUI:RefreshBarChrome() end
-    end
-    if this.remaining <= 0 then
-      this:SetScript("OnUpdate", nil)
+    local nextStep = this.step + 1
+    local due = this.times[nextStep]
+    if due and this.elapsed >= due then
+      this.step = nextStep
+      if QtUI.RefreshBarChrome then QtUI:RefreshBarChrome() end
+      if nextStep >= table.getn(this.times) then
+        this:SetScript("OnUpdate", nil)
+      end
     end
   end)
 end
 
-function PotatoUI:ApplyLayout()
+function QtUI:ApplyLayout()
   self:EnsureLayoutDefaults()
   if self.LayoutActionBars then self:LayoutActionBars() end
   if self.RefreshBarChrome then self:RefreshBarChrome() end
@@ -515,47 +587,64 @@ function PotatoUI:ApplyLayout()
   end
 end
 
-function PotatoUI:PulseActionBarBackground()
+function QtUI:PulseActionBarBackground()
   if self.pulsingBarBackground then return end
   local layout = self:GetLayout()
   local saved = layout.barShowBackground
   local on = saved == true or saved == 1 or saved == "1"
   self.pulsingBarBackground = true
-  -- Same sequence as toggling the setting: flip, apply, restore, apply.
+  -- Same sequence as clicking "Show action-bar background": Emberveil only
+  -- draws the bar frame after the panel is laid out again, not after a lone
+  -- SetBackdrop. Skip unit frames and bags so this stays a login-only hitch.
   layout.barShowBackground = not on
-  self:ApplyLayout()
+  if self.LayoutActionBars then self:LayoutActionBars() end
+  if self.RefreshBarChrome then self:RefreshBarChrome() end
   layout.barShowBackground = saved
-  self:ApplyLayout()
+  if self.LayoutActionBars then self:LayoutActionBars() end
+  if self.RefreshBarChrome then self:RefreshBarChrome() end
   self.pulsingBarBackground = nil
 end
 
-function PotatoUI:ScheduleBackgroundPulse()
+function QtUI:ScheduleBackgroundPulse()
   if self.backgroundPulseFrame then return end
-  local frame = CreateFrame("Frame", "PotatoUIBackgroundPulse")
+  local frame = CreateFrame("Frame", "QtUIBackgroundPulse")
   self.backgroundPulseFrame = frame
   frame.elapsed = 0
   frame.stage = 0
+  -- Emberveil wipes bar chrome after login and again a couple of seconds
+  -- later. The last pulse catches the late wipe that used to leave the
+  -- frame missing until the settings toggle.
   frame:SetScript("OnUpdate", function()
     this.elapsed = this.elapsed + (arg1 or 0)
-    if this.stage == 0 and this.elapsed >= 0.6 then
+    if this.stage == 0 and this.elapsed >= 1.0 then
       this.stage = 1
-      if PotatoUI.PulseActionBarBackground then PotatoUI:PulseActionBarBackground() end
-    elseif this.stage == 1 and this.elapsed >= 2.2 then
+      if QtUI.PulseActionBarBackground then QtUI:PulseActionBarBackground() end
+    elseif this.stage == 1 and this.elapsed >= 2.8 then
       this.stage = 2
-      if PotatoUI.PulseActionBarBackground then PotatoUI:PulseActionBarBackground() end
+      if QtUI.PulseActionBarBackground then QtUI:PulseActionBarBackground() end
+    elseif this.stage == 2 and this.elapsed >= 5.0 then
+      this.stage = 3
+      if QtUI.PulseActionBarBackground then QtUI:PulseActionBarBackground() end
       this:SetScript("OnUpdate", nil)
     end
   end)
 end
 
-function PotatoUI:EnsureDB()
-  if not PotatoUIDB then PotatoUIDB = {} end
-  PotatoUIDB.scale = nil
+function QtUI:EnsureDB()
+  if not QtUIDB then
+    local legacy = getglobal("P" .. "otatoUIDB")
+    if type(legacy) == "table" then
+      QtUIDB = legacy
+    else
+      QtUIDB = {}
+    end
+  end
+  QtUIDB.scale = nil
   if self.EnsureFeatureDefaults then self:EnsureFeatureDefaults() end
   if self.EnsureLayoutDefaults then self:EnsureLayoutDefaults() end
 end
 
-function PotatoUI:Initialize()
+function QtUI:Initialize()
   if self.initialized then return end
   self.initialized = true
   self:EnsureDB()
@@ -579,22 +668,24 @@ function PotatoUI:Initialize()
   if self:IsFeatureEnabled("autoLoot") then SafeSetup("autoLoot", self.SetupAutoLoot) end
   if self:IsFeatureEnabled("autoSell") then SafeSetup("autoSell", self.SetupAutoSell) end
   if self:IsFeatureEnabled("dataText") then SafeSetup("dataText", self.SetupDataText) end
+  SafeSetup("cooldowns", self.SetupCooldowns)
+  SafeSetup("eqCompare", self.SetupEqCompare)
   SafeSetup("settingsButton", self.SetupSettingsButton)
   SafeSetup("moveMode", self.SetupMoveMode)
   SafeSetup("applyLayout", self.ApplyLayout)
   if self.ScheduleBackgroundPulse then self:ScheduleBackgroundPulse() end
 
-  Print("Loaded. Type /pui for commands.")
+  Print("Loaded. Type /qtui for commands.")
 end
 
-SLASH_POTATOUI1 = "/potatoui"
-SLASH_POTATOUI2 = "/pui"
-SlashCmdList["POTATOUI"] = function(message)
+SLASH_QTUI1 = "/qtui"
+SLASH_QTUI2 = "/qt"
+SlashCmdList["QTUI"] = function(message)
   local command = string.lower(message or "")
   command = string.gsub(command, "^%s+", "")
   command = string.gsub(command, "%s+$", "")
   if command == "reset" then
-    PotatoUIDB = { positions = {} }
+    QtUIDB = { positions = {} }
     if type(ReloadUI) == "function" then
       ReloadUI()
     elseif type(ConsoleExec) == "function" then
@@ -611,22 +702,22 @@ SlashCmdList["POTATOUI"] = function(message)
       Print("This Emberveil build does not expose a UI reload function; restart the client instead.")
     end
   elseif command == "bags" then
-    if PotatoUI.ToggleBags then PotatoUI:ToggleBags() end
+    if QtUI.ToggleBags then QtUI:ToggleBags() end
   elseif command == "move" then
-    if PotatoUI.ToggleMoveMode then PotatoUI:ToggleMoveMode() end
+    if QtUI.ToggleMoveMode then QtUI:ToggleMoveMode() end
   elseif command == "settings" or command == "config" then
-    if PotatoUI.ToggleSettings then PotatoUI:ToggleSettings() end
+    if QtUI.ToggleSettings then QtUI:ToggleSettings() end
   else
-    Print("Loaded v" .. PotatoUI.version .. ". Commands: /pui settings, /pui move, /pui bags, /pui reload, /pui reset")
+    Print("Loaded v" .. QtUI.version .. ". Commands: /qtui settings, /qtui move, /qtui bags, /qtui reload, /qtui reset")
   end
 end
 
-PotatoUI:SetScript("OnEvent", function()
-  if event == "ADDON_LOADED" and arg1 == "PotatoUI" then
-    PotatoUI:EnsureDB()
+QtUI:SetScript("OnEvent", function()
+  if event == "ADDON_LOADED" and arg1 == "QtUI" then
+    QtUI:EnsureDB()
   elseif event == "PLAYER_ENTERING_WORLD" then
-    PotatoUI:Initialize()
+    QtUI:Initialize()
   end
 end)
-PotatoUI:RegisterEvent("ADDON_LOADED")
-PotatoUI:RegisterEvent("PLAYER_ENTERING_WORLD")
+QtUI:RegisterEvent("ADDON_LOADED")
+QtUI:RegisterEvent("PLAYER_ENTERING_WORLD")

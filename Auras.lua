@@ -1,4 +1,5 @@
 local auraScanner
+local scanCache = {}
 
 -- Vanilla does not expose target aura durations. These base durations provide
 -- countdowns when Emberveil and the aura tooltip expose no timing metadata.
@@ -223,7 +224,7 @@ end
 
 local function ScanAuraTooltip(unit, index, auraType)
   if not auraScanner then
-    auraScanner = CreateFrame("GameTooltip", "PotatoUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
+    auraScanner = CreateFrame("GameTooltip", "QtUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
     auraScanner:SetOwner(UIParent, "ANCHOR_NONE")
   end
 
@@ -236,14 +237,14 @@ local function ScanAuraTooltip(unit, index, auraType)
     return nil, nil, nil
   end
 
-  local nameLine = getglobal("PotatoUIAuraScanTooltipTextLeft1")
+  local nameLine = getglobal("QtUIAuraScanTooltipTextLeft1")
   local auraName = nameLine and nameLine:GetText()
   local duration
   local remaining
   local lines = auraScanner.NumLines and auraScanner:NumLines() or 8
   local line
   for line = 2, lines do
-    local fontString = getglobal("PotatoUIAuraScanTooltipTextLeft" .. line)
+    local fontString = getglobal("QtUIAuraScanTooltipTextLeft" .. line)
     local text = fontString and fontString:GetText()
     if text then
       remaining = remaining or ParseTimeLine(text, true)
@@ -284,14 +285,16 @@ local function GetPlayerAura(index, auraType)
   end
 
   local auraName
-  if GameTooltip and GameTooltip.SetPlayerBuff then
+  -- Name is only needed as a fallback for known durations. GetPlayerBuffTimeLeft
+  -- already supplies the countdown, so skip the tooltip scan in that case.
+  if (not timeLeft or timeLeft <= 0) and GameTooltip and GameTooltip.SetPlayerBuff then
     if not auraScanner then
-      auraScanner = CreateFrame("GameTooltip", "PotatoUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
+      auraScanner = CreateFrame("GameTooltip", "QtUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
       auraScanner:SetOwner(UIParent, "ANCHOR_NONE")
     end
     auraScanner:ClearLines()
     pcall(auraScanner.SetPlayerBuff, auraScanner, buffIndex)
-    local nameLine = getglobal("PotatoUIAuraScanTooltipTextLeft1")
+    local nameLine = getglobal("QtUIAuraScanTooltipTextLeft1")
     auraName = nameLine and nameLine:GetText()
     auraScanner:Hide()
   end
@@ -336,10 +339,30 @@ local function GetAura(unit, index, auraType)
     expiration = tonumber(fifth)
   end
 
-  local scannedName, scannedDuration, scannedRemaining = ScanAuraTooltip(unit, index, auraType)
-  auraName = auraName or scannedName
-  duration = duration or scannedDuration or GetKnownDuration(auraName, texture)
-  if scannedRemaining then expiration = GetTime() + scannedRemaining end
+  if not duration or duration <= 0 then
+    local key = (unit or "") .. ":" .. (auraType or "") .. ":" .. tostring(index) .. ":" .. (texture or "")
+    local now = GetTime()
+    local cached = scanCache[key]
+    if cached and (now - cached.time) < 5 then
+      auraName = auraName or cached.name
+      duration = duration or cached.duration
+      if cached.expiration and cached.expiration > now then
+        expiration = cached.expiration
+      end
+    else
+      local scannedName, scannedDuration, scannedRemaining = ScanAuraTooltip(unit, index, auraType)
+      auraName = auraName or scannedName
+      duration = duration or scannedDuration or GetKnownDuration(auraName, texture)
+      if scannedRemaining then expiration = now + scannedRemaining end
+      scanCache[key] = {
+        name = scannedName,
+        duration = duration,
+        expiration = expiration,
+        time = now,
+      }
+    end
+  end
+  duration = duration or GetKnownDuration(auraName, texture)
   return texture, applications, auraKind, duration, expiration, auraName
 end
 
@@ -426,7 +449,7 @@ local function CreateAuraIcon(row, index, size)
   return icon
 end
 
-function PotatoUI:CreateAuraRow(parent, unit, auraType, maximum, size)
+function QtUI:CreateAuraRow(parent, unit, auraType, maximum, size)
   local row = CreateFrame("Frame", nil, parent)
   row:SetWidth(maximum * (size + 2) - 2)
   row:SetHeight(size)
@@ -439,18 +462,18 @@ function PotatoUI:CreateAuraRow(parent, unit, auraType, maximum, size)
   for i = 1, maximum do
     row.icons[i] = CreateAuraIcon(row, i, size)
   end
-  row.elapsed = 0
-  row:SetScript("OnUpdate", function()
-    this.elapsed = this.elapsed + arg1
-    if this.elapsed >= .1 then
-      this.elapsed = 0
-      UpdateAuraTimers(this)
-    end
-  end)
   return row
 end
 
-function PotatoUI:UpdateAuraRow(row)
+local function AuraTimerOnUpdate()
+  this.elapsed = (this.elapsed or 0) + arg1
+  if this.elapsed >= .25 then
+    this.elapsed = 0
+    UpdateAuraTimers(this)
+  end
+end
+
+function QtUI:UpdateAuraRow(row)
   if not row then return end
 
   local hasAura
@@ -494,5 +517,23 @@ function PotatoUI:UpdateAuraRow(row)
   end
 
   UpdateAuraTimers(row)
+  local hasTimers
+  local n
+  for n = 1, table.getn(row.icons) do
+    if row.icons[n]:IsShown() and row.icons[n].expiration then
+      hasTimers = true
+      break
+    end
+  end
+  if hasTimers then
+    if not row.timerOn then
+      row.timerOn = true
+      row.elapsed = 0
+      row:SetScript("OnUpdate", AuraTimerOnUpdate)
+    end
+  elseif row.timerOn then
+    row.timerOn = nil
+    row:SetScript("OnUpdate", nil)
+  end
   if hasAura then row:Show() else row:Hide() end
 end

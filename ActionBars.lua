@@ -67,7 +67,7 @@ local function ResolvePrimaryAction(button)
   if not buttonID then return nil end
 
   -- In Vanilla clients forms are stored after the six normal action pages.
-  -- Emberveil does not reliably update CURRENT_ACTIONBAR_PAGE after PotatoUI
+  -- Emberveil does not reliably update CURRENT_ACTIONBAR_PAGE after QtUI
   -- reparents the buttons, so resolve the active bonus page directly.
   local bonusOffset = 0
   if type(GetBonusBarOffset) == "function" then
@@ -100,15 +100,15 @@ local function InstallActionResolvers()
   actionResolversInstalled = true
 
   -- Emberveil currently resolves MultiBarBottomLeft buttons as slots 1-12,
-  -- duplicating the primary row. Honour PotatoUI's explicit slot mapping in
+  -- duplicating the primary row. Honour QtUI's explicit slot mapping in
   -- both resolver variants used by original 1.12 FrameXML.
   local originalActionResolver = ActionButton_GetPagedID
   ActionButton_GetPagedID = function(button)
     local activeButton = button or this
-    if activeButton and activeButton.PotatoUIAction then
-      return activeButton.PotatoUIAction
+    if activeButton and activeButton.QtUIAction then
+      return activeButton.QtUIAction
     end
-    if activeButton and activeButton.PotatoUIPrimaryAction then
+    if activeButton and activeButton.QtUIPrimaryAction then
       return ResolvePrimaryAction(activeButton)
     end
     if originalActionResolver then return originalActionResolver(button) end
@@ -118,22 +118,22 @@ local function InstallActionResolvers()
   local originalMultiResolver = MultiActionButton_GetPagedID
   MultiActionButton_GetPagedID = function(button)
     local activeButton = button or this
-    if activeButton and activeButton.PotatoUIAction then
-      return activeButton.PotatoUIAction
+    if activeButton and activeButton.QtUIAction then
+      return activeButton.QtUIAction
     end
     if originalMultiResolver then return originalMultiResolver(button) end
     return activeButton and activeButton:GetID()
   end
 
   -- Vanilla key bindings normally divert to BonusActionButton while the
-  -- native bonus controller is shown. PotatoUI keeps that controller alive
+  -- native bonus controller is shown. QtUI keeps that controller alive
   -- for state updates but displays ActionButton instead, so dispatch bindings
   -- through the visible button and the same resolver used by mouse clicks.
   local originalActionButtonDown = ActionButtonDown
   if type(originalActionButtonDown) == "function" then
     ActionButtonDown = function(id)
       local activeButton = getglobal("ActionButton" .. tostring(id or ""))
-      if not activeButton or not activeButton.PotatoUIPrimaryAction then
+      if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonDown(id)
       end
       if activeButton:GetButtonState() == "NORMAL" then
@@ -146,7 +146,7 @@ local function InstallActionResolvers()
   if type(originalActionButtonUp) == "function" then
     ActionButtonUp = function(id, onSelf)
       local activeButton = getglobal("ActionButton" .. tostring(id or ""))
-      if not activeButton or not activeButton.PotatoUIPrimaryAction then
+      if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonUp(id, onSelf)
       end
       if activeButton:GetButtonState() ~= "PUSHED" then return end
@@ -170,13 +170,92 @@ local function InstallActionResolvers()
     end
   end
 
+  local function RangeColorOn()
+    if not QtUI.GetLayout then return true end
+    local layout = QtUI:GetLayout()
+    local value = layout and layout.barRangeColor
+    return value ~= false and value ~= 0 and value ~= "0"
+  end
+
+  local function ActionSlotForButton(button)
+    if not button then return nil end
+    if button.QtUIAction then return button.QtUIAction end
+    if button.QtUIPrimaryAction then return ResolvePrimaryAction(button) end
+    if button.action then return button.action end
+    if type(ActionButton_GetPagedID) == "function" then
+      local ok, slot = pcall(ActionButton_GetPagedID, button)
+      if ok then return slot end
+    end
+    if button.GetID then return button:GetID() end
+    return nil
+  end
+
+  local function TintActionIcon(button)
+    if not button or not RangeColorOn() then return end
+    local name = button.GetName and button:GetName()
+    if not name then return end
+    local icon = getglobal(name .. "Icon")
+    if not icon or not icon.SetVertexColor then return end
+    local slot = ActionSlotForButton(button)
+    if not slot then return end
+    if type(HasAction) == "function" then
+      local ok, has = pcall(HasAction, slot)
+      if not ok or not (has == true or has == 1 or has == "1") then
+        icon:SetVertexColor(1, 1, 1)
+        return
+      end
+    end
+    if type(IsActionInRange) == "function" then
+      local ok, inRange = pcall(IsActionInRange, slot)
+      if ok and inRange == 0 then
+        icon:SetVertexColor(1, .16, .16)
+        return
+      end
+    end
+    if type(IsUsableAction) == "function" then
+      local ok, usable, nomana = pcall(IsUsableAction, slot)
+      if ok then
+        if nomana == true or nomana == 1 or nomana == "1" then
+          icon:SetVertexColor(.28, .48, 1)
+          return
+        end
+        if not (usable == true or usable == 1 or usable == "1") then
+          icon:SetVertexColor(.4, .4, .4)
+          return
+        end
+      end
+    end
+    icon:SetVertexColor(1, 1, 1)
+  end
+
   local function RestyleAfterNativeUpdate()
     local button = this
     if not button then return end
-    if PotatoUI.EnsureButtonRim then
-      PotatoUI:EnsureButtonRim(button, button.GetWidth and button:GetWidth())
+    -- Only restore the rim if Emberveil wiped it. Hotkey layout is handled
+    -- by ActionButton_UpdateHotkeys and by bar layout, not every slot tick.
+    if QtUI.EnsureButtonRim then
+      QtUI:EnsureButtonRim(button, button.GetWidth and button:GetWidth())
     end
-    if StyleActionButtonText then StyleActionButtonText(button) end
+    TintActionIcon(button)
+  end
+
+  if type(ActionButton_UpdateUsable) == "function" then
+    local originalUsable = ActionButton_UpdateUsable
+    ActionButton_UpdateUsable = function()
+      originalUsable()
+      TintActionIcon(this)
+    end
+  end
+  if type(ActionButton_OnUpdate) == "function" then
+    local originalOnUpdate = ActionButton_OnUpdate
+    ActionButton_OnUpdate = function(elapsed)
+      originalOnUpdate(elapsed)
+      this.qtRangeElapsed = (this.qtRangeElapsed or 0) + (elapsed or arg1 or 0)
+      if this.qtRangeElapsed >= .15 then
+        this.qtRangeElapsed = 0
+        TintActionIcon(this)
+      end
+    end
   end
   if type(ActionButton_Update) == "function" then
     local originalUpdate = ActionButton_Update
@@ -252,24 +331,12 @@ local function RefreshActionButtons()
   end
   this = previousThis
   SuppressPagingChrome()
-  if PotatoUI.ApplySlotBackgrounds then PotatoUI:ApplySlotBackgrounds() end
-  local labels = {
-    "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
-    "MultiBarRightButton", "MultiBarLeftButton",
-  }
-  local n
-  for n = 1, table.getn(labels) do
-    local i
-    for i = 1, 12 do
-      local button = getglobal(labels[n] .. i)
-      if button then StyleActionButtonText(button) end
-    end
-  end
+  if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
 end
 
-function PotatoUI:PositionAuxiliaryBars()
+function QtUI:PositionAuxiliaryBars()
   if not self.auxiliaryPanel then
-    local panel = CreateFrame("Frame", "PotatoUIAuxiliaryPanel", UIParent)
+    local panel = CreateFrame("Frame", "QtUIAuxiliaryPanel", UIParent)
     panel:SetWidth(362)
     panel:SetHeight(38)
     panel:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 18, 18)
@@ -343,7 +410,7 @@ function PotatoUI:PositionAuxiliaryBars()
         else
           if button.Hide then pcall(button.Hide, button) end
           if button.EnableMouse then pcall(button.EnableMouse, button, false) end
-          if button.PotatoUICell then button.PotatoUICell:Hide() end
+          if button.QtUICell then button.QtUICell:Hide() end
           if button.ClearAllPoints and button.SetPoint then
             pcall(function()
               button:ClearAllPoints()
@@ -375,15 +442,15 @@ function PotatoUI:PositionAuxiliaryBars()
     panel:SetWidth(width)
     panel:SetHeight(height)
   end
-  if PotatoUI.ApplySlotBackgrounds then PotatoUI:ApplySlotBackgrounds() end
+  if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
 end
 
 local function SetupActionPageEvents()
-  if PotatoUI.actionPageEvents then return end
-  local events = CreateFrame("Frame", "PotatoUIActionPageEvents")
+  if QtUI.actionPageEvents then return end
+  local events = CreateFrame("Frame", "QtUIActionPageEvents")
   -- Some Emberveil builds expose a slightly different subset of the old
   -- FrameXML events. Register each defensively so one absent alias cannot
-  -- prevent PotatoUI from loading.
+  -- prevent QtUI from loading.
   pcall(events.RegisterEvent, events, "UPDATE_BONUS_ACTIONBAR")
   pcall(events.RegisterEvent, events, "ACTIONBAR_PAGE_CHANGED")
   pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORM")
@@ -395,34 +462,77 @@ local function SetupActionPageEvents()
   pcall(events.RegisterEvent, events, "PET_BAR_UPDATE")
   pcall(events.RegisterEvent, events, "UNIT_PET")
 
-  local function RefreshAfterClientUpdate()
-    this.refreshElapsed = (this.refreshElapsed or 0) + (arg1 or 0)
-    this.refreshRemaining = (this.refreshRemaining or 0) - (arg1 or 0)
-    if this.refreshElapsed >= .05 or this.refreshRemaining <= 0 then
-      this.refreshElapsed = 0
-      RefreshActionButtons()
-      PotatoUI:PositionAuxiliaryBars()
-    end
-    if this.refreshRemaining <= 0 then this:SetScript("OnUpdate", nil) end
+  local function CurrentBonusOffset()
+    if type(GetBonusBarOffset) ~= "function" then return 0 end
+    return tonumber(GetBonusBarOffset()) or 0
   end
+
+  local function RefreshAfterClientUpdate()
+    this.cooldown = (this.cooldown or 0) - (arg1 or 0)
+    this.refreshRemaining = (this.refreshRemaining or 0) - (arg1 or 0)
+    if this.watchBonus then
+      this.watchBonus = this.watchBonus - (arg1 or 0)
+      local offset = CurrentBonusOffset()
+      if offset ~= this.lastBonusOffset then
+        this.lastBonusOffset = offset
+        this.pending = true
+        this.refreshRemaining = .4
+      end
+      if this.watchBonus <= 0 then this.watchBonus = nil end
+    end
+
+    if this.pending and this.cooldown <= 0 then
+      this.pending = nil
+      this.cooldown = .15
+      RefreshActionButtons()
+      if this.pendingAux then
+        this.pendingAux = nil
+        QtUI:PositionAuxiliaryBars()
+      end
+    elseif this.refreshRemaining > 0 and this.cooldown <= 0 then
+      this.pending = true
+    end
+
+    if not this.pending and this.refreshRemaining <= 0 and not this.watchBonus then
+      this:SetScript("OnUpdate", nil)
+    end
+  end
+  events.lastBonusOffset = CurrentBonusOffset()
   events:SetScript("OnEvent", function()
-    -- Refresh throughout the short native bonus-bar transition. Emberveil can
-    -- publish the aura/form, bonus offset and cached action ID on different
-    -- frames when stealth ends through an attack.
-    RefreshActionButtons()
-    PotatoUI:PositionAuxiliaryBars()
-    this.refreshElapsed = 0
-    this.refreshRemaining = .75
+    local ev = event
+    -- Aura ticks must not rebuild every bar. Watch the bonus offset briefly
+    -- so stealth/form still swaps pages when Emberveil publishes the aura first.
+    if ev == "PLAYER_AURAS_CHANGED" then
+      if not this.watchBonus or this.watchBonus <= 0 then
+        this.watchBonus = .4
+      end
+      this:SetScript("OnUpdate", RefreshAfterClientUpdate)
+      return
+    end
+
+    if ev == "UPDATE_BONUS_ACTIONBAR" or ev == "ACTIONBAR_PAGE_CHANGED"
+        or ev == "UPDATE_SHAPESHIFT_FORM" or ev == "UPDATE_SHAPESHIFT_FORMS" then
+      this.lastBonusOffset = CurrentBonusOffset()
+      -- Emberveil can publish form, bonus offset and action IDs on different
+      -- frames when stealth ends through an attack.
+      this.refreshRemaining = .6
+    end
+
+    this.pending = true
+    if ev == "UPDATE_SHAPESHIFT_FORM" or ev == "UPDATE_SHAPESHIFT_FORMS"
+        or ev == "PET_BAR_UPDATE" or ev == "UNIT_PET" then
+      this.pendingAux = true
+    end
     this:SetScript("OnUpdate", RefreshAfterClientUpdate)
   end)
-  PotatoUI.actionPageEvents = events
+  QtUI.actionPageEvents = events
 end
 
 local function RestoreRoundSlot(button, size)
   if not button then return end
-  if button.PotatoUIBorder then button.PotatoUIBorder:Hide() end
-  if PotatoUI.EnsureButtonRim then
-    PotatoUI:EnsureButtonRim(button, size)
+  if button.QtUIBorder then button.QtUIBorder:Hide() end
+  if QtUI.EnsureButtonRim then
+    QtUI:EnsureButtonRim(button, size)
   end
 end
 
@@ -443,14 +553,14 @@ end
 
 local function BarConfigForButton(button)
   local name = button and button.GetName and button:GetName()
-  if not name or not PotatoUI.GetBarConfig then return PotatoUI:GetBarConfig("main") end
-  if string.find(name, "MultiBarBottomLeft", 1, true) then return PotatoUI:GetBarConfig("extra") end
-  if string.find(name, "MultiBarBottomRight", 1, true) then return PotatoUI:GetBarConfig("utility") end
-  if string.find(name, "MultiBarRight", 1, true) then return PotatoUI:GetBarConfig("sideRight") end
-  if string.find(name, "MultiBarLeft", 1, true) then return PotatoUI:GetBarConfig("sideLeft") end
-  if string.find(name, "Shapeshift", 1, true) then return PotatoUI:GetBarConfig("aux") end
-  if string.find(name, "PetAction", 1, true) then return PotatoUI:GetBarConfig("aux") end
-  return PotatoUI:GetBarConfig("main")
+  if not name or not QtUI.GetBarConfig then return QtUI:GetBarConfig("main") end
+  if string.find(name, "MultiBarBottomLeft", 1, true) then return QtUI:GetBarConfig("extra") end
+  if string.find(name, "MultiBarBottomRight", 1, true) then return QtUI:GetBarConfig("utility") end
+  if string.find(name, "MultiBarRight", 1, true) then return QtUI:GetBarConfig("sideRight") end
+  if string.find(name, "MultiBarLeft", 1, true) then return QtUI:GetBarConfig("sideLeft") end
+  if string.find(name, "Shapeshift", 1, true) then return QtUI:GetBarConfig("aux") end
+  if string.find(name, "PetAction", 1, true) then return QtUI:GetBarConfig("aux") end
+  return QtUI:GetBarConfig("main")
 end
 
 local HOTKEY_ALIGN = {
@@ -481,8 +591,15 @@ StyleActionButtonText = function(button, size)
   if cfg and cfg.hotkeyShadow ~= nil then shadow = cfg.hotkeyShadow end
   local align = (cfg and cfg.hotkeyAlign) or "center"
   local spec = HOTKEY_ALIGN[align] or HOTKEY_ALIGN.center
-
+  local stamp = tostring(size) .. ":" .. hotSize .. ":" .. shadow .. ":" .. align
   local hotkey = getglobal(name .. "HotKey")
+  if button.QtUITextStamp == stamp then
+    if hotkey and hotkey.GetText and hotkey.SetText then
+      hotkey:SetText(AbbreviateHotkey(hotkey:GetText()))
+    end
+    return
+  end
+  button.QtUITextStamp = stamp
   if hotkey then
     hotkey:ClearAllPoints()
     hotkey:SetPoint(spec[1], button, spec[2], spec[3], spec[4])
@@ -522,20 +639,20 @@ StyleActionButton = function(button, size)
   size = size or 34
   button:SetWidth(size)
   button:SetHeight(size)
-  if button.PotatoUISlotBg then
-    button.PotatoUISlotBg:Hide()
-    if button.PotatoUISlotBg.SetTexture then button.PotatoUISlotBg:SetTexture(nil) end
+  if button.QtUISlotBg then
+    button.QtUISlotBg:Hide()
+    if button.QtUISlotBg.SetTexture then button.QtUISlotBg:SetTexture(nil) end
   end
   RestoreRoundSlot(button, size)
   StyleActionButtonText(button, size)
-  button.PotatoUIStyled = true
+  button.QtUIStyled = true
 end
 
 ParkActionButton = function(button)
   if not button then return end
   if button.Hide then pcall(button.Hide, button) end
   if button.EnableMouse then pcall(button.EnableMouse, button, false) end
-  if button.PotatoUICell then button.PotatoUICell:Hide() end
+  if button.QtUICell then button.QtUICell:Hide() end
   if button.ClearAllPoints and button.SetPoint then
     pcall(function()
       button:ClearAllPoints()
@@ -570,7 +687,7 @@ PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
   button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT",
     pad + col * (size + spacing), pad + row * (size + spacing))
   StyleActionButton(button, size)
-  if PotatoUI.EnsureSlotCell then PotatoUI:EnsureSlotCell(button, panel) end
+  if QtUI.EnsureSlotCell then QtUI:EnsureSlotCell(button, panel) end
   if button.EnableMouse then pcall(button.EnableMouse, button, true) end
   button:Show()
 end
@@ -584,7 +701,7 @@ SizeForGrid = function(count, columns, size, spacing, pad)
   return width, height
 end
 
-function PotatoUI:LayoutActionBars()
+function QtUI:LayoutActionBars()
   if not self.actionPanel then return end
   local pad = 5
   local main = self:GetBarConfig("main")
@@ -632,7 +749,7 @@ function PotatoUI:LayoutActionBars()
 
   if self.xpBar then
     self.xpBar:SetParent(UIParent)
-    local saved = PotatoUIDB.positions and PotatoUIDB.positions.experience
+    local saved = QtUIDB.positions and QtUIDB.positions.experience
     if not saved then
       self.xpBar:ClearAllPoints()
       if BarEnabled(main) and self.actionPanel then
@@ -657,7 +774,7 @@ function PotatoUI:LayoutActionBars()
   PassClicksThrough(self.auxiliaryPanel)
 end
 
-function PotatoUI:LayoutSideBars()
+function QtUI:LayoutSideBars()
   local pad = 5
   local function LayoutSide(panel, prefix, cfg, actionBase)
     if not panel then return end
@@ -675,7 +792,7 @@ function PotatoUI:LayoutSideBars()
     for i = 1, 12 do
       local button = getglobal(prefix .. i)
       if button then
-        button.PotatoUIAction = actionBase + i
+        button.QtUIAction = actionBase + i
         button.action = actionBase + i
         PlaceInGrid(button, panel, i, columns, size, spacing, pad)
       end
@@ -690,7 +807,7 @@ function PotatoUI:LayoutSideBars()
 end
 
 local function UpdateXPBar()
-  local bar = PotatoUI.xpBar
+  local bar = QtUI.xpBar
   if not bar then return end
 
   local current = UnitXP("player") or 0
@@ -741,11 +858,11 @@ local function UpdateXPBar()
   bar.resting = resting
 end
 
-function PotatoUI:SetupXPBar()
+function QtUI:SetupXPBar()
   if self.xpBar then return end
 
   local parent = self.actionPanel or UIParent
-  local bar = CreateFrame("StatusBar", "PotatoUIXPBar", parent)
+  local bar = CreateFrame("StatusBar", "QtUIXPBar", parent)
   bar:SetWidth(442)
   bar:SetHeight(12)
   if self.actionPanel then
@@ -792,7 +909,7 @@ function PotatoUI:SetupXPBar()
   end)
   bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  local events = CreateFrame("Frame", "PotatoUIXPEvents")
+  local events = CreateFrame("Frame", "QtUIXPEvents")
   events:RegisterEvent("PLAYER_XP_UPDATE")
   events:RegisterEvent("UPDATE_EXHAUSTION")
   events:RegisterEvent("PLAYER_LEVEL_UP")
@@ -804,14 +921,240 @@ function PotatoUI:SetupXPBar()
   UpdateXPBar()
 end
 
-function PotatoUI:SetupActionBars()
+local autoUnshiftInstalled
+local function InstallAutoUnshift()
+  if autoUnshiftInstalled then return end
+  autoUnshiftInstalled = true
+
+  -- Same approach as pfUI/modules/autoshift.lua: wait for the client error,
+  -- then CancelPlayerBuff on the 0-31 buff slot whose icon is a form.
+  local formIcons = {
+    "ability_racial_bearform",
+    "ability_druid_catform",
+    "ability_druid_travelform",
+    "ability_druid_aquaticform",
+    "ability_druid_direbearform",
+    "ability_druid_treeoflife",
+    "ability_druid_stagform",
+    "spell_nature_forceofnature",
+    "spell_nature_spiritwolf",
+    "spell_shadow_shadowform",
+  }
+
+  local errorGlobals = {
+    "SPELL_FAILED_NOT_SHAPESHIFT",
+    "SPELL_FAILED_NO_ITEMS_WHILE_SHAPESHIFTED",
+    "SPELL_NOT_SHAPESHIFTED",
+    "SPELL_NOT_SHAPESHIFTED_NOSPACE",
+    "ERR_CANT_INTERACT_SHAPESHIFTED",
+    "ERR_NOT_WHILE_SHAPESHIFTED",
+    "ERR_NO_ITEMS_WHILE_SHAPESHIFTED",
+    "ERR_TAXIPLAYERSHAPESHIFTED",
+    "ERR_MOUNT_SHAPESHIFTED",
+    "ERR_EMBLEMERROR_NOTABARDGEOSET",
+    "SPELL_FAILED_NOT_MOUNTED",
+    "ERR_ATTACK_MOUNTED",
+    "ERR_TAXIPLAYERALREADYMOUNTED",
+  }
+
+  local originalUseAction = UseAction
+  local passing
+  local lastSlot, lastCheckCursor, lastOnSelf
+  local lastSpell
+  local pending = CreateFrame("Frame", "QtUIAutoUnshift")
+  pending:Hide()
+
+  local function FeatureOn()
+    if QtUI.GetLayout then
+      local layout = QtUI:GetLayout()
+      if layout and (layout.unshiftToCast == false or layout.unshiftToCast == 0 or layout.unshiftToCast == "0") then
+        return nil
+      end
+    end
+    return true
+  end
+
+  local function IsFormTexture(texture)
+    if not texture or texture == "" then return nil end
+    local lower = string.lower(texture)
+    local i
+    for i = 1, table.getn(formIcons) do
+      if string.find(lower, formIcons[i], 1, true) then return true end
+    end
+    return nil
+  end
+
+  local function StillInForm()
+    if type(GetPlayerBuffTexture) ~= "function" then return nil end
+    local i
+    for i = 0, 31 do
+      local ok, tex = pcall(GetPlayerBuffTexture, i)
+      if ok and IsFormTexture(tex) then return true end
+    end
+    return nil
+  end
+
+  local function LeaveShapeshift()
+    if type(CancelPlayerBuff) ~= "function" then return nil end
+    local i
+    for i = 0, 31 do
+      local tex
+      local cancelId = i
+      if type(GetPlayerBuffTexture) == "function" then
+        local ok, value = pcall(GetPlayerBuffTexture, i)
+        if ok then tex = value end
+      end
+      if (not tex or tex == "") and type(GetPlayerBuff) == "function" then
+        local ok, buffIndex = pcall(GetPlayerBuff, i, "HELPFUL|PASSIVE")
+        if not ok then ok, buffIndex = pcall(GetPlayerBuff, i, "HELPFUL") end
+        if not ok then ok, buffIndex = pcall(GetPlayerBuff, i - 1, "HELPFUL") end
+        buffIndex = ok and tonumber(buffIndex) or nil
+        if buffIndex and buffIndex ~= 0 and buffIndex ~= -1 then
+          local texOk, value = pcall(GetPlayerBuffTexture, buffIndex)
+          if texOk then tex = value end
+          cancelId = buffIndex
+        end
+      end
+      if IsFormTexture(tex) then
+        pcall(CancelPlayerBuff, cancelId)
+        if cancelId ~= i then pcall(CancelPlayerBuff, i) end
+        return true
+      end
+    end
+    return nil
+  end
+
+  local function IsShapeshiftError(text)
+    if not text or text == "" then return nil end
+    local i
+    for i = 1, table.getn(errorGlobals) do
+      local value = getglobal(errorGlobals[i])
+      if value and text == value then return true end
+    end
+    local lower = string.lower(text)
+    if string.find(lower, "shapeshift", 1, true) then return true end
+    if string.find(lower, "verwandelt", 1, true) then return true end
+    if string.find(lower, "gestalt", 1, true) then return true end
+    if string.find(lower, "this form", 1, true) then return true end
+    if string.find(lower, "dieser form", 1, true) then return true end
+    if string.find(lower, "while shapeshifted", 1, true) then return true end
+    return nil
+  end
+
+  local function StopPending()
+    pending:Hide()
+    pending:SetScript("OnUpdate", nil)
+  end
+
+  local function FlushPending()
+    local slot = pending.slot
+    local spell = pending.spell
+    StopPending()
+    passing = true
+    if slot and originalUseAction then
+      pcall(originalUseAction, slot, pending.checkCursor, pending.onSelf)
+    elseif spell and type(CastSpellByName) == "function" then
+      pcall(CastSpellByName, spell)
+    end
+    passing = nil
+  end
+
+  local function PendingOnUpdate()
+    this.elapsed = (this.elapsed or 0) + (arg1 or 0)
+    this.retry = (this.retry or 0) + (arg1 or 0)
+    if not StillInForm() then
+      FlushPending()
+      return
+    end
+    if this.retry >= .1 then
+      this.retry = 0
+      LeaveShapeshift()
+    end
+    if this.elapsed >= 1.2 then
+      FlushPending()
+    end
+  end
+
+  local function QueueRecast()
+    pending.slot = lastSlot
+    pending.checkCursor = lastCheckCursor
+    pending.onSelf = lastOnSelf
+    pending.spell = lastSpell
+    pending.elapsed = 0
+    pending.retry = 0
+    pending:SetScript("OnUpdate", PendingOnUpdate)
+    pending:Show()
+  end
+
+  local function HandleError(text)
+    if not FeatureOn() or not IsShapeshiftError(text) then return nil end
+    if getglobal("ERR_CANT_INTERACT_SHAPESHIFTED") and text == ERR_CANT_INTERACT_SHAPESHIFTED then
+      if type(UnitAffectingCombat) == "function" then
+        local ok, combat = pcall(UnitAffectingCombat, "player")
+        if ok and (combat == true or combat == 1 or combat == "1") then return nil end
+      end
+    end
+    LeaveShapeshift()
+    if lastSlot or lastSpell then QueueRecast() end
+    return true
+  end
+
+  local events = CreateFrame("Frame", "QtUIAutoUnshiftEvents")
+  pcall(events.RegisterEvent, events, "UI_ERROR_MESSAGE")
+  pcall(events.RegisterEvent, events, "SYSMSG")
+  events:SetScript("OnEvent", function()
+    HandleError(arg1)
+  end)
+
+  if type(UIErrorsFrame_OnEvent) == "function" then
+    local originalError = UIErrorsFrame_OnEvent
+    UIErrorsFrame_OnEvent = function(eventName, message)
+      HandleError(message or arg1)
+      return originalError(eventName, message)
+    end
+  end
+
+  if UIErrorsFrame and UIErrorsFrame.AddMessage then
+    local originalAdd = UIErrorsFrame.AddMessage
+    UIErrorsFrame.AddMessage = function(frame, text, a, b, c, d, e)
+      HandleError(text)
+      return originalAdd(frame, text, a, b, c, d, e)
+    end
+  end
+
+  if type(originalUseAction) == "function" then
+    UseAction = function(slot, checkCursor, onSelf)
+      if not passing and slot then
+        lastSlot = slot
+        lastCheckCursor = checkCursor
+        lastOnSelf = onSelf
+        lastSpell = nil
+      end
+      return originalUseAction(slot, checkCursor, onSelf)
+    end
+  end
+
+  if type(CastSpellByName) == "function" then
+    local originalCast = CastSpellByName
+    CastSpellByName = function(name, onSelf)
+      if not passing and name then
+        lastSpell = name
+        lastSlot = nil
+      end
+      return originalCast(name, onSelf)
+    end
+  end
+end
+
+function QtUI:SetupActionBars()
   InstallActionResolvers()
+  InstallAutoUnshift()
 
   for _, name in ipairs(hiddenNames) do
     self:HideFrame(getglobal(name))
   end
 
-  local panel = self:CreatePanel("PotatoUIActionPanel", UIParent, 1)
+  local panel = self:CreatePanel("QtUIActionPanel", UIParent, 1)
   panel:SetWidth(442)
   panel:SetHeight(82)
   panel:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
@@ -822,7 +1165,7 @@ function PotatoUI:SetupActionBars()
 
   -- MultiBarBottomLeft used to share the main panel. It is its own bar so
   -- each 12-button strip can use 1x12 / 3x4 / 12x1 independently.
-  local extraPanel = self:CreatePanel("PotatoUIExtraActionPanel", UIParent, 1)
+  local extraPanel = self:CreatePanel("QtUIExtraActionPanel", UIParent, 1)
   extraPanel:SetWidth(442)
   extraPanel:SetHeight(44)
   extraPanel:SetPoint("BOTTOM", panel, "TOP", 0, 4)
@@ -832,9 +1175,9 @@ function PotatoUI:SetupActionBars()
   self.extraActionPanel = extraPanel
 
   -- Emberveil leaves the second multi-action row partially off-screen when
-  -- its original bar geometry is active. Give slots 49-60 a compact PotatoUI
+  -- its original bar geometry is active. Give slots 49-60 a compact QtUI
   -- panel of their own at bottom-right instead.
-  local utilityPanel = self:CreatePanel("PotatoUIUtilityActionPanel", UIParent, 1)
+  local utilityPanel = self:CreatePanel("QtUIUtilityActionPanel", UIParent, 1)
   utilityPanel:SetWidth(442)
   utilityPanel:SetHeight(44)
   utilityPanel:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
@@ -846,37 +1189,37 @@ function PotatoUI:SetupActionBars()
   local i
   for i = 1, 12 do
     local primaryButton = getglobal("ActionButton" .. i)
-    if primaryButton then primaryButton.PotatoUIPrimaryAction = true end
+    if primaryButton then primaryButton.QtUIPrimaryAction = true end
     local upperButton = getglobal("MultiBarBottomLeftButton" .. i)
     if upperButton then
-      upperButton.PotatoUIAction = 60 + i
+      upperButton.QtUIAction = 60 + i
       upperButton.action = 60 + i
     end
     local utilityButton = getglobal("MultiBarBottomRightButton" .. i)
     if utilityButton then
-      utilityButton.PotatoUIAction = 48 + i
+      utilityButton.QtUIAction = 48 + i
       utilityButton.action = 48 + i
     end
     local rightButton = getglobal("MultiBarRightButton" .. i)
     if rightButton then
-      rightButton.PotatoUIAction = 24 + i
+      rightButton.QtUIAction = 24 + i
       rightButton.action = 24 + i
     end
     local leftButton = getglobal("MultiBarLeftButton" .. i)
     if leftButton then
-      leftButton.PotatoUIAction = 36 + i
+      leftButton.QtUIAction = 36 + i
       leftButton.action = 36 + i
     end
   end
 
-  local sideRight = self:CreatePanel("PotatoUISideRightPanel", UIParent, 1)
+  local sideRight = self:CreatePanel("QtUISideRightPanel", UIParent, 1)
   sideRight:SetPoint("RIGHT", UIParent, "RIGHT", -14, 40)
   sideRight:SetBackdropColor(0, 0, 0, 0)
   sideRight:SetBackdropBorderColor(0, 0, 0, 0)
   PassClicksThrough(sideRight)
   self.sideRightPanel = sideRight
 
-  local sideLeft = self:CreatePanel("PotatoUISideLeftPanel", UIParent, 1)
+  local sideLeft = self:CreatePanel("QtUISideLeftPanel", UIParent, 1)
   sideLeft:SetPoint("RIGHT", sideRight, "LEFT", -8, 0)
   sideLeft:SetBackdropColor(0, 0, 0, 0)
   sideLeft:SetBackdropBorderColor(0, 0, 0, 0)
@@ -891,7 +1234,7 @@ function PotatoUI:SetupActionBars()
   SetupActionPageEvents()
   RefreshActionButtons()
 
-  -- The buttons now belong directly to PotatoUI. Hide their old containers
+  -- The buttons now belong directly to QtUI. Hide their old containers
   -- so Emberveil cannot draw a second native copy at the bottom of the screen.
   self:HideFrame(MainMenuBarArtFrame)
   self:HideFrame(MainMenuBar)

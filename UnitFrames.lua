@@ -11,7 +11,7 @@ local function ShortNumber(value)
   return tostring(value)
 end
 
-function PotatoUI:PaintStatusBar(bar, r, g, b)
+function QtUI:PaintStatusBar(bar, r, g, b)
   if not bar then return end
   r = tonumber(r) or 1
   g = tonumber(g) or 1
@@ -23,6 +23,10 @@ function PotatoUI:PaintStatusBar(bar, r, g, b)
     local flag = layout and layout.unitGradient
     enabled = flag == true or flag == 1 or flag == "1"
   end
+
+  local stamp = (enabled and "1" or "0") .. ":" .. r .. ":" .. g .. ":" .. b
+  if bar.QtUIPaintStamp == stamp then return end
+  bar.QtUIPaintStamp = stamp
 
   -- Re-stamp the fill so a previous SetGradient cannot stick around.
   if bar.SetStatusBarTexture then
@@ -40,13 +44,13 @@ function PotatoUI:PaintStatusBar(bar, r, g, b)
     end
   end
 
-  if not bar.PotatoUIGradient then
+  if not bar.QtUIGradient then
     local shine = bar:CreateTexture(nil, "ARTWORK")
     shine:SetAllPoints(bar)
     if shine.SetBlendMode then pcall(shine.SetBlendMode, shine, "ADD") end
-    bar.PotatoUIGradient = shine
+    bar.QtUIGradient = shine
   end
-  local shine = bar.PotatoUIGradient
+  local shine = bar.QtUIGradient
   if shine then
     if enabled then
       shine:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -69,11 +73,11 @@ end
 local function SetPowerColor(bar, unit)
   local power = UnitPowerType(unit)
   if power == 1 then
-    PotatoUI:PaintStatusBar(bar, .75, .12, .12)
+    QtUI:PaintStatusBar(bar, .75, .12, .12)
   elseif power == 3 then
-    PotatoUI:PaintStatusBar(bar, .92, .76, .12)
+    QtUI:PaintStatusBar(bar, .92, .76, .12)
   else
-    PotatoUI:PaintStatusBar(bar, .12, .38, .82)
+    QtUI:PaintStatusBar(bar, .12, .38, .82)
   end
 end
 
@@ -118,9 +122,9 @@ local function GetEnemyDifficultyBorder(targetLevel)
   return .18, .72, .22, 1
 end
 
-PotatoUI.classColors = classColors
-PotatoUI.ShortNumber = ShortNumber
-PotatoUI.SetPowerColor = SetPowerColor
+QtUI.classColors = classColors
+QtUI.ShortNumber = ShortNumber
+QtUI.SetPowerColor = SetPowerColor
 
 local TEXT_ALIGN = {
   left = { "LEFT", "LEFT", 6, 0, "LEFT", "MIDDLE" },
@@ -134,7 +138,7 @@ local TEXT_ALIGN = {
   bottomright = { "BOTTOMRIGHT", "BOTTOMRIGHT", -6, 2, "RIGHT", "BOTTOM" },
 }
 
-function PotatoUI:PlaceUnitText(fontString, parent, align)
+function QtUI:PlaceUnitText(fontString, parent, align)
   if not fontString or not parent then return end
   local spec = TEXT_ALIGN[align] or TEXT_ALIGN.left
   fontString:ClearAllPoints()
@@ -143,7 +147,7 @@ function PotatoUI:PlaceUnitText(fontString, parent, align)
   if fontString.SetJustifyV then fontString:SetJustifyV(spec[6]) end
 end
 
-function PotatoUI:ApplyUnitTexts(frame, style)
+function QtUI:ApplyUnitTexts(frame, style)
   if not frame or not style then return end
   if frame.name then self:PlaceUnitText(frame.name, frame.health, style.nameAlign) end
   if frame.healthText then self:PlaceUnitText(frame.healthText, frame.health, style.healthAlign) end
@@ -155,7 +159,7 @@ function PotatoUI:ApplyUnitTexts(frame, style)
   end
 end
 
-function PotatoUI:ApplyUnitBarSizes(frame, style)
+function QtUI:ApplyUnitBarSizes(frame, style)
   if not frame or not style then return end
   local pad = 4
   local gap = 3
@@ -185,11 +189,11 @@ end
 
 local function HandleUnitClick()
   local unit = this.unit
-  if this.potatoUsedPending then
-    this.potatoUsedPending = nil
+  if this.qtUsedPending then
+    this.qtUsedPending = nil
     return
   end
-  if PotatoUI:UsePendingActionOnUnit(unit) then return end
+  if QtUI:UsePendingActionOnUnit(unit) then return end
 
   if arg1 == "LeftButton" then
     if type(TargetUnit) == "function" then TargetUnit(unit) end
@@ -213,29 +217,29 @@ local function HandleUnitClick()
 end
 
 local function HandleUnitMouseUp()
-  if PotatoUI:UsePendingActionOnUnit(this.unit) then
-    this.potatoUsedPending = true
+  if QtUI:UsePendingActionOnUnit(this.unit) then
+    this.qtUsedPending = true
   end
 end
 
-local function CreateUnitFrame(name, unit, x)
-  local frame = PotatoUI:CreatePanel(name, UIParent, 3)
+local function CreateUnitFrame(name, unit, x, opts)
+  local frame = QtUI:CreatePanel(name, UIParent, 3)
   frame.unit = unit
-  local layout = PotatoUI:GetLayout()
+  local layout = QtUI:GetLayout()
   frame:SetWidth(layout.unitWidth or 260)
   frame:SetHeight(layout.unitHeight or 54)
   frame:SetPoint("BOTTOM", UIParent, "BOTTOM", x, 120)
   frame:SetFrameStrata("MEDIUM")
 
   frame.health = CreateFrame("StatusBar", nil, frame)
-  frame.health:SetStatusBarTexture(PotatoUI.media.statusbar)
+  frame.health:SetStatusBarTexture(QtUI.media.statusbar)
   frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
   frame.health:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
   frame.health:SetHeight(28)
 
   frame.health.bg = frame.health:CreateTexture(nil, "BACKGROUND")
   frame.health.bg:SetAllPoints()
-  frame.health.bg:SetTexture(PotatoUI.media.statusbar)
+  frame.health.bg:SetTexture(QtUI.media.statusbar)
   frame.health.bg:SetVertexColor(.08, .08, .08, 1)
 
   frame.name = frame.health:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -251,14 +255,14 @@ local function CreateUnitFrame(name, unit, x)
   frame.classification:SetPoint("TOP", frame.health, "TOP", 0, -2)
 
   frame.power = CreateFrame("StatusBar", nil, frame)
-  frame.power:SetStatusBarTexture(PotatoUI.media.statusbar)
+  frame.power:SetStatusBarTexture(QtUI.media.statusbar)
   frame.power:SetPoint("TOPLEFT", frame.health, "BOTTOMLEFT", 0, -3)
   frame.power:SetPoint("TOPRIGHT", frame.health, "BOTTOMRIGHT", 0, -3)
   frame.power:SetHeight(13)
 
   frame.power.bg = frame.power:CreateTexture(nil, "BACKGROUND")
   frame.power.bg:SetAllPoints()
-  frame.power.bg:SetTexture(PotatoUI.media.statusbar)
+  frame.power.bg:SetTexture(QtUI.media.statusbar)
   frame.power.bg:SetVertexColor(.05, .06, .08, 1)
 
   frame.powerText = frame.power:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -282,22 +286,22 @@ local function CreateUnitFrame(name, unit, x)
   end)
   frame.click:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-  if PotatoUI:IsFeatureEnabled("auras") then
+  if (not opts or not opts.noAuras) and QtUI:IsFeatureEnabled("auras") then
     local auraCount = 10
     if unit == "player" then auraCount = 16 end
-    frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", auraCount, 20)
+    frame.debuffs = QtUI:CreateAuraRow(frame, unit, "DEBUFF", auraCount, 20)
     frame.debuffs:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 2, 4)
 
-    frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", auraCount, 20)
+    frame.buffs = QtUI:CreateAuraRow(frame, unit, "BUFF", auraCount, 20)
     frame.buffs:SetPoint("BOTTOMLEFT", frame.debuffs, "TOPLEFT", 0, 3)
   end
 
   return frame
 end
 
-local function UpdateUnitFrame(frame)
+local function UpdateUnitFrame(frame, skipAuras)
   local unit = frame.unit
-  if unit == "target" and not UnitName("target") then
+  if (unit == "target" or unit == "targettarget") and not UnitName(unit) then
     frame:Hide()
     return
   end
@@ -342,25 +346,25 @@ local function UpdateUnitFrame(frame)
   local isEnemy = IsLegacyTrue(UnitIsEnemy("player", unit))
   local isFriend = IsLegacyTrue(UnitIsFriend("player", unit))
 
-  local layout = PotatoUI:GetLayout()
+  local layout = QtUI:GetLayout()
   if unit == "player" then
     if layout.playerClassColor then
       local _, class = UnitClass(unit)
       local color = classColors[class] or { .2, .75, .25 }
-      PotatoUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
+      QtUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
     else
       local c = layout.playerHealth
-      PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
+      QtUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
     end
   elseif isEnemy then
     local c = layout.enemyHealth
-    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
+    QtUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   elseif isFriend then
     local c = layout.friendHealth
-    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
+    QtUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   else
     local c = layout.neutralHealth
-    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
+    QtUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   end
 
   if unit == "target" then
@@ -376,14 +380,14 @@ local function UpdateUnitFrame(frame)
     end
   end
 
-  if frame.debuffs then
-    PotatoUI:UpdateAuraRow(frame.debuffs)
-    PotatoUI:UpdateAuraRow(frame.buffs)
+  if not skipAuras and frame.debuffs then
+    QtUI:UpdateAuraRow(frame.debuffs)
+    QtUI:UpdateAuraRow(frame.buffs)
   end
 end
 
 local function SetPlayerCombatOutline(inCombat)
-  local frame = PotatoUI.playerFrame
+  local frame = QtUI.playerFrame
   if not frame then return end
   if inCombat then
     frame:SetBackdropBorderColor(.95, .08, .08, 1)
@@ -400,7 +404,7 @@ local function PlayerIsInCombat()
 end
 
 local function UpdateComboPoints()
-  local frame = PotatoUI.comboFrame
+  local frame = QtUI.comboFrame
   if not frame then return end
 
   local _, class = UnitClass("player")
@@ -428,10 +432,10 @@ local function UpdateComboPoints()
   frame:Show()
 end
 
-function PotatoUI:SetupComboPoints()
+function QtUI:SetupComboPoints()
   self:HideFrame(ComboFrame)
 
-  local frame = self:CreatePanel("PotatoUIComboPoints", UIParent,
+  local frame = self:CreatePanel("QtUIComboPoints", UIParent,
     self.playerFrame:GetFrameLevel() + 2)
   frame:SetFrameStrata("MEDIUM")
   frame:SetWidth(96)
@@ -452,7 +456,7 @@ function PotatoUI:SetupComboPoints()
     frame.points[i] = slot.fill
   end
 
-  local events = CreateFrame("Frame", "PotatoUIComboEvents")
+  local events = CreateFrame("Frame", "QtUIComboEvents")
   events:RegisterEvent("PLAYER_COMBO_POINTS")
   events:RegisterEvent("PLAYER_TARGET_CHANGED")
   events:RegisterEvent("UNIT_DISPLAYPOWER")
@@ -464,9 +468,10 @@ function PotatoUI:SetupComboPoints()
   UpdateComboPoints()
 end
 
-function PotatoUI:ApplyUnitFrameLayout()
+function QtUI:ApplyUnitFrameLayout()
   local player = self:GetUnitStyle("player")
   local target = self:GetUnitStyle("target")
+  local tot = self:GetUnitStyle("targettarget")
   if self.playerFrame then
     self:ApplyUnitBarSizes(self.playerFrame, player)
     self:ApplyUnitTexts(self.playerFrame, player)
@@ -475,20 +480,222 @@ function PotatoUI:ApplyUnitFrameLayout()
     self:ApplyUnitBarSizes(self.targetFrame, target)
     self:ApplyUnitTexts(self.targetFrame, target)
   end
+  if self.targetTargetFrame then
+    local layout = self:GetLayout()
+    local show = layout.showTargetTarget ~= false and layout.showTargetTarget ~= 0 and layout.showTargetTarget ~= "0"
+    self:ApplyUnitBarSizes(self.targetTargetFrame, tot or { width = 180, height = 36, powerHeight = 8 })
+    self:ApplyUnitTexts(self.targetTargetFrame, tot or { nameAlign = "left", healthAlign = "right", powerAlign = "right" })
+    if not show then
+      self.targetTargetFrame:Hide()
+    end
+  end
   if self.castBar and player then
     self.castBar:SetWidth(player.width or 260)
   end
+  if self.RefreshEnergyTick then self:RefreshEnergyTick() end
 end
 
-function PotatoUI:UpdateUnitFrames()
-  if self.playerFrame then UpdateUnitFrame(self.playerFrame) end
-  if self.targetFrame then UpdateUnitFrame(self.targetFrame) end
+function QtUI:UpdateUnitFrames(skipAuras)
+  if self.playerFrame then UpdateUnitFrame(self.playerFrame, skipAuras) end
+  if self.targetFrame then UpdateUnitFrame(self.targetFrame, skipAuras) end
+  if self.targetTargetFrame then
+    local layout = self:GetLayout()
+    local show = layout.showTargetTarget ~= false and layout.showTargetTarget ~= 0 and layout.showTargetTarget ~= "0"
+    if show then
+      UpdateUnitFrame(self.targetTargetFrame, true)
+    else
+      self.targetTargetFrame:Hide()
+    end
+  end
 end
 
-function PotatoUI:SetupUnitFrames()
-  self.playerFrame = CreateUnitFrame("PotatoUIPlayerFrame", "player", -133)
-  self.targetFrame = CreateUnitFrame("PotatoUITargetFrame", "target", 133)
+local function EnergyTickWidth()
+  local layout = QtUI:GetLayout()
+  local width = tonumber(layout and layout.energyTickWidth) or 1
+  if width < 1 then width = 1 end
+  if width > 8 then width = 8 end
+  return width
+end
+
+local function EnergyTickAlpha()
+  local layout = QtUI:GetLayout()
+  local alpha = tonumber(layout and layout.energyTickAlpha)
+  if not alpha then alpha = .95 end
+  if alpha < .1 then alpha = .1 end
+  if alpha > 1 then alpha = 1 end
+  return alpha
+end
+
+local function PaintEnergyTick(tick, alpha)
+  local line = tick.line
+  if not line then return end
+  if not alpha then alpha = 0 end
+  -- Emberveil ignores texture SetAlpha / SetVertexColor-alpha. Backdrop
+  -- color is the same path as bar background opacity, which does work.
+  if line.SetBackdropColor then
+    line:SetBackdropColor(1, 1, 1, alpha)
+  end
+end
+
+local function PlaceEnergyTick(tick, pos)
+  local line = tick.line
+  if not line then return end
+  -- Emberveil ignores SetWidth(1) and keeps WHITE8X8 at 8x8. Stretch the
+  -- column with corner anchors, same as the move-mode grid.
+  local width = tick.lineWidth or EnergyTickWidth()
+  line:ClearAllPoints()
+  line:SetPoint("TOPLEFT", tick, "TOPLEFT", pos, 0)
+  line:SetPoint("BOTTOMRIGHT", tick, "BOTTOMLEFT", pos + width, 0)
+end
+
+function QtUI:SetupEnergyTick()
+  if self.energyTick or not self.playerFrame or not self.playerFrame.power then return end
+  local bar = self.playerFrame.power
+  local tick = CreateFrame("Frame", "QtUIEnergyTick", bar)
+  tick:SetAllPoints(bar)
+  local barLevel = 1
+  if bar.GetFrameLevel then barLevel = bar:GetFrameLevel() or 1 end
+  tick:SetFrameLevel(barLevel)
+  if tick.EnableMouse then tick:EnableMouse(false) end
+
+  local line = CreateFrame("Frame", nil, tick)
+  if line.EnableMouse then line:EnableMouse(false) end
+  if line.SetBackdrop then
+    line:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      insets = { left = 0, right = 0, top = 0, bottom = 0 },
+    })
+  end
+  tick.line = line
+  tick.lineWidth = EnergyTickWidth()
+  PaintEnergyTick(tick, EnergyTickAlpha())
+  PlaceEnergyTick(tick, 0)
+
+  tick:RegisterEvent("PLAYER_ENTERING_WORLD")
+  tick:RegisterEvent("UNIT_DISPLAYPOWER")
+  tick:RegisterEvent("UNIT_ENERGY")
+  tick:RegisterEvent("UNIT_MANA")
+  tick:SetScript("OnEvent", function()
+    QtUI:RefreshEnergyTick()
+    if event == "PLAYER_ENTERING_WORLD" then
+      this.lastPower = UnitMana("player")
+    end
+    if (event == "UNIT_MANA" or event == "UNIT_ENERGY") and arg1 == "player" then
+      local current = UnitMana("player") or 0
+      local diff = 0
+      if this.lastPower then diff = current - this.lastPower end
+      if this.mode == "MANA" and diff < 0 then
+        this.target = 5
+      elseif this.mode == "MANA" and diff > 0 then
+        if this.max ~= 5 and diff > ((this.badtick and this.badtick * 1.2) or 5) then
+          this.target = 2
+        else
+          this.badtick = diff
+        end
+      elseif this.mode == "ENERGY" and diff > 0 then
+        this.target = 2
+      end
+      this.lastPower = current
+    end
+  end)
+  tick:SetScript("OnUpdate", function()
+    if not this.mode then return end
+    if this.target then
+      this.start = GetTime()
+      this.max = this.target
+      this.target = nil
+    end
+    if not this.start or not this.max or this.max <= 0 then return end
+    local current = GetTime() - this.start
+    if current > this.max then
+      this.start = GetTime()
+      this.max = 2
+      current = 0
+    end
+    local width = this:GetWidth() or 0
+    if width < 1 then return end
+    this.lastPos = width * (current / this.max)
+    PlaceEnergyTick(this, this.lastPos)
+  end)
+
+  self.energyTick = tick
+  self:RefreshEnergyTick()
+end
+
+function QtUI:RefreshEnergyTick()
+  local tick = self.energyTick
+  if not tick then return end
+  local layout = self:GetLayout()
+  local enabled = layout.energyTick ~= false and layout.energyTick ~= 0 and layout.energyTick ~= "0"
+  local powerType = 0
+  if type(UnitPowerType) == "function" then
+    powerType = tonumber(UnitPowerType("player")) or 0
+  end
+  if enabled and powerType == 0 then
+    tick.mode = "MANA"
+  elseif enabled and powerType == 3 then
+    tick.mode = "ENERGY"
+  else
+    tick.mode = nil
+  end
+  tick.lineWidth = EnergyTickWidth()
+  PlaceEnergyTick(tick, tick.lastPos or 0)
+  if tick.mode then
+    if tick.Show then pcall(tick.Show, tick) end
+    if tick.line and tick.line.Show then pcall(tick.line.Show, tick.line) end
+    PaintEnergyTick(tick, EnergyTickAlpha())
+  else
+    PaintEnergyTick(tick, 0)
+  end
+end
+
+function QtUI:SetupTargetTarget()
+  if self.targetTargetFrame then return end
+  local frame = CreateUnitFrame("QtUITargetTargetFrame", "targettarget", 0, { noAuras = true })
+  frame:ClearAllPoints()
+  if self.targetFrame then
+    frame:SetPoint("LEFT", self.targetFrame, "RIGHT", 8, 0)
+  else
+    frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 280, 120)
+  end
+  frame:SetWidth(180)
+  frame:SetHeight(36)
+  if frame.power then frame.power:SetHeight(8) end
+  self.targetTargetFrame = frame
+  if TargetofTargetFrame then self:HideFrame(TargetofTargetFrame) end
+
+  if not self.targetTargetWatch then
+    local watch = CreateFrame("Frame", "QtUITargetTargetWatch")
+    watch.elapsed = 0
+    watch:SetScript("OnUpdate", function()
+      if not QtUI.targetTargetFrame then return end
+      local layout = QtUI:GetLayout()
+      if layout.showTargetTarget == false or layout.showTargetTarget == 0 or layout.showTargetTarget == "0" then
+        QtUI.targetTargetFrame:Hide()
+        return
+      end
+      this.elapsed = this.elapsed + (arg1 or 0)
+      if not UnitName("target") then
+        QtUI.targetTargetFrame:Hide()
+        this.hadTarget = nil
+        return
+      end
+      this.hadTarget = true
+      if this.elapsed >= .2 then
+        this.elapsed = 0
+        UpdateUnitFrame(QtUI.targetTargetFrame, true)
+      end
+    end)
+    self.targetTargetWatch = watch
+  end
+end
+
+function QtUI:SetupUnitFrames()
+  self.playerFrame = CreateUnitFrame("QtUIPlayerFrame", "player", -133)
+  self.targetFrame = CreateUnitFrame("QtUITargetFrame", "target", 133)
   self:SetupComboPoints()
+  self:SetupTargetTarget()
+  self:SetupEnergyTick()
   if self.playerFrame then self:HideFrame(PlayerFrame) end
   if self.targetFrame then self:HideFrame(TargetFrame) end
   if self:IsFeatureEnabled("auras") then
@@ -507,7 +714,7 @@ function PotatoUI:SetupUnitFrames()
   if self.PositionAuxiliaryBars then self:PositionAuxiliaryBars() end
   self:ApplyUnitFrameLayout()
 
-  local events = CreateFrame("Frame", "PotatoUIUnitEvents")
+  local events = CreateFrame("Frame", "QtUIUnitEvents")
   events:RegisterEvent("PLAYER_TARGET_CHANGED")
   events:RegisterEvent("UNIT_HEALTH")
   events:RegisterEvent("UNIT_MAXHEALTH")
@@ -539,7 +746,8 @@ function PotatoUI:SetupUnitFrames()
       SetPlayerCombatOutline(PlayerIsInCombat())
     end
     if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" or arg1 == "player" or arg1 == "target" then
-      PotatoUI:UpdateUnitFrames()
+      local refreshAuras = event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD"
+      QtUI:UpdateUnitFrames(not refreshAuras)
     end
   end)
 

@@ -92,7 +92,7 @@ local function AddSpecialFrame(name)
   table.insert(UISpecialFrames, name)
 end
 
-local function TogglePotatoWorldMap()
+local function ToggleQtWorldMap()
   if WorldMapFrame:IsShown() then
     WorldMapFrame:Hide()
   else
@@ -108,7 +108,7 @@ local function ApplyWorldMapWindow()
   end
 
   AddSpecialFrame("WorldMapFrame")
-  ToggleWorldMap = TogglePotatoWorldMap
+  ToggleWorldMap = ToggleQtWorldMap
 
   WorldMapFrame:SetMovable(true)
   WorldMapFrame:EnableMouse(true)
@@ -132,14 +132,14 @@ local function ApplyWorldMapWindow()
   scale = scale * .5
   if scale > .45 then scale = .45 end
   if scale < .275 then scale = .275 end
-  PotatoUI.worldMapScale = scale
+  QtUI.worldMapScale = scale
   WorldMapFrame:SetScale(scale)
 
   WorldMapFrame:ClearAllPoints()
   WorldMapFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 18)
 
-  if not PotatoUI.worldMapDragHandle then
-    local handle = CreateFrame("Button", "PotatoUIWorldMapDragHandle", WorldMapFrame)
+  if not QtUI.worldMapDragHandle then
+    local handle = CreateFrame("Button", "QtUIWorldMapDragHandle", WorldMapFrame)
     handle:SetWidth(mapWidth)
     handle:SetHeight(42)
     handle:SetPoint("TOP", WorldMapFrame, "TOP", 0, -2)
@@ -150,7 +150,7 @@ local function ApplyWorldMapWindow()
       if arg1 == "LeftButton" then WorldMapFrame:StartMoving() end
     end)
     handle:SetScript("OnMouseUp", function() WorldMapFrame:StopMovingOrSizing() end)
-    PotatoUI.worldMapDragHandle = handle
+    QtUI.worldMapDragHandle = handle
   end
 
   -- Remove the original full-screen parchment frame and header controls. The
@@ -176,7 +176,7 @@ local function ApplyWorldMapWindow()
     "WorldMapZoomOutButton",
   }
   for i = 1, table.getn(chrome) do
-    PotatoUI:HideFrame(getglobal(chrome[i]))
+    QtUI:HideFrame(getglobal(chrome[i]))
   end
 
   if BlackoutWorld then
@@ -242,8 +242,8 @@ local function CorrectMapHighlight()
 end
 
 local function HookCorrectMapInput()
-  if PotatoUI.worldMapInputHooked then return end
-  PotatoUI.worldMapInputHooked = true
+  if QtUI.worldMapInputHooked then return end
+  QtUI.worldMapInputHooked = true
 
   local originalUpdate = WorldMapButton_OnUpdate
   WorldMapButton_OnUpdate = function(elapsed)
@@ -263,13 +263,13 @@ local function HookCorrectMapInput()
 end
 
 local function HookMapWindowScripts()
-  if PotatoUI.worldMapWindowHooked then return end
-  PotatoUI.worldMapWindowHooked = true
+  if QtUI.worldMapWindowHooked then return end
+  QtUI.worldMapWindowHooked = true
 
   local originalShow = WorldMapFrame:GetScript("OnShow")
   WorldMapFrame:SetScript("OnShow", function()
     if originalShow then originalShow() end
-    WorldMapFrame:SetScale(PotatoUI.worldMapScale or .4)
+    WorldMapFrame:SetScale(QtUI.worldMapScale or .4)
     WorldMapFrame:EnableKeyboard(false)
     WorldMapFrame:SetFrameStrata("HIGH")
     if BlackoutWorld then BlackoutWorld:Hide() end
@@ -357,8 +357,8 @@ local function DrawRevealedMap()
 end
 
 local function HookMapReveal()
-  if PotatoUI.worldMapRevealHooked or not WorldMapFrame_Update then return end
-  PotatoUI.worldMapRevealHooked = true
+  if QtUI.worldMapRevealHooked or not WorldMapFrame_Update then return end
+  QtUI.worldMapRevealHooked = true
 
   local originalUpdate = WorldMapFrame_Update
   WorldMapFrame_Update = function()
@@ -367,7 +367,7 @@ local function HookMapReveal()
   end
 end
 
-function PotatoUI:SetupWorldMap()
+function QtUI:SetupWorldMap()
   -- Emberveil's visible map is native UE, so only hook its shared texture
   -- update. Do not resize, skin, show or intercept the Lua compatibility frame.
   HookMapReveal()

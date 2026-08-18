@@ -1,6 +1,6 @@
 -- Vanilla vendor price data adapted from ShaguValue by Shagu.
--- PotatoUI exports the database but deliberately skips ShaguValue's global
--- tooltip hooks; Bags.lua adds values only to PotatoUI item tooltips.
+-- QtUI exports the database but deliberately skips ShaguValue's global
+-- tooltip hooks; Bags.lua adds values only to QtUI item tooltips.
 local data = {
   [25]="7,35", [35]="9,47", [36]="7,38", [37]="7,38", [38]="1,1", [39]="1,5",
   [40]="1,4", [41]="1,2", [42]="1,2", [43]="1,4", [44]="1,4", [45]="1,1",
@@ -2336,10 +2336,10 @@ local data = {
   [24102]="100000,400000", [24222]="44210,221054", [24231]="52,211", [24232]="225,900", [24281]="302,1210", [24282]="4562,18250",
   [24283]="38086,152345", [24358]="91453,365815" }
 
-PotatoUI.vendorPrices = data
+QtUI.vendorPrices = data
 
 -- The remainder is retained as upstream reference (TBC data and standalone
--- tooltip integration), but is never executed by PotatoUI.
+-- tooltip integration), but is never executed by QtUI.
 if false then
 
 local data_tbc = {

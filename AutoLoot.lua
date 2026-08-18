@@ -13,12 +13,30 @@ local function LootEverything()
   end
 end
 
-function PotatoUI:SetupAutoLoot()
+function QtUI:SetupAutoLoot()
   if self.autoLootFrame then return end
 
-  local frame = CreateFrame("Frame", "PotatoUIAutoLootEvents")
+  local frame = CreateFrame("Frame", "QtUIAutoLootEvents")
   frame.elapsed = 0
   frame.remaining = 0
+
+  local function LootTicker()
+    if not this.active then
+      this:SetScript("OnUpdate", nil)
+      return
+    end
+    this.elapsed = this.elapsed + arg1
+    this.remaining = this.remaining - arg1
+    if this.remaining <= 0 then
+      this.active = nil
+      this:SetScript("OnUpdate", nil)
+      return
+    end
+    if this.elapsed >= .1 then
+      this.elapsed = 0
+      LootEverything()
+    end
+  end
 
   frame:RegisterEvent("LOOT_OPENED")
   frame:RegisterEvent("LOOT_CLOSED")
@@ -34,31 +52,18 @@ function PotatoUI:SetupAutoLoot()
         this.elapsed = 0
         this.remaining = 2
         LootEverything()
+        this:SetScript("OnUpdate", LootTicker)
       else
         this.active = nil
         this.remaining = 0
+        this:SetScript("OnUpdate", nil)
       end
     elseif event == "LOOT_SLOT_CLEARED" then
       if this.active then LootEverything() end
     elseif event == "LOOT_CLOSED" then
       this.active = nil
       this.remaining = 0
-    end
-  end)
-
-  -- A short retry period handles gathering nodes whose loot becomes available
-  -- after LOOT_OPENED on Emberveil, and tolerates brief server latency.
-  frame:SetScript("OnUpdate", function()
-    if not this.active then return end
-    this.elapsed = this.elapsed + arg1
-    this.remaining = this.remaining - arg1
-    if this.remaining <= 0 then
-      this.active = nil
-      return
-    end
-    if this.elapsed >= .1 then
-      this.elapsed = 0
-      LootEverything()
+      this:SetScript("OnUpdate", nil)
     end
   end)
 

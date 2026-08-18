@@ -18,11 +18,11 @@ local hiddenDecorations = {
 }
 
 local function UpdateZoneName()
-  if not PotatoUI.minimapZone then return end
+  if not QtUI.minimapZone then return end
   local zone = ""
   if type(GetMinimapZoneText) == "function" then zone = GetMinimapZoneText() or "" end
   if zone == "" and type(GetZoneText) == "function" then zone = GetZoneText() or "" end
-  PotatoUI.minimapZone:SetText(zone)
+  QtUI.minimapZone:SetText(zone)
 end
 
 local function HandleMouseWheel()
@@ -54,7 +54,7 @@ local function ForwardMinimapScript(handler)
   this = previousThis
 end
 
-function PotatoUI:SetupMinimap()
+function QtUI:SetupMinimap()
   if not Minimap then return end
 
   for _, name in ipairs(hiddenDecorations) do
@@ -98,7 +98,7 @@ function PotatoUI:SetupMinimap()
   local nativeMouseDown = Minimap:GetScript("OnMouseDown")
   local nativeMouseUp = Minimap:GetScript("OnMouseUp")
   local nativeClick = Minimap:GetScript("OnClick")
-  local input = CreateFrame("Button", "PotatoUIMinimapInput", MinimapCluster or UIParent)
+  local input = CreateFrame("Button", "QtUIMinimapInput", MinimapCluster or UIParent)
   input:SetAllPoints(Minimap)
   input:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 5)
   input:EnableMouse(true)
@@ -110,7 +110,7 @@ function PotatoUI:SetupMinimap()
   input:SetScript("OnClick", function() ForwardMinimapScript(nativeClick) end)
   self.minimapInput = input
 
-  local zone = (MinimapCluster or UIParent):CreateFontString("PotatoUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
+  local zone = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
   zone:SetPoint("BOTTOM", Minimap, "TOP", 0, 2)
   zone:SetWidth(MAP_SIZE)
   zone:SetJustifyH("CENTER")
@@ -119,7 +119,7 @@ function PotatoUI:SetupMinimap()
   if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
   self.minimapZone = zone
 
-  local events = CreateFrame("Frame", "PotatoUIMinimapEvents")
+  local events = CreateFrame("Frame", "QtUIMinimapEvents")
   events:RegisterEvent("MINIMAP_ZONE_CHANGED")
   events:RegisterEvent("ZONE_CHANGED")
   events:RegisterEvent("ZONE_CHANGED_INDOORS")

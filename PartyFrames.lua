@@ -10,11 +10,11 @@ end
 
 local function HandlePartyClick()
   local unit = this.unit
-  if this.potatoUsedPending then
-    this.potatoUsedPending = nil
+  if this.qtUsedPending then
+    this.qtUsedPending = nil
     return
   end
-  if PotatoUI:UsePendingActionOnUnit(unit) then return end
+  if QtUI:UsePendingActionOnUnit(unit) then return end
 
   if arg1 == "LeftButton" then
     if type(TargetUnit) == "function" then TargetUnit(unit) end
@@ -40,8 +40,8 @@ local function HandlePartyClick()
 end
 
 local function HandlePartyMouseUp()
-  if PotatoUI:UsePendingActionOnUnit(this.unit) then
-    this.potatoUsedPending = true
+  if QtUI:UsePendingActionOnUnit(this.unit) then
+    this.qtUsedPending = true
   end
 end
 
@@ -67,11 +67,11 @@ end
 
 local function CreatePartyMember(index, parent)
   local unit = "party" .. index
-  local frame = PotatoUI:CreatePanel("PotatoUIParty" .. index, parent, 3)
+  local frame = QtUI:CreatePanel("QtUIParty" .. index, parent, 3)
   frame.unit = unit
   frame.partyIndex = index
   frame:SetFrameStrata("LOW")
-  local layout = PotatoUI:GetLayout()
+  local layout = QtUI:GetLayout()
   frame:SetWidth(layout.partyWidth or 220)
   frame:SetHeight(layout.partyHeight or 44)
   local gap = (layout.partyHeight or 44) + (layout.partySpacing or 29)
@@ -79,14 +79,14 @@ local function CreatePartyMember(index, parent)
   frame:SetBackdropColor(.015, .02, .025, .72)
 
   frame.health = CreateFrame("StatusBar", nil, frame)
-  frame.health:SetStatusBarTexture(PotatoUI.media.statusbar)
+  frame.health:SetStatusBarTexture(QtUI.media.statusbar)
   frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
   frame.health:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
   frame.health:SetHeight(24)
 
   frame.health.bg = frame.health:CreateTexture(nil, "BACKGROUND")
   frame.health.bg:SetAllPoints()
-  frame.health.bg:SetTexture(PotatoUI.media.statusbar)
+  frame.health.bg:SetTexture(QtUI.media.statusbar)
   frame.health.bg:SetVertexColor(.06, .065, .07, 1)
 
   frame.name = frame.health:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -96,24 +96,24 @@ local function CreatePartyMember(index, parent)
   frame.healthText:SetPoint("RIGHT", frame.health, "RIGHT", -5, 0)
 
   frame.power = CreateFrame("StatusBar", nil, frame)
-  frame.power:SetStatusBarTexture(PotatoUI.media.statusbar)
+  frame.power:SetStatusBarTexture(QtUI.media.statusbar)
   frame.power:SetPoint("TOPLEFT", frame.health, "BOTTOMLEFT", 0, -3)
   frame.power:SetPoint("TOPRIGHT", frame.health, "BOTTOMRIGHT", 0, -3)
   frame.power:SetHeight(9)
 
   frame.power.bg = frame.power:CreateTexture(nil, "BACKGROUND")
   frame.power.bg:SetAllPoints()
-  frame.power.bg:SetTexture(PotatoUI.media.statusbar)
+  frame.power.bg:SetTexture(QtUI.media.statusbar)
   frame.power.bg:SetVertexColor(.04, .045, .055, 1)
 
   frame.powerText = frame.power:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   frame.powerText:SetPoint("RIGHT", frame.power, "RIGHT", -5, 0)
 
-  if PotatoUI:IsFeatureEnabled("auras") then
-    frame.debuffs = PotatoUI:CreateAuraRow(frame, unit, "DEBUFF", 6, 18)
+  if QtUI:IsFeatureEnabled("auras") then
+    frame.debuffs = QtUI:CreateAuraRow(frame, unit, "DEBUFF", 6, 18)
     frame.debuffs:SetPoint("LEFT", frame, "RIGHT", 4, 10)
 
-    frame.buffs = PotatoUI:CreateAuraRow(frame, unit, "BUFF", 6, 18)
+    frame.buffs = QtUI:CreateAuraRow(frame, unit, "BUFF", 6, 18)
     frame.buffs:SetPoint("LEFT", frame, "RIGHT", 4, -10)
   end
 
@@ -122,7 +122,7 @@ local function CreatePartyMember(index, parent)
 end
 
 local function CreatePetFrame(name, unit, parent, point, relativePoint, x, y, width)
-  local frame = PotatoUI:CreatePanel(name, parent, 3)
+  local frame = QtUI:CreatePanel(name, parent, 3)
   frame.unit = unit
   frame:SetFrameStrata("LOW")
   frame:SetWidth(width)
@@ -132,14 +132,14 @@ local function CreatePetFrame(name, unit, parent, point, relativePoint, x, y, wi
   frame:SetBackdropBorderColor(.18, .42, .24, .95)
 
   frame.health = CreateFrame("StatusBar", nil, frame)
-  frame.health:SetStatusBarTexture(PotatoUI.media.statusbar)
+  frame.health:SetStatusBarTexture(QtUI.media.statusbar)
   frame.health:SetPoint("TOPLEFT", frame, "TOPLEFT", 3, -3)
   frame.health:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -3, 3)
   frame.health:SetStatusBarColor(.18, .68, .28)
 
   frame.health.bg = frame.health:CreateTexture(nil, "BACKGROUND")
   frame.health.bg:SetAllPoints()
-  frame.health.bg:SetTexture(PotatoUI.media.statusbar)
+  frame.health.bg:SetTexture(QtUI.media.statusbar)
   frame.health.bg:SetVertexColor(.045, .06, .05, 1)
 
   frame.name = frame.health:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -152,7 +152,7 @@ local function CreatePetFrame(name, unit, parent, point, relativePoint, x, y, wi
   return frame
 end
 
-local function UpdatePartyMember(frame)
+local function UpdatePartyMember(frame, skipAuras)
   local unit = frame.unit
   if not UnitIsPresent(unit) then
     frame:Hide()
@@ -171,19 +171,19 @@ local function UpdatePartyMember(frame)
   frame.health:SetValue(health)
   frame.power:SetMinMaxValues(0, powerMax)
   frame.power:SetValue(power)
-  PotatoUI.SetPowerColor(frame.power, unit)
+  QtUI.SetPowerColor(frame.power, unit)
   if frame.powerText then
-    frame.powerText:SetText(PotatoUI.ShortNumber(power) .. " / " .. PotatoUI.ShortNumber(powerMax))
+    frame.powerText:SetText(QtUI.ShortNumber(power) .. " / " .. QtUI.ShortNumber(powerMax))
   end
 
-  local layout = PotatoUI:GetLayout()
+  local layout = QtUI:GetLayout()
   if layout.partyClassColor then
     local _, class = UnitClass(unit)
-    local color = PotatoUI.classColors[class] or { .2, .72, .28 }
-    PotatoUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
+    local color = QtUI.classColors[class] or { .2, .72, .28 }
+    QtUI:PaintStatusBar(frame.health, color[1], color[2], color[3])
   else
     local c = layout.partyHealth
-    PotatoUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
+    QtUI:PaintStatusBar(frame.health, c.r, c.g, c.b)
   end
 
   local prefix = ""
@@ -199,12 +199,12 @@ local function UpdatePartyMember(frame)
   elseif type(UnitIsConnected) == "function" and not IsTrue(UnitIsConnected(unit)) then
     frame.healthText:SetText("|cff999999OFFLINE|r")
   else
-    frame.healthText:SetText(PotatoUI.ShortNumber(health) .. " / " .. PotatoUI.ShortNumber(healthMax))
+    frame.healthText:SetText(QtUI.ShortNumber(health) .. " / " .. QtUI.ShortNumber(healthMax))
   end
 
-  if frame.debuffs then
-    PotatoUI:UpdateAuraRow(frame.debuffs)
-    PotatoUI:UpdateAuraRow(frame.buffs)
+  if not skipAuras and frame.debuffs then
+    QtUI:UpdateAuraRow(frame.debuffs)
+    QtUI:UpdateAuraRow(frame.buffs)
   end
 end
 
@@ -221,12 +221,12 @@ local function UpdatePetFrame(frame)
   if healthMax < 1 then healthMax = 1 end
   frame.health:SetMinMaxValues(0, healthMax)
   frame.health:SetValue(health)
-  PotatoUI:PaintStatusBar(frame.health, .18, .68, .28)
+  QtUI:PaintStatusBar(frame.health, .18, .68, .28)
   frame.name:SetText(UnitName(unit) or "Pet")
-  frame.healthText:SetText(PotatoUI.ShortNumber(health) .. " / " .. PotatoUI.ShortNumber(healthMax))
+  frame.healthText:SetText(QtUI.ShortNumber(health) .. " / " .. QtUI.ShortNumber(healthMax))
 end
 
-function PotatoUI:ApplyPartyFrameLayout()
+function QtUI:ApplyPartyFrameLayout()
   local layout = self:GetLayout()
   local party = self:GetUnitStyle("party") or {}
   local pet = self:GetUnitStyle("pet") or {}
@@ -262,20 +262,20 @@ function PotatoUI:ApplyPartyFrameLayout()
   end
 end
 
-function PotatoUI:UpdatePartyFrames()
+function QtUI:UpdatePartyFrames(skipAuras)
   local i
   for i = 1, 4 do
-    UpdatePartyMember(self.partyFrames[i])
+    UpdatePartyMember(self.partyFrames[i], skipAuras)
     UpdatePetFrame(self.partyPetFrames[i])
   end
   UpdatePetFrame(self.playerPetFrame)
 end
 
-function PotatoUI:SetupPartyFrames()
+function QtUI:SetupPartyFrames()
   self.partyFrames = {}
   self.partyPetFrames = {}
 
-  local anchor = CreateFrame("Frame", "PotatoUIPartyAnchor", UIParent)
+  local anchor = CreateFrame("Frame", "QtUIPartyAnchor", UIParent)
   anchor:SetWidth(330)
   anchor:SetHeight(263)
   anchor:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 18, -105)
@@ -289,17 +289,17 @@ function PotatoUI:SetupPartyFrames()
     self:HideFrame(getglobal("PartyMemberFrame" .. i .. "PetFrame"))
 
     local member = CreatePartyMember(i, anchor)
-    local pet = CreatePetFrame("PotatoUIPartyPet" .. i, "partypet" .. i,
+    local pet = CreatePetFrame("QtUIPartyPet" .. i, "partypet" .. i,
       member, "TOPLEFT", "BOTTOMLEFT", 12, -2, 165)
     self.partyFrames[i] = member
     self.partyPetFrames[i] = pet
   end
 
-  self.playerPetFrame = CreatePetFrame("PotatoUIPlayerPet", "pet",
-    UIParent, "BOTTOM", "BOTTOM", -133, 170, PotatoUI:GetLayout().petWidth or 180)
+  self.playerPetFrame = CreatePetFrame("QtUIPlayerPet", "pet",
+    UIParent, "BOTTOM", "BOTTOM", -133, 170, QtUI:GetLayout().petWidth or 180)
   if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
 
-  local events = CreateFrame("Frame", "PotatoUIPartyEvents")
+  local events = CreateFrame("Frame", "QtUIPartyEvents")
   events:RegisterEvent("PARTY_MEMBERS_CHANGED")
   events:RegisterEvent("PARTY_LEADER_CHANGED")
   events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -313,7 +313,18 @@ function PotatoUI:SetupPartyFrames()
   events:RegisterEvent("UNIT_NAME_UPDATE")
   events:RegisterEvent("UNIT_PET")
   events:RegisterEvent("PET_UI_UPDATE")
-  events:SetScript("OnEvent", function() PotatoUI:UpdatePartyFrames() end)
+  events:SetScript("OnEvent", function()
+    local unit = arg1
+    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" or event == "UNIT_MANA"
+        or event == "UNIT_MAXMANA" or event == "UNIT_DISPLAYPOWER" or event == "UNIT_AURA"
+        or event == "UNIT_LEVEL" or event == "UNIT_NAME_UPDATE" then
+      if unit == "player" or unit == "target" then return end
+      if unit and unit ~= "pet" and not string.find(unit, "party", 1, true) then return end
+    end
+    local skipAuras = event ~= "UNIT_AURA" and event ~= "PARTY_MEMBERS_CHANGED"
+      and event ~= "PLAYER_ENTERING_WORLD" and event ~= "UNIT_PET" and event ~= "PET_UI_UPDATE"
+    QtUI:UpdatePartyFrames(skipAuras)
+  end)
 
   self:UpdatePartyFrames()
 end

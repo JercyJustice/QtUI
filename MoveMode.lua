@@ -58,8 +58,8 @@ local function BuildMoveGrid(grid)
 end
 
 local function EnsureMoveGrid()
-  if PotatoUI.moveGrid then return PotatoUI.moveGrid end
-  local grid = CreateFrame("Frame", "PotatoUIMoveGrid", UIParent)
+  if QtUI.moveGrid then return QtUI.moveGrid end
+  local grid = CreateFrame("Frame", "QtUIMoveGrid", UIParent)
   grid:SetAllPoints(UIParent)
   grid:SetFrameStrata("LOW")
   grid:SetFrameLevel(0)
@@ -72,38 +72,38 @@ local function EnsureMoveGrid()
 
   BuildMoveGrid(grid)
   grid:Hide()
-  PotatoUI.moveGrid = grid
+  QtUI.moveGrid = grid
   return grid
 end
 
 local function EnsureMoveCatcher()
-  if PotatoUI.moveCatcher then return PotatoUI.moveCatcher end
-  local catcher = CreateFrame("Frame", "PotatoUIMoveCatcher", UIParent)
+  if QtUI.moveCatcher then return QtUI.moveCatcher end
+  local catcher = CreateFrame("Frame", "QtUIMoveCatcher", UIParent)
   catcher:SetWidth(1)
   catcher:SetHeight(1)
   catcher:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   catcher:Hide()
   catcher:SetScript("OnHide", function()
-    if PotatoUI.moveMode then
-      PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+    if QtUI.moveMode then
+      QtUI:EndMoveMode(QtUI.moveFromSettings)
     end
   end)
-  if UISpecialFrames then table.insert(UISpecialFrames, "PotatoUIMoveCatcher") end
-  PotatoUI.moveCatcher = catcher
+  if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMoveCatcher") end
+  QtUI.moveCatcher = catcher
   return catcher
 end
 
 local function HookEscapeToEndMove()
-  if PotatoUI.hookedToggleGameMenu then return end
-  PotatoUI.hookedToggleGameMenu = true
+  if QtUI.hookedToggleGameMenu then return end
+  QtUI.hookedToggleGameMenu = true
   local original = ToggleGameMenu
   ToggleGameMenu = function()
-    if PotatoUI.moveMode then
-      PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+    if QtUI.moveMode then
+      QtUI:EndMoveMode(QtUI.moveFromSettings)
       return
     end
-    if PotatoUI.justEndedMove then
-      PotatoUI.justEndedMove = nil
+    if QtUI.justEndedMove then
+      QtUI.justEndedMove = nil
       return
     end
     if type(original) == "function" then original() end
@@ -111,8 +111,8 @@ local function HookEscapeToEndMove()
   if type(CloseSpecialWindows) == "function" then
     local originalClose = CloseSpecialWindows
     CloseSpecialWindows = function()
-      if PotatoUI.moveMode then
-        PotatoUI:EndMoveMode(PotatoUI.moveFromSettings)
+      if QtUI.moveMode then
+        QtUI:EndMoveMode(QtUI.moveFromSettings)
         return 1
       end
       return originalClose()
@@ -133,14 +133,14 @@ local function SaveOverlayPosition(overlay)
 
   local entry = overlay.entry
   local target = entry.frame
-  PotatoUIDB.positions[entry.key] = { x = left, y = bottom }
+  QtUIDB.positions[entry.key] = { x = left, y = bottom }
   target:ClearAllPoints()
   target:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
   ReanchorOverlay(overlay)
 end
 
 local function CreateMoveOverlay(entry, index)
-  local overlay = CreateFrame("Button", "PotatoUIMoveOverlay" .. index, UIParent)
+  local overlay = CreateFrame("Button", "QtUIMoveOverlay" .. index, UIParent)
   overlay.entry = entry
   overlay:SetFrameStrata("TOOLTIP")
   overlay:SetFrameLevel(100)
@@ -178,7 +178,7 @@ local function CreateMoveOverlay(entry, index)
     SaveOverlayPosition(this)
   end)
   overlay:SetScript("OnClick", function()
-    if arg1 == "RightButton" then PotatoUI:ResetMovable(entry.key) end
+    if arg1 == "RightButton" then QtUI:ResetMovable(entry.key) end
   end)
   overlay:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   overlay:SetScript("OnEnter", function()
@@ -194,7 +194,7 @@ local function CreateMoveOverlay(entry, index)
   return overlay
 end
 
-function PotatoUI:RegisterMovable(key, label, frame)
+function QtUI:RegisterMovable(key, label, frame)
   if not frame then return end
   if not self.movableEntries then self.movableEntries = {} end
 
@@ -207,7 +207,7 @@ function PotatoUI:RegisterMovable(key, label, frame)
     x = x or 0,
     y = y or 0,
   }
-  local saved = PotatoUIDB.positions and PotatoUIDB.positions[key]
+  local saved = QtUIDB.positions and QtUIDB.positions[key]
   if saved and saved.x and saved.y then
     frame:ClearAllPoints()
     frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
@@ -218,15 +218,15 @@ function PotatoUI:RegisterMovable(key, label, frame)
   entry.overlay = CreateMoveOverlay(entry, table.getn(self.movableEntries))
 end
 
-function PotatoUI:ResetMovable(key)
+function QtUI:ResetMovable(key)
   if not self.movableEntries then return end
   local _, entry
   for _, entry in ipairs(self.movableEntries) do
     if entry.key == key then
-      PotatoUIDB.positions[key] = nil
+      QtUIDB.positions[key] = nil
       if key == "bags" then
-        PotatoUIDB.bagX = nil
-        PotatoUIDB.bagY = nil
+        QtUIDB.bagX = nil
+        QtUIDB.bagY = nil
         entry.default = {
           point = "BOTTOMRIGHT", relativeTo = UIParent,
           relativePoint = "BOTTOMRIGHT", x = -18, y = 220,
@@ -243,7 +243,7 @@ function PotatoUI:ResetMovable(key)
   end
 end
 
-function PotatoUI:SetMoveMode(enabled)
+function QtUI:SetMoveMode(enabled)
   self.moveMode = enabled and true or nil
   EnsureMoveCatcher()
   EnsureMoveGrid()
@@ -271,7 +271,7 @@ function PotatoUI:SetMoveMode(enabled)
   end
 end
 
-function PotatoUI:EndMoveMode(reopenSettings)
+function QtUI:EndMoveMode(reopenSettings)
   if not self.moveMode then return end
   local reopen = reopenSettings
   self.moveFromSettings = nil
@@ -285,7 +285,7 @@ function PotatoUI:EndMoveMode(reopenSettings)
   end
 end
 
-function PotatoUI:ToggleMoveMode()
+function QtUI:ToggleMoveMode()
   if self.moveMode then
     self:EndMoveMode(self.moveFromSettings)
     return
@@ -294,15 +294,16 @@ function PotatoUI:ToggleMoveMode()
   self:Print("Move mode unlocked. Drag the green fields; right-click resets one. Escape locks.")
 end
 
-function PotatoUI:SetupMoveMode()
+function QtUI:SetupMoveMode()
   if self.moveModeReady then return end
   self.moveModeReady = true
-  if not PotatoUIDB.positions then PotatoUIDB.positions = {} end
+  if not QtUIDB.positions then QtUIDB.positions = {} end
   HookEscapeToEndMove()
 
   self:RegisterMovable("player", "Player", self.playerFrame)
   self:RegisterMovable("combo", "Combo Points", self.comboFrame)
   self:RegisterMovable("target", "Target", self.targetFrame)
+  self:RegisterMovable("targettarget", "Target of Target", self.targetTargetFrame)
   self:RegisterMovable("cast", "Cast Bar", self.castBar)
   self:RegisterMovable("actions", "Main Action Bar", self.actionPanel)
   self:RegisterMovable("extraActions", "Extra Action Bar", self.extraActionPanel)
@@ -319,30 +320,30 @@ function PotatoUI:SetupMoveMode()
   self:SetupQuestTimerMove()
 end
 
-function PotatoUI:RestoreQuestTimerPosition()
+function QtUI:RestoreQuestTimerPosition()
   local frame = getglobal("QuestTimerFrame")
   if not frame then return end
-  local saved = PotatoUIDB.positions and PotatoUIDB.positions.questTimers
+  local saved = QtUIDB.positions and QtUIDB.positions.questTimers
   if saved and saved.x and saved.y then
     frame:ClearAllPoints()
     frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
   end
 end
 
-function PotatoUI:SetupQuestTimerMove()
+function QtUI:SetupQuestTimerMove()
   if self.questTimerRegistered then return end
   local frame = getglobal("QuestTimerFrame")
   if not frame then
     if self.questTimerWait then return end
-    local wait = CreateFrame("Frame", "PotatoUIQuestTimerWait")
+    local wait = CreateFrame("Frame", "QtUIQuestTimerWait")
     self.questTimerWait = wait
     wait.elapsed = 0
     wait:SetScript("OnUpdate", function()
       this.elapsed = this.elapsed + (arg1 or 0)
       if getglobal("QuestTimerFrame") then
         this:SetScript("OnUpdate", nil)
-        PotatoUI:SetupQuestTimerMove()
-        if PotatoUI.moveMode then PotatoUI:SetMoveMode(true) end
+        QtUI:SetupQuestTimerMove()
+        if QtUI.moveMode then QtUI:SetMoveMode(true) end
       elseif this.elapsed > 8 then
         this:SetScript("OnUpdate", nil)
       end
@@ -354,20 +355,20 @@ function PotatoUI:SetupQuestTimerMove()
   self:RestoreQuestTimerPosition()
   if frame.HookScript then
     pcall(frame.HookScript, frame, "OnShow", function()
-      PotatoUI:RestoreQuestTimerPosition()
+      QtUI:RestoreQuestTimerPosition()
     end)
   else
     local original = frame.GetScript and frame:GetScript("OnShow")
     frame:SetScript("OnShow", function()
       if original then original() end
-      PotatoUI:RestoreQuestTimerPosition()
+      QtUI:RestoreQuestTimerPosition()
     end)
   end
   if type(QuestTimerFrame_Update) == "function" then
     local originalUpdate = QuestTimerFrame_Update
     QuestTimerFrame_Update = function()
       originalUpdate()
-      PotatoUI:RestoreQuestTimerPosition()
+      QtUI:RestoreQuestTimerPosition()
     end
   end
 end

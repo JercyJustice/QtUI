@@ -674,8 +674,8 @@ function QtUI:SetupBags()
   end)
 
   frame.space = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 12, 0)
-  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -28, 0)
+  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 12, -6)
+  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -28, -6)
   frame.space:SetJustifyH("LEFT")
 
   frame.close = CreateFrame("Button", "QtUIBagClose", frame)

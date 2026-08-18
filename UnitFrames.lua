@@ -491,6 +491,7 @@ function QtUI:ApplyUnitFrameLayout()
   end
   if self.castBar and player then
     self.castBar:SetWidth(player.width or 260)
+    if self.PlaceCastBar then self:PlaceCastBar() end
   end
   if self.RefreshEnergyTick then self:RefreshEnergyTick() end
 end
@@ -658,10 +659,16 @@ function QtUI:SetupTargetTarget()
   else
     frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 280, 120)
   end
-  frame:SetWidth(180)
-  frame:SetHeight(36)
-  if frame.power then frame.power:SetHeight(8) end
   self.targetTargetFrame = frame
+  local tot = self:GetUnitStyle("targettarget")
+  if tot and self.ApplyUnitBarSizes then
+    self:ApplyUnitBarSizes(frame, tot)
+    if self.ApplyUnitTexts then self:ApplyUnitTexts(frame, tot) end
+  else
+    frame:SetWidth(180)
+    frame:SetHeight(36)
+    if frame.power then frame.power:SetHeight(8) end
+  end
   if TargetofTargetFrame then self:HideFrame(TargetofTargetFrame) end
 
   if not self.targetTargetWatch then

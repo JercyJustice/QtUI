@@ -596,6 +596,7 @@ function QtUI:SetupSettingsWindow()
   AddNav("unitframes", "Unit Frames")
   AddNav("unit-player", "Player", true)
   AddNav("unit-target", "Target", true)
+  AddNav("unit-tot", "Target of Target", true)
   AddNav("unit-party", "Party", true)
   AddNav("unit-pet", "Pet", true)
 
@@ -821,7 +822,7 @@ function QtUI:SetupSettingsWindow()
       return QtUI:GetUnitStyle(styleKey).width
     end, function(value)
       QtUI:GetUnitStyle(styleKey).width = value
-    end, 100, 420, 10, 0)
+    end, extras.minWidth or 100, 420, extras.widthStep or 10, 0)
     y = y - 26
     if extras.height then
       CreateStepper(page, y, "Height", function()
@@ -893,6 +894,10 @@ function QtUI:SetupSettingsWindow()
   BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors.", {
     height = true, powerHeight = true, powerText = true, classText = true,
     minHeight = 40, maxHeight = 100,
+  })
+  BuildUnitPage("unit-tot", "targettarget", "Target-of-target size, mana bar and text anchors.", {
+    height = true, powerHeight = true, powerText = true,
+    minWidth = 80, widthStep = 5, minHeight = 24, maxHeight = 80,
   })
   BuildUnitPage("unit-party", "party", "Party frames. Text anchors apply to every member.", {
     height = true, powerHeight = true, powerText = true, spacing = true,

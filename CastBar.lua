@@ -2,6 +2,10 @@ local function StopCast(frame)
   frame.casting = nil
   frame.channeling = nil
   frame:SetScript("OnUpdate", nil)
+  if QtUI.moveMode then
+    frame:Show()
+    return
+  end
   frame:Hide()
 end
 
@@ -43,6 +47,20 @@ local function StartCast(frame, spellName, durationMS, channeling)
   frame:Show()
 end
 
+function QtUI:PlaceCastBar()
+  local bar = self.castBar
+  if not bar then return end
+  local saved = QtUIDB and QtUIDB.positions and QtUIDB.positions.cast
+  bar:ClearAllPoints()
+  if saved and saved.x and saved.y then
+    bar:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
+  elseif self.playerFrame then
+    bar:SetPoint("TOP", self.playerFrame, "BOTTOM", 0, -3)
+  else
+    bar:SetPoint("CENTER", UIParent, "CENTER", 0, -80)
+  end
+end
+
 function QtUI:SetupCastBar()
   if self.castBar or not self.playerFrame then return end
 
@@ -50,7 +68,9 @@ function QtUI:SetupCastBar()
   -- appears underneath QtUI's replacements.
   self:HideFrame(CastingBarFrame)
 
-  local bar = CreateFrame("StatusBar", "QtUICastBar", self.playerFrame)
+  -- Own the bar on UIParent so move-mode can place it independently of
+  -- the player frame. Hide() when idle still parks it until a cast starts.
+  local bar = CreateFrame("StatusBar", "QtUICastBar", UIParent)
   bar:SetWidth(260)
   bar:SetHeight(14)
   bar:SetPoint("TOP", self.playerFrame, "BOTTOM", 0, -3)
@@ -118,4 +138,5 @@ function QtUI:SetupCastBar()
 
   self.castBar = bar
   self.castEvents = events
+  if self.PlaceCastBar then self:PlaceCastBar() end
 end

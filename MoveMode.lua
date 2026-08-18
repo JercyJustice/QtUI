@@ -145,7 +145,8 @@ local function CreateMoveOverlay(entry, index)
   overlay:SetFrameStrata("TOOLTIP")
   overlay:SetFrameLevel(100)
   overlay:SetMovable(true)
-  overlay:SetClampedToScreen(true)
+  -- Emberveil's clamp keeps a fat inset, so bars never sit on the screen edge.
+  if overlay.SetClampedToScreen then overlay:SetClampedToScreen(false) end
   overlay:EnableMouse(true)
   overlay:RegisterForDrag("LeftButton")
   overlay:SetBackdrop({
@@ -194,11 +195,11 @@ local function CreateMoveOverlay(entry, index)
   return overlay
 end
 
-function QtUI:RegisterMovable(key, label, frame)
+function QtUI:RegisterMovable(key, label, frame, alwaysShow)
   if not frame then return end
   if not self.movableEntries then self.movableEntries = {} end
 
-  local entry = { key = key, label = label, frame = frame }
+  local entry = { key = key, label = label, frame = frame, alwaysShow = alwaysShow }
   local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
   entry.default = {
     point = point,
@@ -213,7 +214,7 @@ function QtUI:RegisterMovable(key, label, frame)
     frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", saved.x, saved.y)
   end
 
-  frame:SetClampedToScreen(true)
+  if frame.SetClampedToScreen then frame:SetClampedToScreen(false) end
   table.insert(self.movableEntries, entry)
   entry.overlay = CreateMoveOverlay(entry, table.getn(self.movableEntries))
 end
@@ -232,7 +233,9 @@ function QtUI:ResetMovable(key)
           relativePoint = "BOTTOMRIGHT", x = -18, y = 220,
         }
       end
-      if entry.default then
+      if key == "cast" and QtUI.PlaceCastBar then
+        QtUI:PlaceCastBar()
+      elseif entry.default then
         entry.frame:ClearAllPoints()
         entry.frame:SetPoint(entry.default.point, entry.default.relativeTo,
           entry.default.relativePoint, entry.default.x, entry.default.y)
@@ -252,12 +255,20 @@ function QtUI:SetMoveMode(enabled)
   if self.movableEntries then
     local _, entry
     for _, entry in ipairs(self.movableEntries) do
-      local shown = self.moveMode and entry.frame and entry.frame.IsShown and entry.frame:IsShown()
+      local shown = self.moveMode and entry.frame
+      if shown and not entry.alwaysShow then
+        local ok, isShown = pcall(entry.frame.IsShown, entry.frame)
+        shown = ok and (isShown == true or isShown == 1 or isShown == "1")
+      end
       if shown then
+        if entry.alwaysShow and entry.frame.Show then pcall(entry.frame.Show, entry.frame) end
         ReanchorOverlay(entry.overlay)
         entry.overlay:Show()
       else
         entry.overlay:Hide()
+        if entry.key == "cast" and entry.frame and not entry.frame.casting and not entry.frame.channeling then
+          if entry.frame.Hide then pcall(entry.frame.Hide, entry.frame) end
+        end
       end
     end
   end
@@ -304,7 +315,7 @@ function QtUI:SetupMoveMode()
   self:RegisterMovable("combo", "Combo Points", self.comboFrame)
   self:RegisterMovable("target", "Target", self.targetFrame)
   self:RegisterMovable("targettarget", "Target of Target", self.targetTargetFrame)
-  self:RegisterMovable("cast", "Cast Bar", self.castBar)
+  self:RegisterMovable("cast", "Cast Bar", self.castBar, true)
   self:RegisterMovable("actions", "Main Action Bar", self.actionPanel)
   self:RegisterMovable("extraActions", "Extra Action Bar", self.extraActionPanel)
   self:RegisterMovable("experience", "Experience Bar", self.xpBar)

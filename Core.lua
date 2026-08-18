@@ -180,7 +180,8 @@ function QtUI:EnsureLayoutDefaults()
     style.height = tonumber(style.height) or defaults.height
     if style.powerHeight then style.powerHeight = tonumber(style.powerHeight) or defaults.powerHeight end
     if style.spacing then style.spacing = tonumber(style.spacing) or defaults.spacing end
-    if style.width < 100 then style.width = 100 end
+    local minWidth = defaults.minWidth or 100
+    if style.width < minWidth then style.width = minWidth end
     if style.width > 420 then style.width = 420 end
     if style.height and style.height < 24 then style.height = 24 end
     if style.height and style.height > 100 then style.height = 100 end
@@ -212,7 +213,7 @@ function QtUI:EnsureLayoutDefaults()
     nameAlign = "left", healthAlign = "right",
   })
   EnsureUnitStyle("targettarget", {
-    width = 180, height = 36, powerHeight = 8,
+    width = 180, height = 36, powerHeight = 8, minWidth = 80,
     nameAlign = "left", healthAlign = "right", powerAlign = "right",
   })
   if layout.barShowBackground == nil then layout.barShowBackground = false end
@@ -404,6 +405,10 @@ function QtUI:EnsureSlotCell(button, panel)
     button.QtUICell = cell
   elseif panel then
     cell:SetParent(panel)
+  end
+  if cell.art then
+    if cell.art.SetTexture then cell.art:SetTexture(nil) end
+    if cell.art.Hide then pcall(cell.art.Hide, cell.art) end
   end
   local stamp = tostring(size) .. ":" .. extra .. ":" .. edge
   if not self.forceSlotCell and cell.QtUIStamp == stamp then return cell end

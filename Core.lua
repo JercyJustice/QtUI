@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.10.11"
+QtUI.version = "0.10.13"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -255,6 +255,10 @@ function QtUI:EnsureLayoutDefaults()
   layout.meterBarHeight = tonumber(layout.meterBarHeight) or 16
   if layout.meterBarHeight < 12 then layout.meterBarHeight = 12 end
   if layout.meterBarHeight > 24 then layout.meterBarHeight = 24 end
+  layout.meterBarSpacing = tonumber(layout.meterBarSpacing)
+  if layout.meterBarSpacing == nil then layout.meterBarSpacing = 0 end
+  if layout.meterBarSpacing < 0 then layout.meterBarSpacing = 0 end
+  if layout.meterBarSpacing > 8 then layout.meterBarSpacing = 8 end
   layout.barBackground = EnsureColor(layout.barBackground, .025, .035, .045, .85)
   layout.barBorder = EnsureColor(layout.barBorder, .18, .24, .28, 1)
   if layout.slotShowBackground == nil then layout.slotShowBackground = true end

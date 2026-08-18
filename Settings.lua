@@ -12,7 +12,7 @@ local FEATURE_OPTIONS = {
   { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
   { key = "dataText", label = "Gold / Time / Performance", description = "Show money, clock, FPS and latency. Click the clock to switch server and local time." },
   { key = "questLog", label = "Dragonflight Quest Log", description = "Replace the quest log parchment with the Dragonflight artwork. Open the log to preview; other features still need a relog.", default = false },
-  { key = "damageMeter", label = "Damage Meter", description = "Minimal ShaguDPS-style meter. Left-click title: Damage/DPS/Heal. Right-click: Current/Overall. Shift-click: reset." },
+  { key = "damageMeter", label = "Damage Meter", description = "Combat meter. Title cycles Current/Overall Damage, DPS and Heal. R resets that window. Add or close extra windows in Settings." },
 }
 
 QtUI.featureOptions = FEATURE_OPTIONS
@@ -486,6 +486,9 @@ local function ShowPage(frame, key)
       button:SetBackdropColor(.03, .04, .05, .94)
       button:SetBackdropBorderColor(.22, .28, .3, 1)
     end
+  end
+  if key == "damagemeter" and frame.RefreshMeterWindows then
+    frame.RefreshMeterWindows()
   end
 end
 
@@ -981,7 +984,7 @@ function QtUI:SetupSettingsWindow()
   meter.note:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, 0)
   meter.note:SetWidth(450)
   meter.note:SetJustifyH("LEFT")
-  meter.note:SetText("Damage meter window size. Height adds or removes rows. Applies immediately.")
+  meter.note:SetText("Size applies to every meter window. Title cycles Current/Overall Damage, DPS and Heal. Add or close extra windows here.")
   CreateStepper(meter, -28, "Width", function()
     return QtUI:GetLayout().meterWidth
   end, function(value)
@@ -991,12 +994,15 @@ function QtUI:SetupSettingsWindow()
     local layout = QtUI:GetLayout()
     local bars = tonumber(layout.meterBars) or 8
     local barH = tonumber(layout.meterBarHeight) or 16
-    return 20 + bars * barH + 6
+    local spacing = tonumber(layout.meterBarSpacing) or 0
+    return 20 + bars * barH + (bars - 1) * spacing + 6
   end, function(value)
     local layout = QtUI:GetLayout()
     local barH = tonumber(layout.meterBarHeight) or 16
+    local spacing = tonumber(layout.meterBarSpacing) or 0
     if barH < 12 then barH = 12 end
-    local bars = math.floor((value - 26) / barH + .5)
+    if spacing < 0 then spacing = 0 end
+    local bars = math.floor((value - 26 + spacing) / (barH + spacing) + .5)
     if bars < 3 then bars = 3 end
     if bars > 16 then bars = 16 end
     layout.meterBars = bars
@@ -1006,6 +1012,60 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().meterBarHeight = value
   end, 12, 24, 1, 0)
+  CreateStepper(meter, -106, "Bar spacing", function()
+    return QtUI:GetLayout().meterBarSpacing or 0
+  end, function(value)
+    QtUI:GetLayout().meterBarSpacing = value
+  end, 0, 8, 1, 0)
+
+  meter.count = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  meter.count:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -138)
+  meter.count:SetJustifyH("LEFT")
+  local function RefreshMeterWindows()
+    local n = 0
+    if QtUI.MeterWindowCount then n = QtUI:MeterWindowCount() end
+    if meter.count then meter.count:SetText("Windows: " .. n .. " / 6") end
+  end
+  frame.RefreshMeterWindows = RefreshMeterWindows
+  RefreshMeterWindows()
+
+  local function DecorateMeterAction(button, icon)
+    if not button then return end
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetPoint("LEFT", button, "LEFT", 8, 0)
+    button.icon:SetPoint("TOP", button, "TOP", 0, -6)
+    button.icon:SetPoint("BOTTOM", button, "BOTTOM", 0, 6)
+    button.icon:SetPoint("RIGHT", button, "LEFT", 22, 0)
+    button.icon:SetTexture("Interface\\AddOns\\QtUI\\Media\\" .. icon)
+    if button.text then
+      button.text:ClearAllPoints()
+      button.text:SetPoint("LEFT", button, "LEFT", 26, 0)
+      button.text:SetPoint("RIGHT", button, "RIGHT", -6, 0)
+      button.text:SetJustifyH("LEFT")
+    end
+  end
+
+  local addBtn = CreateSmallButton(meter, "New window", 12, function()
+    if QtUI.AddDamageMeterWindow then QtUI:AddDamageMeterWindow() end
+    RefreshMeterWindows()
+  end, 128)
+  addBtn:ClearAllPoints()
+  addBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -160)
+  DecorateMeterAction(addBtn, "plus")
+
+  local closeBtn = CreateSmallButton(meter, "Close window", 150, function()
+    if QtUI.CloseLastDamageMeterWindow then QtUI:CloseLastDamageMeterWindow() end
+    RefreshMeterWindows()
+  end, 128)
+  closeBtn:ClearAllPoints()
+  closeBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 148, -160)
+  DecorateMeterAction(closeBtn, "minus")
+
+  local demoBtn = CreateSmallButton(meter, "Demo values", 12, function()
+    if QtUI.FillMeterDemo then QtUI:FillMeterDemo() end
+  end, 128)
+  demoBtn:ClearAllPoints()
+  demoBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 284, -160)
 
   CreateSmallButton(frame, "Reload UI", 18, function()
     if SlashCmdList and SlashCmdList["QTUI"] then
@@ -1034,19 +1094,38 @@ function QtUI:ToggleSettings()
   if self.settingsFrame:IsShown() then self.settingsFrame:Hide() else self.settingsFrame:Show() end
 end
 
+local function PlaceMinimapIcon(button, x, y)
+  if not button then return end
+  button:ClearAllPoints()
+  if Minimap then
+    button:SetPoint("CENTER", Minimap, "CENTER", x or -65, y or 65)
+  else
+    button:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -18, -18)
+  end
+  if button.SetWidth then
+    button:SetWidth(32)
+    if button.SetHeight then button:SetHeight(32) end
+    button:SetWidth(31)
+    if button.SetHeight then button:SetHeight(31) end
+  end
+end
+
+local function SaveMinimapIconPosition(button)
+  if not button or not Minimap or not Minimap.GetCenter then return end
+  local buttonX, buttonY = button:GetCenter()
+  local mapX, mapY = Minimap:GetCenter()
+  if not buttonX or not buttonY or not mapX or not mapY then return end
+  local x, y = buttonX - mapX, buttonY - mapY
+  QtUIDB.settingsButtonPosition = { x = x, y = y }
+  PlaceMinimapIcon(button, x, y)
+end
+
 function QtUI:SetupSettingsButton()
   if self.settingsButton then return end
   local parent = Minimap or UIParent
   local button = CreateFrame("Button", "QtUISettingsButton", parent)
-  button:SetWidth(31)
-  button:SetHeight(31)
-  if Minimap then
-    local saved = QtUIDB.settingsButtonPosition
-    button:SetPoint("CENTER", Minimap, "CENTER",
-      saved and saved.x or -65, saved and saved.y or 65)
-  else
-    button:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -18, -18)
-  end
+  local saved = QtUIDB.settingsButtonPosition
+  PlaceMinimapIcon(button, saved and saved.x, saved and saved.y)
   button:SetFrameStrata("HIGH")
   button:SetFrameLevel(30)
   button:SetClampedToScreen(true)
@@ -1054,61 +1133,83 @@ function QtUI:SetupSettingsButton()
   button:EnableMouse(true)
   button:RegisterForDrag("LeftButton")
   button:RegisterForClicks("LeftButtonUp")
-  button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
   button.icon = button:CreateTexture(nil, "BACKGROUND")
-  button.icon:SetWidth(20)
-  button.icon:SetHeight(20)
-  button.icon:SetPoint("CENTER", button, "CENTER", 1, 1)
+  button.icon:SetPoint("TOPLEFT", button, "TOPLEFT", 6, -5)
+  button.icon:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -5, 6)
   button.icon:SetTexture("Interface\\AddOns\\QtUI\\Media\\QtIcon")
   button.icon:SetTexCoord(.05, .95, .05, .95)
 
   button.overlay = button:CreateTexture(nil, "OVERLAY")
-  button.overlay:SetWidth(53)
-  button.overlay:SetHeight(53)
   button.overlay:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+  button.overlay:SetPoint("BOTTOMRIGHT", button, "TOPLEFT", 53, -53)
   button.overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
-  button:SetScript("OnDragStart", function()
-    if IsShiftKeyDown() then
-      this.dragging = true
-      this:StartMoving()
-    end
+  button:SetScript("OnMouseDown", function()
+    if arg1 ~= "LeftButton" then return end
+    this.dragx, this.dragy = GetCursorPosition()
+    this.dragging = true
+    this.moved = nil
   end)
-  button:SetScript("OnDragStop", function()
+  button:SetScript("OnMouseUp", function()
     if not this.dragging then return end
     this:StopMovingOrSizing()
     this.dragging = nil
-    this.justDragged = true
-    this:SetScript("OnUpdate", function()
-      this.justDragged = nil
-      this:SetScript("OnUpdate", nil)
-    end)
-    if Minimap then
-      local buttonX, buttonY = this:GetCenter()
-      local mapX, mapY = Minimap:GetCenter()
-      if buttonX and buttonY and mapX and mapY then
-        local x, y = buttonX - mapX, buttonY - mapY
-        QtUIDB.settingsButtonPosition = { x = x, y = y }
-        this:ClearAllPoints()
-        this:SetPoint("CENTER", Minimap, "CENTER", x, y)
+    if this.moved then SaveMinimapIconPosition(this) end
+  end)
+  button:SetScript("OnUpdate", function()
+    if not this.dragging then return end
+    if type(IsMouseButtonDown) == "function" then
+      local ok, held = pcall(IsMouseButtonDown, "LeftButton")
+      if ok and held ~= true and held ~= 1 and held ~= "1" then
+        this:StopMovingOrSizing()
+        this.dragging = nil
+        if this.moved then SaveMinimapIconPosition(this) end
+        return
       end
     end
+    local x, y = GetCursorPosition()
+    if this.moved or not x or not y then return end
+    local dx = x - (this.dragx or x)
+    local dy = y - (this.dragy or y)
+    if dx * dx + dy * dy > 16 then
+      this.moved = true
+      this:StartMoving()
+    end
+  end)
+  button:SetScript("OnDragStart", function()
+    this.moved = true
+    this.dragging = true
+    this:StartMoving()
+  end)
+  button:SetScript("OnDragStop", function()
+    this:StopMovingOrSizing()
+    this.dragging = nil
+    if this.moved then SaveMinimapIconPosition(this) end
   end)
   button:SetScript("OnClick", function()
-    if this.justDragged then
-      this.justDragged = nil
+    if this.moved then
+      this.moved = nil
       return
     end
     QtUI:ToggleSettings()
   end)
   button:SetScript("OnEnter", function()
+    if this.icon and this.icon.SetVertexColor then
+      this.icon:SetVertexColor(.4, 1, .8)
+    end
+    if not GameTooltip then return end
     GameTooltip:SetOwner(this, "ANCHOR_LEFT")
-    GameTooltip:SetText("QtUI Settings")
-    GameTooltip:AddLine("Click to configure the addon.", .8, .85, .9, 1)
-    GameTooltip:AddLine("Shift-drag to move this button.", .45, .8, 1, 1)
+    GameTooltip:SetText("|cffffcc00Qt|rUI", 1, 1, 1)
+    GameTooltip:AddDoubleLine("Left-Click", "Settings", 1, 1, 1, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Left-Click", "Move Button", 1, 1, 1, 1, 1, 1)
     GameTooltip:Show()
   end)
-  button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  button:SetScript("OnLeave", function()
+    if this.icon and this.icon.SetVertexColor then
+      this.icon:SetVertexColor(1, 1, 1)
+    end
+    if GameTooltip then GameTooltip:Hide() end
+  end)
   self.settingsButton = button
 end

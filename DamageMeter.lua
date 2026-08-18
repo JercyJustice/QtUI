@@ -122,6 +122,17 @@ local function ScanName(name)
   return nil
 end
 
+local function MarkMetersDirty()
+  if QtUI.meterFrames then
+    local i
+    for i = 1, table.getn(QtUI.meterFrames) do
+      QtUI.meterFrames[i].dirty = true
+    end
+    return
+  end
+  if QtUI.meterFrame then QtUI.meterFrame.dirty = true end
+end
+
 local function AddData(source, action, target, value, school, datatype)
   if type(source) ~= "string" then return end
   if not tonumber(value) then return end
@@ -180,7 +191,7 @@ local function AddData(source, action, target, value, school, datatype)
     end
   end
 
-  if QtUI.meterFrame then QtUI.meterFrame.dirty = true end
+  MarkMetersDirty()
 end
 
 -- ShaguDPS locale-independent pattern sanitizer.
@@ -833,14 +844,21 @@ combatWatch:SetScript("OnUpdate", function()
   end
 end)
 
-local function SortedNames(segment)
+local function SortedNames(segment, byRate)
   local keys = {}
   local name
   for name in pairs(segment) do
     table.insert(keys, name)
   end
   table.sort(keys, function(a, b)
-    return (segment[b]._sum or 0) < (segment[a]._sum or 0)
+    local sa, sb = segment[a]._sum or 0, segment[b]._sum or 0
+    if byRate then
+      local ca, cb = segment[a]._ctime or 1, segment[b]._ctime or 1
+      if ca < 1 then ca = 1 end
+      if cb < 1 then cb = 1 end
+      return (sb / cb) < (sa / ca)
+    end
+    return sb < sa
   end)
   return keys
 end
@@ -859,25 +877,239 @@ local function ShortNumber(value)
   return tostring(math.floor(value + .5))
 end
 
-local VIEWS = { "damage", "dps", "heal" }
-local VIEW_LABELS = { damage = "Damage", dps = "DPS", heal = "Heal" }
+local MAX_WINDOWS = 6
+local BTN = 16
+local MODES = {
+  { view = "damage", segment = 1, label = "Current Damage" },
+  { view = "dps",    segment = 1, label = "Current DPS" },
+  { view = "heal",   segment = 1, label = "Current Heal" },
+  { view = "damage", segment = 0, label = "Overall Damage" },
+  { view = "dps",    segment = 0, label = "Overall DPS" },
+  { view = "heal",   segment = 0, label = "Overall Heal" },
+}
 
-local function ResetMeter()
+local function ModeLabel(view, segment)
+  local i
+  for i = 1, table.getn(MODES) do
+    if MODES[i].view == view and MODES[i].segment == segment then
+      return MODES[i].label
+    end
+  end
+  return "Current Damage"
+end
+
+local function ModeIndex(view, segment)
+  local i
+  for i = 1, table.getn(MODES) do
+    if MODES[i].view == view and MODES[i].segment == segment then return i end
+  end
+  return 1
+end
+
+local function MeterMoveKey(id)
+  if tonumber(id) == 1 then return "damageMeter" end
+  return "damageMeter" .. tostring(id)
+end
+
+local function FormatRate(value)
+  value = tonumber(value) or 0
+  if value >= 10000 then return ShortNumber(value) end
+  if value >= 100 then return string.format("%.0f", value) end
+  return string.format("%.1f", value)
+end
+
+local function AnnounceLine(text, chatType)
+  if type(SendChatMessage) ~= "function" then return end
+  if type(chatType) ~= "string" or chatType == "" then chatType = "SAY" end
+  pcall(SendChatMessage, text, chatType)
+end
+
+local function ReportMeter(frame, chatType)
+  if not frame then return end
+  local view = frame.view or "damage"
+  local segmentId = frame.segment or 1
+  local store = view == "heal" and data.heal or data.damage
+  local segment = store[segmentId] or {}
+  local keys = SortedNames(segment, view == "dps")
+  local count = table.getn(keys)
+  if count < 1 then
+    AnnounceLine("QtUI - " .. ModeLabel(view, segmentId) .. ": no data", chatType)
+    return
+  end
+  AnnounceLine("QtUI - " .. ModeLabel(view, segmentId) .. ":", chatType)
+  if count > 8 then count = 8 end
+  local n
+  for n = 1, count do
+    local name = keys[n]
+    local row = segment[name]
+    local sum = row._sum or 0
+    local ctime = row._ctime or 1
+    if ctime < 1 then ctime = 1 end
+    local rate = sum / ctime
+    if view == "dps" then
+      AnnounceLine(n .. ". " .. name .. " " .. FormatRate(rate) .. " (" .. ShortNumber(sum) .. ")", chatType)
+    else
+      AnnounceLine(n .. ". " .. name .. " " .. ShortNumber(sum) .. " (" .. FormatRate(rate) .. ")", chatType)
+    end
+  end
+end
+
+local reportMenu
+local reportSource
+
+local function HideReportMenu()
+  if not reportMenu then return end
+  reportMenu:ClearAllPoints()
+  reportMenu:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+  if reportMenu.EnableMouse then reportMenu:EnableMouse(false) end
+  if reportMenu.Hide then pcall(reportMenu.Hide, reportMenu) end
+  reportSource = nil
+end
+
+local function EnsureReportMenu()
+  if reportMenu then return reportMenu end
+  local menu = CreateFrame("Frame", "QtUIMeterReportMenu", UIParent)
+  menu:SetFrameStrata("TOOLTIP")
+  menu:SetFrameLevel(200)
+  if menu.SetBackdrop then
+    pcall(menu.SetBackdrop, menu, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 10,
+      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    if menu.SetBackdropColor then menu:SetBackdropColor(.04, .05, .06, .96) end
+    if menu.SetBackdropBorderColor then menu:SetBackdropBorderColor(.25, .34, .36, 1) end
+  end
+  local channels = {
+    { "SAY", "Say" },
+    { "PARTY", "Party" },
+    { "RAID", "Raid" },
+  }
+  local rowH = 18
+  local width = 72
+  local height = 8 + table.getn(channels) * rowH
+  menu:ClearAllPoints()
+  menu:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
+  menu:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -2000 + width, 2000 - height)
+  local i
+  for i = 1, table.getn(channels) do
+    local spec = channels[i]
+    local btn = CreateFrame("Button", nil, menu)
+    btn:SetPoint("TOPLEFT", menu, "TOPLEFT", 4, -(4 + (i - 1) * rowH))
+    btn:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -4, -(4 + (i - 1) * rowH))
+    btn:SetPoint("BOTTOMLEFT", menu, "TOPLEFT", 4, -(4 + i * rowH))
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("LeftButtonUp")
+    btn.chatType = spec[1]
+    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    btn.text:SetPoint("LEFT", btn, "LEFT", 6, 0)
+    btn.text:SetText(spec[2])
+    btn:SetScript("OnEnter", function()
+      if this.text then this.text:SetTextColor(1, .9, .48) end
+    end)
+    btn:SetScript("OnLeave", function()
+      if this.text then this.text:SetTextColor(1, .82, .2) end
+    end)
+    btn:SetScript("OnClick", function()
+      local source = reportSource
+      HideReportMenu()
+      if source then ReportMeter(source, this.chatType) end
+    end)
+  end
+  menu:EnableMouse(true)
+  menu:SetScript("OnLeave", function()
+    local focus = GetMouseFocus and GetMouseFocus()
+    if focus and focus.GetParent and focus:GetParent() == this then return end
+    HideReportMenu()
+  end)
+  reportMenu = menu
+  HideReportMenu()
+  return menu
+end
+
+local function ToggleReportMenu(anchor, frame)
+  local menu = EnsureReportMenu()
+  if reportSource == frame and menu.IsShown and menu:IsShown() then
+    HideReportMenu()
+    return
+  end
+  reportSource = frame
+  menu:ClearAllPoints()
+  local width, height = 72, 62
+  menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
+  menu:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", -width, -2 - height)
+  if menu.EnableMouse then menu:EnableMouse(true) end
+  if menu.Show then pcall(menu.Show, menu) end
+  if menu.SetFrameLevel then menu:SetFrameLevel(200) end
+end
+
+function QtUI:FillMeterDemo()
+  local names = { "Thrall", "Jaina", "Sylvanas", "Anduin", "Valeera", "Medivh", "Tyrande", "Gul'dan" }
+  local classes = { "SHAMAN", "MAGE", "HUNTER", "PRIEST", "ROGUE", "MAGE", "DRUID", "WARLOCK" }
   data.damage[0] = {}
   data.damage[1] = {}
   data.heal[0] = {}
   data.heal[1] = {}
-  if QtUI.meterFrame then QtUI.meterFrame.dirty = true end
+  local i
+  for i = 1, table.getn(names) do
+    local name = names[i]
+    data.classes[name] = classes[i]
+    local dmg = 14000 - i * 1300
+    local heal = 9000 - i * 800
+    data.damage[1][name] = { _sum = dmg, _ctime = 28, ["Auto Hit"] = math.floor(dmg * .35), ["Wrath"] = math.floor(dmg * .65) }
+    data.damage[0][name] = { _sum = dmg * 3, _ctime = 96, ["Auto Hit"] = math.floor(dmg * 1.1), ["Wrath"] = math.floor(dmg * 1.9) }
+    data.heal[1][name] = { _sum = heal, _ctime = 28, ["Healing Touch"] = heal }
+    data.heal[0][name] = { _sum = heal * 3, _ctime = 96, ["Healing Touch"] = heal * 3 }
+  end
+  local me = UnitName and UnitName("player")
+  if me and me ~= "" then
+    local _, class = UnitClass("player")
+    data.classes[me] = class
+    data.damage[1][me] = { _sum = 16200, _ctime = 28, ["Auto Hit"] = 5400, ["Starfire"] = 10800 }
+    data.damage[0][me] = { _sum = 48600, _ctime = 96, ["Auto Hit"] = 16200, ["Starfire"] = 32400 }
+    data.heal[1][me] = { _sum = 4100, _ctime = 28, ["Rejuvenation"] = 4100 }
+    data.heal[0][me] = { _sum = 12300, _ctime = 96, ["Rejuvenation"] = 12300 }
+  end
+  MarkMetersDirty()
+  if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
+end
+
+local function ResetSegment(segmentId)
+  segmentId = tonumber(segmentId)
+  if segmentId ~= 0 and segmentId ~= 1 then return end
+  data.damage[segmentId] = {}
+  data.heal[segmentId] = {}
+  MarkMetersDirty()
+end
+
+local function PersistMeters()
+  if not QtUI.GetLayout then return end
+  local layout = QtUI:GetLayout()
+  if not layout then return end
+  layout.meterWindows = {}
+  local frames = QtUI.meterFrames
+  if not frames then return end
+  local i
+  for i = 1, table.getn(frames) do
+    local frame = frames[i]
+    table.insert(layout.meterWindows, {
+      id = frame.meterId,
+      view = frame.view,
+      segment = frame.segment,
+    })
+  end
 end
 
 local function MeterLayout()
-  local width, bars, barH = 190, 8, 16
+  local width, bars, barH, spacing = 190, 8, 16, 0
   if QtUI.GetLayout then
     local layout = QtUI:GetLayout()
     if layout then
       width = tonumber(layout.meterWidth) or width
       bars = tonumber(layout.meterBars) or bars
       barH = tonumber(layout.meterBarHeight) or barH
+      spacing = tonumber(layout.meterBarSpacing) or spacing
     end
   end
   if width < 140 then width = 140 end
@@ -886,7 +1118,10 @@ local function MeterLayout()
   if bars > MAX_BARS then bars = MAX_BARS end
   if barH < 12 then barH = 12 end
   if barH > 24 then barH = 24 end
-  return width, TITLE_H + bars * barH + METER_PAD, bars, barH
+  if spacing < 0 then spacing = 0 end
+  if spacing > 8 then spacing = 8 end
+  local height = TITLE_H + bars * barH + (bars - 1) * spacing + METER_PAD
+  return width, height, bars, barH, spacing
 end
 
 local function SizeMeterFrame(frame, width, height)
@@ -899,15 +1134,18 @@ local function SizeMeterFrame(frame, width, height)
   end
 end
 
-local function PlaceBar(bar, frame, index, barH, visible)
+local function PlaceBar(bar, frame, index, barH, visible, spacing)
   if not bar then return end
   if index <= visible then
+    spacing = spacing or 0
+    local y = TITLE_H + 2 + (index - 1) * (barH + spacing)
     bar:ClearAllPoints()
-    bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -(TITLE_H + 2 + (index - 1) * barH))
-    bar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -(TITLE_H + 2 + (index - 1) * barH))
+    bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -y)
+    bar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -y)
+    bar:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 4, -(y + barH))
     if bar.SetHeight then
-      bar:SetHeight((barH - 1) + 1)
-      bar:SetHeight(barH - 1)
+      bar:SetHeight(barH + 1)
+      bar:SetHeight(barH)
     end
     if bar.EnableMouse then bar:EnableMouse(true) end
     if bar.SetAlpha then bar:SetAlpha(1) end
@@ -926,19 +1164,28 @@ local function RefreshMeter(frame)
   local segmentId = frame.segment or 1
   local store = view == "heal" and data.heal or data.damage
   local segment = store[segmentId] or {}
-  local keys = SortedNames(segment)
+  local byRate = view == "dps"
+  local keys = SortedNames(segment, byRate)
   local best = 0
+  local bestRate = 0
   local total = 0
   local n
   for n = 1, table.getn(keys) do
-    local sum = segment[keys[n]]._sum or 0
+    local row = segment[keys[n]]
+    local sum = row._sum or 0
+    local ctime = row._ctime or 1
+    if ctime < 1 then ctime = 1 end
+    local rate = sum / ctime
     total = total + sum
     if sum > best then best = sum end
+    if rate > bestRate then bestRate = rate end
   end
   if best < 1 then best = 1 end
+  if bestRate < .01 then bestRate = 1 end
 
-  local title = (segmentId == 1 and "Current" or "Overall") .. " " .. (VIEW_LABELS[view] or "Damage")
-  frame.titleText:SetText(title)
+  if frame.titleText then
+    frame.titleText:SetText(ModeLabel(view, segmentId))
+  end
 
   local _, _, visible = MeterLayout()
   for n = 1, MAX_BARS do
@@ -950,19 +1197,20 @@ local function RefreshMeter(frame)
         local sum = row._sum or 0
         local ctime = row._ctime or 1
         if ctime < 1 then ctime = 1 end
-        local value = sum
-        if view == "dps" then value = sum / ctime end
+        local rate = sum / ctime
         local pct = total > 0 and (sum / total * 100) or 0
-        bar:SetMinMaxValues(0, best)
-        bar:SetValue(sum)
+        if byRate then
+          bar:SetMinMaxValues(0, bestRate)
+          bar:SetValue(rate)
+          bar.right:SetText(FormatRate(rate) .. "  " .. ShortNumber(sum) .. "  " .. string.format("%.0f%%", pct))
+        else
+          bar:SetMinMaxValues(0, best)
+          bar:SetValue(sum)
+          bar.right:SetText(ShortNumber(sum) .. "  " .. FormatRate(rate) .. "  " .. string.format("%.0f%%", pct))
+        end
         local r, g, b = ClassColor(name)
         bar:SetStatusBarColor(r, g, b, .85)
         bar.left:SetText(n .. ". " .. name)
-        if view == "dps" then
-          bar.right:SetText(string.format("%.1f  %.0f%%", value, pct))
-        else
-          bar.right:SetText(ShortNumber(sum) .. "  " .. string.format("%.0f%%", pct))
-        end
         bar.unit = name
         bar.row = row
       else
@@ -1005,21 +1253,123 @@ local function ShowBarTooltip()
   GameTooltip:SetPoint("LEFT", this, "RIGHT", 6, 0)
 end
 
-function QtUI:ShowDamageMeter()
-  local frame = self.meterFrame
+local function PlaceMeterButton(btn, frame, fromRight)
+  local x = -(2 + fromRight * (BTN + 2))
+  btn:ClearAllPoints()
+  btn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", x, -2)
+  btn:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", x, -(2 + BTN))
+  btn:SetPoint("TOPLEFT", frame, "TOPRIGHT", x - BTN, -2)
+end
+
+local function TitleInset(frame)
+  return (BTN + 2) * 2 + 4
+end
+
+local function TooltipOn(frame, lines)
+  frame:SetScript("OnEnter", function()
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(this, "ANCHOR_NONE")
+    GameTooltip:ClearLines()
+    local i
+    for i = 1, table.getn(lines) do
+      if i == 1 then
+        GameTooltip:AddLine(lines[i])
+      else
+        GameTooltip:AddLine(lines[i], .8, .85, .9)
+      end
+    end
+    GameTooltip:Show()
+    GameTooltip:ClearAllPoints()
+    GameTooltip:SetPoint("BOTTOM", this, "TOP", 0, 4)
+  end)
+  frame:SetScript("OnLeave", function()
+    if GameTooltip then GameTooltip:Hide() end
+  end)
+end
+
+local METER_ICON = "Interface\\AddOns\\QtUI\\Media\\"
+
+local function MakeMeterButton(parent, caption, lines, onClick, icon)
+  local btn = CreateFrame("Button", nil, parent)
+  btn:EnableMouse(true)
+  btn:RegisterForClicks("LeftButtonUp")
+  if btn.SetBackdrop then
+    pcall(btn.SetBackdrop, btn, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    if btn.SetBackdropColor then btn:SetBackdropColor(.12, .12, .12, .9) end
+    if btn.SetBackdropBorderColor then btn:SetBackdropBorderColor(.35, .35, .35, 1) end
+  end
+  if icon then
+    btn.icon = btn:CreateTexture(nil, "ARTWORK")
+    btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 5, -5)
+    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -5, 5)
+    btn.icon:SetTexture(METER_ICON .. icon)
+  else
+    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    btn.text:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    btn.text:SetText(caption)
+  end
+  btn:SetScript("OnClick", onClick)
+  TooltipOn(btn, lines)
+  return btn
+end
+
+local function LayoutMeterChrome(frame)
+  PlaceMeterButton(frame.btnReset, frame, 0)
+  if frame.btnReport then PlaceMeterButton(frame.btnReport, frame, 1) end
+  frame.title:ClearAllPoints()
+  frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -2)
+  frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -TitleInset(frame), -2)
+  if frame.title.SetHeight then
+    frame.title:SetHeight(TITLE_H + 1)
+    frame.title:SetHeight(TITLE_H)
+  end
+end
+
+local function ApplyMeterWindow(frame)
   if not frame then return end
-  if frame.ClearAllPoints and QtUIDB.positions and QtUIDB.positions.damageMeter then
-    local pos = QtUIDB.positions.damageMeter
+  local width, height, visible, barH, spacing = MeterLayout()
+  SizeMeterFrame(frame, width, height)
+  LayoutMeterChrome(frame)
+  local i
+  for i = 1, MAX_BARS do
+    PlaceBar(frame.bars[i], frame, i, barH, visible, spacing)
+  end
+  frame.dirty = true
+  RefreshMeter(frame)
+end
+
+local function PlaceMeterWindow(frame)
+  if not frame then return end
+  local key = MeterMoveKey(frame.meterId)
+  if QtUIDB.positions and QtUIDB.positions[key] then
+    local pos = QtUIDB.positions[key]
     frame:ClearAllPoints()
     frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", pos.x or 20, pos.y or 220)
+    return
   end
+  local index = 1
+  local i
+  for i = 1, table.getn(QtUI.meterFrames or {}) do
+    if QtUI.meterFrames[i] == frame then index = i end
+  end
+  frame:ClearAllPoints()
+  frame:SetPoint("RIGHT", UIParent, "RIGHT", -20 - ((index - 1) * 24), -80 - ((index - 1) * 28))
+end
+
+local function ShowMeterWindow(frame)
+  if not frame then return end
+  PlaceMeterWindow(frame)
   if frame.Show then pcall(frame.Show, frame) end
   if frame.EnableMouse then frame:EnableMouse(true) end
   if frame.SetAlpha then frame:SetAlpha(1) end
 end
 
-function QtUI:HideDamageMeter()
-  local frame = self.meterFrame
+local function HideMeterWindow(frame)
   if not frame then return end
   frame:ClearAllPoints()
   frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
@@ -1027,86 +1377,151 @@ function QtUI:HideDamageMeter()
   if frame.Hide then pcall(frame.Hide, frame) end
 end
 
-function QtUI:ApplyDamageMeterLayout()
-  local frame = self.meterFrame
-  if not frame then return end
-  local width, height, visible, barH = MeterLayout()
-  SizeMeterFrame(frame, width, height)
+local function RefreshMeterCanClose()
+  local frames = QtUI.meterFrames
+  if not frames then return end
   local i
-  for i = 1, MAX_BARS do
-    PlaceBar(frame.bars[i], frame, i, barH, visible)
+  for i = 1, table.getn(frames) do
+    LayoutMeterChrome(frames[i])
   end
-  frame.dirty = true
+end
+
+local CreateMeterWindow
+
+local function NextMeterId()
+  local used = {}
+  local i
+  for i = 1, table.getn(QtUI.meterFrames or {}) do
+    used[QtUI.meterFrames[i].meterId] = true
+  end
+  for i = 1, MAX_WINDOWS do
+    if not used[i] then return i end
+  end
+  return nil
+end
+
+local function NextUnusedMode()
+  local used = {}
+  local i
+  for i = 1, table.getn(QtUI.meterFrames or {}) do
+    local frame = QtUI.meterFrames[i]
+    used[ModeIndex(frame.view, frame.segment)] = true
+  end
+  for i = 1, table.getn(MODES) do
+    if not used[i] then return MODES[i] end
+  end
+  return MODES[1]
+end
+
+local function CycleMeterMode(frame, dir)
+  local i = ModeIndex(frame.view, frame.segment) + (dir or 1)
+  local n = table.getn(MODES)
+  if i > n then i = 1 end
+  if i < 1 then i = n end
+  frame.view = MODES[i].view
+  frame.segment = MODES[i].segment
+  PersistMeters()
   RefreshMeter(frame)
 end
 
-function QtUI:SetupDamageMeter()
-  if self.meterFrame then
-    if self:IsFeatureEnabled("damageMeter") then
-      self:ShowDamageMeter()
-      if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
-    else
-      self:HideDamageMeter()
+function QtUI:CloseDamageMeterWindow(frame)
+  if not frame or not self.meterFrames then return end
+  if table.getn(self.meterFrames) <= 1 then return end
+  local keep = {}
+  local i
+  for i = 1, table.getn(self.meterFrames) do
+    if self.meterFrames[i] ~= frame then
+      table.insert(keep, self.meterFrames[i])
     end
-    return
   end
+  HideMeterWindow(frame)
+  self.meterFrames = keep
+  self.meterFrame = keep[1]
+  RefreshMeterCanClose()
+  PersistMeters()
+  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
+end
 
+function QtUI:CloseLastDamageMeterWindow()
+  if not self.meterFrames then return end
+  local count = table.getn(self.meterFrames)
+  if count <= 1 then return end
+  self:CloseDamageMeterWindow(self.meterFrames[count])
+end
+
+function QtUI:MeterWindowCount()
+  if not self.meterFrames then return 0 end
+  return table.getn(self.meterFrames)
+end
+
+function QtUI:AddDamageMeterWindow(view, segment)
+  if not self.meterFrames then return end
+  if table.getn(self.meterFrames) >= MAX_WINDOWS then return end
+  local id = NextMeterId()
+  if not id then return end
+  local mode = NextUnusedMode()
+  if view then mode = { view = view, segment = segment or 1 } end
+  local frame = CreateMeterWindow(id, mode.view, mode.segment)
+  if not frame then return end
+  table.insert(self.meterFrames, frame)
+  RefreshMeterCanClose()
+  PersistMeters()
+  if self:IsFeatureEnabled("damageMeter") then
+    ShowMeterWindow(frame)
+    ApplyMeterWindow(frame)
+  else
+    HideMeterWindow(frame)
+  end
+  if self.RegisterMovable then
+    self:RegisterMovable(MeterMoveKey(frame.meterId), "Damage Meter " .. frame.meterId, frame)
+  end
+  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
+  return frame
+end
+
+CreateMeterWindow = function(id, view, segment)
   local width, height = MeterLayout()
-  local frame = self:CreatePanel("QtUIDamageMeter", UIParent, 4)
+  local frame = QtUI:CreatePanel("QtUIDamageMeter" .. tostring(id), UIParent, 4)
   SizeMeterFrame(frame, width, height)
-  frame:SetPoint("RIGHT", UIParent, "RIGHT", -20, -80)
   frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
-  frame.view = "damage"
-  frame.segment = 1
+  frame.meterId = id
+  frame.view = view or "damage"
+  frame.segment = segment
+  if frame.segment ~= 0 then frame.segment = 1 end
   frame.dirty = true
   frame.bars = {}
 
   frame.title = CreateFrame("Button", nil, frame)
-  frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -2)
-  frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -2)
-  frame.title:SetHeight(TITLE_H)
   frame.title:EnableMouse(true)
   frame.title:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   frame.titleText = frame.title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   frame.titleText:SetAllPoints(frame.title)
   frame.titleText:SetJustifyH("LEFT")
-  frame.titleText:SetText("Current Damage")
+  frame.titleText:SetText(ModeLabel(frame.view, frame.segment))
   frame.title:SetScript("OnClick", function()
-    if IsShiftKeyDown and IsShiftKeyDown() then
-      ResetMeter()
-      RefreshMeter(frame)
-      return
-    end
     if arg1 == "RightButton" then
-      if frame.segment == 1 then frame.segment = 0 else frame.segment = 1 end
+      CycleMeterMode(frame, -1)
     else
-      if frame.view == "damage" then
-        frame.view = "dps"
-      elseif frame.view == "dps" then
-        frame.view = "heal"
-      else
-        frame.view = "damage"
-      end
+      CycleMeterMode(frame, 1)
     end
+  end)
+  TooltipOn(frame.title, {
+    "Damage Meter",
+    "Left-click: next view",
+    "Right-click: previous view",
+    "Views: Current/Overall Damage, DPS, Heal",
+  })
+
+  frame.btnReset = MakeMeterButton(frame, "R", { "Reset" }, function()
+    ResetSegment(frame.segment)
     RefreshMeter(frame)
-  end)
-  frame.title:SetScript("OnEnter", function()
-    if not GameTooltip then return end
-    GameTooltip:SetOwner(this, "ANCHOR_NONE")
-    GameTooltip:ClearLines()
-    GameTooltip:AddLine("Damage Meter")
-    GameTooltip:AddLine("Left-click: Damage / DPS / Heal", .8, .85, .9)
-    GameTooltip:AddLine("Right-click: Current / Overall", .8, .85, .9)
-    GameTooltip:AddLine("Shift-click: Reset", .8, .85, .9)
-    GameTooltip:Show()
-    GameTooltip:ClearAllPoints()
-    GameTooltip:SetPoint("BOTTOM", this, "TOP", 0, 6)
-  end)
-  frame.title:SetScript("OnLeave", function()
-    if GameTooltip then GameTooltip:Hide() end
-  end)
+  end, "reset")
+  frame.btnReport = MakeMeterButton(frame, "P", { "Report" }, function()
+    ToggleReportMenu(this, frame)
+  end, "announce")
+
   local i
   for i = 1, MAX_BARS do
     local bar = CreateFrame("StatusBar", nil, frame)
@@ -1143,18 +1558,79 @@ function QtUI:SetupDamageMeter()
     end
   end)
 
-  self.meterFrame = frame
+  LayoutMeterChrome(frame)
+  PlaceMeterWindow(frame)
+  return frame
+end
+
+function QtUI:ShowDamageMeter()
+  local i
+  for i = 1, table.getn(self.meterFrames or {}) do
+    ShowMeterWindow(self.meterFrames[i])
+  end
+end
+
+function QtUI:HideDamageMeter()
+  local i
+  for i = 1, table.getn(self.meterFrames or {}) do
+    HideMeterWindow(self.meterFrames[i])
+  end
+end
+
+function QtUI:ApplyDamageMeterLayout()
+  local i
+  for i = 1, table.getn(self.meterFrames or {}) do
+    ApplyMeterWindow(self.meterFrames[i])
+  end
+end
+
+function QtUI:SetupDamageMeter()
+  if self.meterFrames and table.getn(self.meterFrames) > 0 then
+    if self:IsFeatureEnabled("damageMeter") then
+      self:ShowDamageMeter()
+      self:ApplyDamageMeterLayout()
+    else
+      self:HideDamageMeter()
+    end
+    return
+  end
+
+  self.meterFrames = {}
+  local specs = nil
+  if self.GetLayout then
+    local layout = self:GetLayout()
+    if layout and type(layout.meterWindows) == "table" and table.getn(layout.meterWindows) > 0 then
+      specs = layout.meterWindows
+    end
+  end
+  if not specs then
+    specs = { { id = 1, view = "damage", segment = 1 } }
+  end
+
+  local i
+  for i = 1, table.getn(specs) do
+    if table.getn(self.meterFrames) >= MAX_WINDOWS then break end
+    local spec = specs[i]
+    local id = tonumber(spec.id) or i
+    local frame = CreateMeterWindow(id, spec.view, spec.segment)
+    table.insert(self.meterFrames, frame)
+    if self.RegisterMovable then
+      self:RegisterMovable(MeterMoveKey(id), "Damage Meter " .. id, frame)
+    end
+  end
+
+  self.meterFrame = self.meterFrames[1]
+  RefreshMeterCanClose()
+  PersistMeters()
+
   HookChatMeter(DEFAULT_CHAT_FRAME)
   HookChatMeter(ChatFrame1)
   HookChatMeter(ChatFrame2)
-  if self.RegisterMovable then
-    self:RegisterMovable("damageMeter", "Damage Meter", frame)
-  end
+
   self:ApplyDamageMeterLayout()
   if self:IsFeatureEnabled("damageMeter") then
     self:ShowDamageMeter()
   else
     self:HideDamageMeter()
   end
-  RefreshMeter(frame)
 end

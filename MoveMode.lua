@@ -455,7 +455,18 @@ function QtUI:SetupMoveMode()
 
   self:RegisterMovable("player", "Player", self.playerFrame)
   self:RegisterMovable("combo", "Combo Points", self.comboFrame)
-  self:RegisterMovable("damageMeter", "Damage Meter", self.meterFrame)
+  if self.meterFrames and table.getn(self.meterFrames) > 0 then
+    local i
+    for i = 1, table.getn(self.meterFrames) do
+      local frame = self.meterFrames[i]
+      local id = frame.meterId or i
+      local key = "damageMeter"
+      if tonumber(id) ~= 1 then key = "damageMeter" .. tostring(id) end
+      self:RegisterMovable(key, "Damage Meter " .. tostring(id), frame)
+    end
+  else
+    self:RegisterMovable("damageMeter", "Damage Meter", self.meterFrame)
+  end
   self:RegisterMovable("target", "Target", self.targetFrame)
   self:RegisterMovable("targettarget", "Target of Target", self.targetTargetFrame)
   self:RegisterMovable("cast", "Cast Bar", self.castBar, true)
@@ -469,6 +480,7 @@ function QtUI:SetupMoveMode()
   self:RegisterMovable("party", "Party Frames", self.partyAnchor)
   self:RegisterMovable("playerPet", "Player Pet", self.playerPetFrame)
   self:RegisterMovable("minimap", "Minimap", MinimapCluster or Minimap)
+  self:RegisterMovable("minimapIcon", "Minimap Icon", self.settingsButton)
   self:RegisterMovable("bags", "Bags", self.bagFrame)
   self:RegisterMovable("data", "Gold / Time / FPS", self.dataBar)
   self:SetupQuestTimerMove()

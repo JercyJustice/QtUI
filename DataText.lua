@@ -1,11 +1,19 @@
-local GAP = 24
-local MS_W = 54
-local FPS_W = 66
-local CLOCK_W = 44
-local BAGS_W = 86
-local GOLD_W = 110
 local TEXT_FONT = "Fonts\\FRIZQT__.TTF"
 local TEXT_SIZE = 11
+
+local function CompactOn()
+  if not QtUI.GetLayout then return nil end
+  local layout = QtUI:GetLayout()
+  local value = layout and layout.dataTextCompact
+  return value == true or value == 1 or value == "1"
+end
+
+local function CellMetrics()
+  if CompactOn() then
+    return 4, 46, 54, 40, 76, 96
+  end
+  return 24, 54, 66, 44, 86, 110
+end
 
 local function FormatMoney(copper)
   copper = copper or 0
@@ -177,12 +185,10 @@ function QtUI:SetupDataText()
   if bar.EnableMouse then bar:EnableMouse(false) end
 
   bar.msCell = CreateFrame("Frame", nil, bar)
-  PlaceCell(bar.msCell, bar, bar, MS_W, GAP)
   if bar.msCell.EnableMouse then bar.msCell:EnableMouse(false) end
   bar.ms = LabelInCell(bar.msCell)
 
   bar.fpsCell = CreateFrame("Frame", nil, bar)
-  PlaceCell(bar.fpsCell, bar, bar.msCell, FPS_W, GAP)
   if bar.fpsCell.EnableMouse then bar.fpsCell:EnableMouse(false) end
   bar.fps = LabelInCell(bar.fpsCell)
 
@@ -190,7 +196,6 @@ function QtUI:SetupDataText()
   -- Real hit box via corner anchors; a leftover SetWidth(48) was ignored
   -- and left the clock unclickable.
   bar.clock = CreateFrame("Frame", "QtUIDataClock", bar)
-  PlaceCell(bar.clock, bar, bar.fpsCell, CLOCK_W, GAP)
   if bar.clock.EnableMouse then bar.clock:EnableMouse(true) end
   if bar.clock.SetFrameLevel then
     bar.clock:SetFrameLevel((bar:GetFrameLevel() or 1) + 5)
@@ -221,14 +226,15 @@ function QtUI:SetupDataText()
   end)
 
   bar.bagsCell = CreateFrame("Frame", nil, bar)
-  PlaceCell(bar.bagsCell, bar, bar.clock, BAGS_W, GAP)
   if bar.bagsCell.EnableMouse then bar.bagsCell:EnableMouse(false) end
   bar.bags = LabelInCell(bar.bagsCell)
 
   bar.goldCell = CreateFrame("Frame", nil, bar)
-  PlaceCell(bar.goldCell, bar, bar.bagsCell, GOLD_W, GAP)
   if bar.goldCell.EnableMouse then bar.goldCell:EnableMouse(false) end
   bar.gold = LabelInCell(bar.goldCell)
+
+  self.dataBar = bar
+  self:LayoutDataText()
 
   bar.elapsed = 0
   bar:RegisterEvent("BAG_UPDATE")
@@ -242,7 +248,17 @@ function QtUI:SetupDataText()
     end
   end)
 
-  self.dataBar = bar
   UpdateBagSpace(bar)
   UpdateDataText(bar)
+end
+
+function QtUI:LayoutDataText()
+  local bar = self.dataBar
+  if not bar then return end
+  local gap, msW, fpsW, clockW, bagsW, goldW = CellMetrics()
+  PlaceCell(bar.msCell, bar, bar, msW, gap)
+  PlaceCell(bar.fpsCell, bar, bar.msCell, fpsW, gap)
+  PlaceCell(bar.clock, bar, bar.fpsCell, clockW, gap)
+  PlaceCell(bar.bagsCell, bar, bar.clock, bagsW, gap)
+  PlaceCell(bar.goldCell, bar, bar.bagsCell, goldW, gap)
 end

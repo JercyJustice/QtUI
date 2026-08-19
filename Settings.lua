@@ -1954,7 +1954,7 @@ function QtUI:SetupSettingsWindow()
   PlaceMeterAction(demoBtn, 288, -198, 128)
 
   local chat = AddPage("chat")
-  CreateSection(chat, 0, 232)
+  CreateSection(chat, 0, 254)
   CreateHeader(chat, -8, "Chat")
   CreateFeatureToggle(chat, -28, "dataText")
   chat.note = chat:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1995,7 +1995,14 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().clockLocal = value and true or false
   end)
-  CreateToggleRow(chat, -202, "Color names by class", function()
+  CreateToggleRow(chat, -202, "Compact gold / time / fps", function()
+    local value = QtUI:GetLayout().dataTextCompact
+    return value == true or value == 1 or value == "1"
+  end, function(value)
+    QtUI:GetLayout().dataTextCompact = value and true or false
+    if QtUI.LayoutDataText then QtUI:LayoutDataText() end
+  end)
+  CreateToggleRow(chat, -224, "Color names by class", function()
     local value = QtUI:GetLayout().chatClassNames
     return value == true or value == 1 or value == "1"
   end, function(value)

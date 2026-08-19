@@ -375,6 +375,7 @@ function QtUI:EnsureLayoutDefaults()
   if layout.classTooltip == nil then layout.classTooltip = true end
   if layout.mapCoords == nil then layout.mapCoords = true end
   if layout.clockLocal == nil then layout.clockLocal = false end
+  if layout.dataTextCompact == nil then layout.dataTextCompact = false end
   layout.chatWidth = tonumber(layout.chatWidth) or 380
   if layout.chatWidth < 180 then layout.chatWidth = 180 end
   if layout.chatWidth > 700 then layout.chatWidth = 700 end
@@ -913,6 +914,7 @@ function QtUI:ApplyLayout()
   if self.bagFrame and self.UpdateBags then self:UpdateBags() end
   if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
   if self.LayoutChat then self:LayoutChat() end
+  if self.LayoutDataText then self:LayoutDataText() end
   if self.ApplySavedPositions then self:ApplySavedPositions() end
   -- Never turn anchor mode on from layout. Login and Apply must stay locked.
   if not self.pulsingBarBackground and self.ScheduleBarChromeRefresh then

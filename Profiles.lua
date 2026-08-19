@@ -286,7 +286,9 @@ local function RemapPositions(positions, srcW, srcH)
   local out = {}
   local key, pos
   for key, pos in pairs(positions) do
-    if type(pos) == "table" and pos.x ~= nil and pos.y ~= nil then
+    if type(pos) == "table" and (pos.sh or pos.sv or pos.gh or pos.gv) then
+      out[key] = CopyTable(pos)
+    elseif type(pos) == "table" and pos.x ~= nil and pos.y ~= nil then
       local x, y = RemapPoint(pos.x, pos.y, srcW, srcH, dstW, dstH)
       out[key] = { x = x, y = y }
     else

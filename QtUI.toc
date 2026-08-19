@@ -8,6 +8,7 @@
 Core.lua
 Profiles.lua
 Settings.lua
+Chat.lua
 ActionBars.lua
 Auras.lua
 UnitFrames.lua

@@ -25,6 +25,24 @@ local function UpdateZoneName()
   QtUI.minimapZone:SetText(zone)
 end
 
+local function UpdateMinimapCoords()
+  if not QtUI.minimapCoords then return end
+  if WorldMapFrame and WorldMapFrame.IsShown and not WorldMapFrame:IsShown() then
+    if type(SetMapToCurrentZone) == "function" then pcall(SetMapToCurrentZone) end
+  end
+  local x, y = 0, 0
+  if type(GetPlayerMapPosition) == "function" then
+    x, y = GetPlayerMapPosition("player")
+  end
+  x = tonumber(x) or 0
+  y = tonumber(y) or 0
+  if x == 0 and y == 0 then
+    QtUI.minimapCoords:SetText("--")
+  else
+    QtUI.minimapCoords:SetText(string.format("%.1f, %.1f", x * 100, y * 100))
+  end
+end
+
 local function HandleMouseWheel()
   local delta = tonumber(arg1) or 0
   if delta == 0 then return end
@@ -118,6 +136,29 @@ function QtUI:SetupMinimap()
   if zone.SetShadowOffset then zone:SetShadowOffset(1, -1) end
   if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
   self.minimapZone = zone
+
+  local coords = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapCoords", "OVERLAY", "GameFontNormalSmall")
+  coords:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 4)
+  coords:SetWidth(MAP_SIZE)
+  coords:SetJustifyH("CENTER")
+  coords:SetTextColor(1, 1, 1)
+  if coords.SetFont then
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    coords:SetFont(font, 11, "OUTLINE")
+  end
+  if coords.SetShadowOffset then coords:SetShadowOffset(1, -1) end
+  if coords.SetShadowColor then coords:SetShadowColor(0, 0, 0, 1) end
+  self.minimapCoords = coords
+
+  local coordTicker = CreateFrame("Frame", "QtUIMinimapCoordTicker")
+  coordTicker.elapsed = 0
+  coordTicker:SetScript("OnUpdate", function()
+    this.elapsed = this.elapsed + (arg1 or 0)
+    if this.elapsed < .2 then return end
+    this.elapsed = 0
+    UpdateMinimapCoords()
+  end)
+  UpdateMinimapCoords()
 
   local events = CreateFrame("Frame", "QtUIMinimapEvents")
   events:RegisterEvent("MINIMAP_ZONE_CHANGED")

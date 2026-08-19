@@ -2,7 +2,9 @@
 
 local MAX_BARS = 16
 local MIN_BARS = 3
-local TITLE_H = 20
+local HEADER_PAD = 4
+local BTN = 13
+local TITLE_H = 19
 local METER_PAD = 6
 
 local CLASS_COLORS = {
@@ -13,6 +15,7 @@ local CLASS_COLORS = {
 
 local INTERNALS = {
   _sum = true, _ctime = true, _tick = true, _esum = true, _effective = true,
+  _hits = true, _crits = true, _targets = true,
 }
 
 local data = {
@@ -21,6 +24,14 @@ local data = {
   classes = {},
 }
 
+local MAX_FIGHTS = 20
+local history = {}
+local viewing
+local fightDests = {}
+local fightDeaths = {}
+local fightPullName
+local fightStart
+local lastFightDuration
 local startNextSegment
 local parser = CreateFrame("Frame", "QtUIDamageParser")
 
@@ -133,7 +144,13 @@ local function MarkMetersDirty()
   if QtUI.meterFrame then QtUI.meterFrame.dirty = true end
 end
 
-local function AddData(source, action, target, value, school, datatype)
+local function EnsureRowExtras(row)
+  if not row._hits then row._hits = {} end
+  if not row._crits then row._crits = {} end
+  if not row._targets then row._targets = {} end
+end
+
+local function AddData(source, action, target, value, school, datatype, crit)
   if type(source) ~= "string" then return end
   if not tonumber(value) then return end
   if not datatype then datatype = "damage" end
@@ -156,12 +173,12 @@ local function AddData(source, action, target, value, school, datatype)
       if kind == "PET" then
         local owner = data.classes[source]
         if not entry[owner] and ScanName(owner) then
-          entry[owner] = { _sum = 0, _ctime = 1 }
+          entry[owner] = { _sum = 0, _ctime = 1, _hits = {}, _crits = {}, _targets = {} }
         end
       elseif not kind then
         break
       end
-      entry[source] = { _sum = 0, _ctime = 1 }
+      entry[source] = { _sum = 0, _ctime = 1, _hits = {}, _crits = {}, _targets = {} }
     end
 
     local writeSource = source
@@ -171,23 +188,41 @@ local function AddData(source, action, target, value, school, datatype)
       writeAction = "Pet: " .. source
       writeSource = data.classes[source]
       if not entry[writeSource] then
-        entry[writeSource] = { _sum = 0, _ctime = 1 }
+        entry[writeSource] = { _sum = 0, _ctime = 1, _hits = {}, _crits = {}, _targets = {} }
       end
     end
 
     if entry[writeSource] then
       local amount = tonumber(value)
-      entry[writeSource][writeAction] = (entry[writeSource][writeAction] or 0) + amount
-      entry[writeSource]._sum = (entry[writeSource]._sum or 0) + amount
-      entry[writeSource]._ctime = entry[writeSource]._ctime or 1
-      entry[writeSource]._tick = entry[writeSource]._tick or GetTime()
-      if entry[writeSource]._tick + 5 < GetTime() then
-        entry[writeSource]._tick = GetTime()
-        entry[writeSource]._ctime = entry[writeSource]._ctime + 5
-      else
-        entry[writeSource]._ctime = entry[writeSource]._ctime + (GetTime() - entry[writeSource]._tick)
-        entry[writeSource]._tick = GetTime()
+      local row = entry[writeSource]
+      EnsureRowExtras(row)
+      row[writeAction] = (row[writeAction] or 0) + amount
+      row._sum = (row._sum or 0) + amount
+      row._hits[writeAction] = (row._hits[writeAction] or 0) + 1
+      if crit then
+        row._crits[writeAction] = (row._crits[writeAction] or 0) + 1
       end
+      if type(target) == "string" and target ~= "" then
+        if not row._targets[writeAction] then row._targets[writeAction] = {} end
+        row._targets[writeAction][target] = (row._targets[writeAction][target] or 0) + amount
+      end
+      row._ctime = row._ctime or 1
+      row._tick = row._tick or GetTime()
+      if row._tick + 5 < GetTime() then
+        row._tick = GetTime()
+        row._ctime = row._ctime + 5
+      else
+        row._ctime = row._ctime + (GetTime() - row._tick)
+        row._tick = GetTime()
+      end
+    end
+  end
+
+  if datatype == "damage" and type(target) == "string" and target ~= "" then
+    local kind = ScanName(target)
+    if kind ~= "PLAYER" and kind ~= "PET" then
+      fightDests[target] = (fightDests[target] or 0) + (tonumber(value) or 0)
+      if not fightPullName then fightPullName = target end
     end
   end
 
@@ -697,6 +732,9 @@ end
 pcall(parser.RegisterEvent, parser, "COMBAT_LOG_EVENT_UNFILTERED")
 pcall(parser.RegisterEvent, parser, "COMBAT_LOG_EVENT")
 pcall(parser.RegisterEvent, parser, "CHAT_MSG_COMBAT_MISC_INFO")
+pcall(parser.RegisterEvent, parser, "CHAT_MSG_COMBAT_FRIENDLY_DEATH")
+pcall(parser.RegisterEvent, parser, "CHAT_MSG_COMBAT_HOSTILE_DEATH")
+pcall(parser.RegisterEvent, parser, "CHAT_MSG_COMBAT_CREATURE_VS_SELF_HITS")
 
 local pattern
 for pattern in pairs(combatlogParser) do
@@ -723,6 +761,25 @@ local function ParseCombatMessage(msg, eventName)
   local now = GetTime()
   if msg == lastParse and now - lastParseTime < .05 then return end
 
+  if string.find(msg, "You die", 1, true) or string.find(msg, "Ihr sterbt", 1, true) then
+    lastParse, lastParseTime = msg, now
+    AddDeath(UnitName("player"))
+    return
+  end
+  local _, _, dead = string.find(msg, "^(.+) dies%.")
+  if not dead then _, _, dead = string.find(msg, "^(.+) stirbt") end
+  if dead then
+    lastParse, lastParseTime = msg, now
+    AddDeath(dead)
+    return
+  end
+
+  local crit
+  local lower = string.lower(msg)
+  if string.find(lower, "crit", 1, true) or string.find(msg, "kritisch", 1, true) then
+    crit = true
+  end
+
   defaults.source = UnitName("player")
   defaults.target = defaults.source
   defaults.school = "physical"
@@ -736,7 +793,8 @@ local function ParseCombatMessage(msg, eventName)
         local result, _, a1, a2, a3, a4, a5 = CFind(msg, pat)
         if result then
           lastParse, lastParseTime = msg, now
-          AddData(combatlogParser[pat](defaults, a1, a2, a3, a4, a5))
+          local s, a, t, v, sc, dt = combatlogParser[pat](defaults, a1, a2, a3, a4, a5)
+          AddData(s, a, t, v, sc, dt, crit)
           return true
         end
       end
@@ -752,7 +810,8 @@ local function ParseCombatMessage(msg, eventName)
     local found, _, a1, a2, a3, a4 = string.find(msg, rule[1])
     if found then
       lastParse, lastParseTime = msg, now
-      AddData(rule[2](defaults, a1, a2, a3, a4))
+      local s, a, t, v, sc, dt = rule[2](defaults, a1, a2, a3, a4)
+      AddData(s, a, t, v, sc, dt, crit)
       return
     end
   end
@@ -797,6 +856,8 @@ local function HandleCLEU()
     AddData(source, spellName or "Spell", dest, spellAmt or swingAmt, nil, "damage")
   elseif subevent == "SPELL_HEAL" or subevent == "SPELL_PERIODIC_HEAL" then
     AddData(source, spellName or "Heal", dest, spellAmt or swingAmt, nil, "heal")
+  elseif subevent == "UNIT_DIED" or subevent == "UNIT_DESTROYED" then
+    AddDeath(dest)
   end
 end
 
@@ -823,6 +884,137 @@ HookChatMeter(DEFAULT_CHAT_FRAME)
 HookChatMeter(ChatFrame1)
 HookChatMeter(ChatFrame2)
 
+local function CopyTableDeep(src, depth)
+  if type(src) ~= "table" then return src end
+  depth = depth or 3
+  local out = {}
+  local k, v
+  for k, v in pairs(src) do
+    if type(v) == "table" and depth > 1 then
+      out[k] = CopyTableDeep(v, depth - 1)
+    else
+      out[k] = v
+    end
+  end
+  return out
+end
+
+local function CopySegment(src)
+  return CopyTableDeep(src, 3)
+end
+
+local function AddDeath(name)
+  if not fightStart then return end
+  if type(name) ~= "string" or name == "" then return end
+  name = ResolveName(name)
+  table.insert(fightDeaths, { name = name, t = GetTime() - fightStart })
+end
+
+local function SegmentHasData(seg)
+  if type(seg) ~= "table" then return nil end
+  local _
+  for _ in pairs(seg) do return true end
+  return nil
+end
+
+local function FormatDuration(sec)
+  sec = tonumber(sec) or 0
+  if sec < 0 then sec = 0 end
+  local m = math.floor(sec / 60)
+  local s = math.floor(sec - m * 60)
+  if m < 1 then return tostring(s) .. "s" end
+  return tostring(m) .. ":" .. string.format("%02d", s)
+end
+
+local function UniqueFightName(base)
+  if not base or base == "" then base = "Combat" end
+  local n = 0
+  local i
+  for i = 1, table.getn(history) do
+    local name = history[i].name
+    if name == base or string.find(name, base .. " ", 1, true) == 1 then
+      n = n + 1
+    end
+  end
+  if n < 1 then return base end
+  return base .. " " .. tostring(n + 1)
+end
+
+local function ArchiveCurrentFight()
+  if not SegmentHasData(data.damage[1]) and not SegmentHasData(data.heal[1]) then
+    return
+  end
+  local name = fightPullName
+  if not name then
+    local best, bestAmt, dest, amt
+    for dest, amt in pairs(fightDests) do
+      if not best or amt > bestAmt then
+        best = dest
+        bestAmt = amt
+      end
+    end
+    name = best
+  end
+  local duration = 0
+  if fightStart then duration = GetTime() - fightStart end
+  if duration < 1 then duration = 1 end
+  lastFightDuration = duration
+  table.insert(history, 1, {
+    name = UniqueFightName(name),
+    damage = CopySegment(data.damage[1]),
+    heal = CopySegment(data.heal[1]),
+    duration = duration,
+    deaths = fightDeaths,
+  })
+  if viewing then
+    viewing = viewing + 1
+    if viewing > MAX_FIGHTS then viewing = nil end
+  end
+  while table.getn(history) > MAX_FIGHTS do
+    table.remove(history)
+  end
+  fightDests = {}
+  fightDeaths = {}
+  fightPullName = nil
+  fightStart = nil
+end
+
+local function BeginFight()
+  fightDests = {}
+  fightDeaths = {}
+  fightStart = GetTime()
+  lastFightDuration = nil
+  fightPullName = nil
+  if type(UnitExists) == "function" and UnitExists("target") then
+    local hostile = true
+    if type(UnitCanAttack) == "function" then
+      local ok, can = pcall(UnitCanAttack, "player", "target")
+      hostile = ok and (can == true or can == 1 or can == "1")
+    end
+    if hostile then
+      fightPullName = UnitName("target")
+    end
+  end
+end
+
+local function GetActiveSegment(frame)
+  local view = frame and frame.view or "damage"
+  local segmentId = frame and frame.segment or 1
+  if segmentId == 1 and viewing and history[viewing] then
+    if view == "heal" then return history[viewing].heal or {} end
+    return history[viewing].damage or {}
+  end
+  local store = view == "heal" and data.heal or data.damage
+  return store[segmentId] or {}
+end
+
+local function ActiveFightDuration(frame)
+  if not frame or (frame.segment or 1) == 0 then return nil end
+  if viewing and history[viewing] then return history[viewing].duration end
+  if fightStart then return GetTime() - fightStart end
+  return lastFightDuration
+end
+
 local combatWatch = CreateFrame("Frame", "QtUIDamageCombat")
 combatWatch.state = "NO_COMBAT"
 combatWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -831,7 +1023,12 @@ local function UpdateCombatState()
   local state = AnyInCombat() and "COMBAT" or "NO_COMBAT"
   if combatWatch.state ~= state then
     combatWatch.state = state
-    if state == "NO_COMBAT" then startNextSegment = true end
+    if state == "COMBAT" then
+      BeginFight()
+    else
+      ArchiveCurrentFight()
+      startNextSegment = true
+    end
   end
 end
 combatWatch:SetScript("OnEvent", UpdateCombatState)
@@ -841,6 +1038,7 @@ combatWatch:SetScript("OnUpdate", function()
   if this.elapsed >= 1 then
     this.elapsed = 0
     UpdateCombatState()
+    if this.state == "COMBAT" then MarkMetersDirty() end
   end
 end)
 
@@ -878,7 +1076,6 @@ local function ShortNumber(value)
 end
 
 local MAX_WINDOWS = 6
-local BTN = 16
 local MODES = {
   { view = "damage", segment = 1, label = "Current Damage" },
   { view = "dps",    segment = 1, label = "Current DPS" },
@@ -928,8 +1125,7 @@ local function ReportMeter(frame, chatType)
   if not frame then return end
   local view = frame.view or "damage"
   local segmentId = frame.segment or 1
-  local store = view == "heal" and data.heal or data.damage
-  local segment = store[segmentId] or {}
+  local segment = GetActiveSegment(frame)
   local keys = SortedNames(segment, view == "dps")
   local count = table.getn(keys)
   if count < 1 then
@@ -1044,33 +1240,675 @@ local function ToggleReportMenu(anchor, frame)
   if menu.SetFrameLevel then menu:SetFrameLevel(200) end
 end
 
+local PlaceBox
+local SpellList
+local function SpellHits(row, spell)
+  local hits = 0
+  local crits = 0
+  if row and row._hits then hits = row._hits[spell] or 0 end
+  if row and row._crits then crits = row._crits[spell] or 0 end
+  return hits, crits
+end
+local MAX_DETAIL = 14
+local DETAIL_W = 340
+local DETAIL_ROW = 16
+local detailFrame
+
+local function HideSpellDetails()
+  if not detailFrame then return end
+  detailFrame:ClearAllPoints()
+  detailFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  if detailFrame.EnableMouse then detailFrame:EnableMouse(false) end
+  if detailFrame.Hide then pcall(detailFrame.Hide, detailFrame) end
+end
+
+local function EnsureSpellDetails()
+  if detailFrame then return detailFrame end
+  local frame = CreateFrame("Frame", "QtUIMeterDetails", UIParent)
+  frame:SetFrameStrata("FULLSCREEN")
+  frame:SetFrameLevel(180)
+  if frame.SetBackdrop then
+    pcall(frame.SetBackdrop, frame, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    if frame.SetBackdropColor then frame:SetBackdropColor(.02, .025, .03, .96) end
+    if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(.2, .7, .62, 1) end
+  end
+  frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.title:SetJustifyH("LEFT")
+  frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.hint:SetText("Click a player bar for this list.")
+  frame.close = CreateFrame("Button", nil, frame)
+  frame.close:EnableMouse(true)
+  frame.close:RegisterForClicks("LeftButtonUp")
+  frame.close.text = frame.close:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.close.text:SetPoint("CENTER", frame.close, "CENTER", 0, 0)
+  frame.close.text:SetText("X")
+  frame.close:SetScript("OnClick", HideSpellDetails)
+  frame.bars = {}
+  local i
+  for i = 1, MAX_DETAIL do
+    local bar = CreateFrame("StatusBar", nil, frame)
+    bar:SetStatusBarTexture(QtUI.media.statusbar)
+    bar:SetMinMaxValues(0, 1)
+    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+    bar.bg:SetAllPoints(bar)
+    bar.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+    bar.bg:SetVertexColor(.04, .05, .06, .7)
+    bar.left = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.left:SetPoint("LEFT", bar, "LEFT", 4, 0)
+    bar.left:SetJustifyH("LEFT")
+    bar.right = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.right:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+    bar.right:SetJustifyH("RIGHT")
+    frame.bars[i] = bar
+  end
+  if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterDetails") end
+  frame:SetScript("OnHide", HideSpellDetails)
+  detailFrame = frame
+  HideSpellDetails()
+  return frame
+end
+
+local function FillDetailBars(frame, rows, width, height, color)
+  local count = table.getn(rows)
+  if count < 1 then count = 1 end
+  if count > MAX_DETAIL then count = MAX_DETAIL end
+  local best = 1
+  local i
+  for i = 1, table.getn(rows) do
+    if (rows[i].value or 0) > best then best = rows[i].value end
+  end
+  for i = 1, MAX_DETAIL do
+    local bar = frame.bars[i]
+    if i <= count and rows[i] then
+      local y = TITLE_H + 4 + (i - 1) * DETAIL_ROW
+      bar:ClearAllPoints()
+      bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, height - y - DETAIL_ROW + 2)
+      bar:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 8, height - y)
+      bar:SetMinMaxValues(0, best)
+      bar:SetValue(rows[i].value or 0)
+      bar:SetStatusBarColor(color[1], color[2], color[3], .9)
+      bar.left:SetText(i .. ". " .. (rows[i].label or ""))
+      bar.right:SetText(rows[i].right or "")
+      bar.spell = rows[i].spell
+      bar.row = rows[i].row
+      bar.unit = rows[i].unit
+      bar.click = rows[i].click
+      if bar.Show then pcall(bar.Show, bar) end
+      bar:EnableMouse(true)
+      bar:SetScript("OnMouseUp", function()
+        if this.click then this.click() end
+      end)
+    else
+      bar:ClearAllPoints()
+      bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      bar.spell = nil
+      bar.click = nil
+      if bar.Hide then pcall(bar.Hide, bar) end
+    end
+  end
+end
+
+local function LayoutCenterPanel(frame, width, height, title, hint)
+  local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+  local sh = (UIParent.GetHeight and UIParent:GetHeight()) or 768
+  if sw < 200 then sw = 1024 end
+  if sh < 200 then sh = 768 end
+  local left = math.floor((sw - width) / 2)
+  local bottom = math.floor((sh - height) / 2)
+  PlaceBox(frame, UIParent, left, bottom, width, height)
+  PlaceBox(frame.close, frame, width - 18, height - 16, 14, 14)
+  frame.title:ClearAllPoints()
+  frame.title:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - 16)
+  frame.title:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 22, height - 4)
+  frame.title:SetText(title or "")
+  if hint and hint ~= "" then
+    frame.hint:ClearAllPoints()
+    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - TITLE_H - 2)
+    frame.hint:SetText(hint)
+  else
+    frame.hint:SetText("")
+    frame.hint:ClearAllPoints()
+    frame.hint:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  end
+  if frame.EnableMouse then frame:EnableMouse(true) end
+  if frame.Show then pcall(frame.Show, frame) end
+end
+
+local function ShowSpellTargets(unit, spell, row)
+  if not unit or not spell or not row then return end
+  local frame = EnsureSpellDetails()
+  local hits = row._targets and row._targets[spell]
+  local names = {}
+  if hits then
+    local dest
+    for dest in pairs(hits) do table.insert(names, dest) end
+    table.sort(names, function(a, b) return (hits[b] or 0) < (hits[a] or 0) end)
+  end
+  local count = table.getn(names)
+  if count < 1 then count = 1 end
+  if count > MAX_DETAIL then count = MAX_DETAIL end
+  local width = DETAIL_W
+  local height = TITLE_H + 4 + count * DETAIL_ROW + 8
+  local rows = {}
+  local total = row[spell] or 0
+  local i
+  for i = 1, count do
+    local dest = names[i]
+    local amount = dest and hits[dest] or 0
+    local pct = total > 0 and (amount / total * 100) or 0
+    table.insert(rows, {
+      label = dest or "(no targets)",
+      value = amount,
+      right = dest and (ShortNumber(amount) .. "  " .. string.format("%.0f%%", pct)) or "",
+    })
+  end
+  LayoutCenterPanel(frame, width, height, unit .. "  -  " .. spell .. " hits", "")
+  FillDetailBars(frame, rows, width, height, { .72, .42, .18 })
+end
+
+local function ShowSpellDetails(unit, row, view)
+  if not unit or not row then return end
+  local frame = EnsureSpellDetails()
+  local spells = SpellList(row)
+  local count = table.getn(spells)
+  if count < 1 then count = 1 end
+  if count > MAX_DETAIL then count = MAX_DETAIL end
+  local width = DETAIL_W
+  local height = TITLE_H + 4 + count * DETAIL_ROW + 8
+  local tag = "Damage"
+  if view == "heal" then tag = "Healing" end
+  local sum = row._sum or 0
+  local ctime = row._ctime or 1
+  if ctime < 1 then ctime = 1 end
+  local rows = {}
+  local i
+  for i = 1, count do
+    local spell = spells[i]
+    local amount = spell and (row[spell] or 0) or 0
+    local pct = sum > 0 and (amount / sum * 100) or 0
+    local hits, crits = SpellHits(row, spell)
+    local right = ShortNumber(amount) .. "  " .. FormatRate(amount / ctime) .. "  " .. string.format("%.0f%%", pct)
+    if hits > 0 then
+      right = right .. "  " .. tostring(hits) .. "h"
+      if crits > 0 then right = right .. "/" .. tostring(crits) .. "c" end
+    end
+    table.insert(rows, {
+      label = spell or "(none)",
+      value = amount,
+      right = right,
+      spell = spell,
+      row = row,
+      unit = unit,
+      click = function()
+        ShowSpellTargets(unit, spell, row)
+      end,
+    })
+  end
+  LayoutCenterPanel(frame, width, height, unit .. "  -  " .. tag, "")
+  FillDetailBars(frame, rows, width, height, { .18, .62, .55 })
+end
+
+local FIGHTS_PER_PAGE = 10
+local FIGHT_ROW = 20
+local FIGHT_W = 300
+local fightPage = 1
+local fightPicker
+
+local function HideFightMenu()
+  if not fightPicker then return end
+  fightPicker:ClearAllPoints()
+  fightPicker:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  if fightPicker.EnableMouse then fightPicker:EnableMouse(false) end
+  if fightPicker.Hide then pcall(fightPicker.Hide, fightPicker) end
+end
+
+local function FightRows()
+  local rows = { { label = "Current fight", index = nil } }
+  local i
+  for i = 1, table.getn(history) do
+    local snap = history[i]
+    local extra = snap.name .. "  " .. FormatDuration(snap.duration)
+    local dead = snap.deaths and table.getn(snap.deaths) or 0
+    if dead > 0 then extra = extra .. "  (" .. tostring(dead) .. " dead)" end
+    table.insert(rows, { label = extra, index = i })
+  end
+  return rows
+end
+
+local function SelectFight(index)
+  viewing = index
+  HideFightMenu()
+  MarkMetersDirty()
+  local i
+  for i = 1, table.getn(QtUI.meterFrames or {}) do
+    RefreshMeter(QtUI.meterFrames[i])
+  end
+end
+
+local function EnsureFightPicker()
+  if fightPicker then return fightPicker end
+  local frame = CreateFrame("Frame", "QtUIMeterFights", UIParent)
+  frame:SetFrameStrata("FULLSCREEN")
+  frame:SetFrameLevel(185)
+  if frame.SetBackdrop then
+    pcall(frame.SetBackdrop, frame, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    if frame.SetBackdropColor then frame:SetBackdropColor(.02, .025, .03, .96) end
+    if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(.2, .7, .62, 1) end
+  end
+  frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.title:SetJustifyH("LEFT")
+  frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.close = CreateFrame("Button", nil, frame)
+  frame.close:EnableMouse(true)
+  frame.close:RegisterForClicks("LeftButtonUp")
+  frame.close.text = frame.close:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.close.text:SetPoint("CENTER", frame.close, "CENTER", 0, 0)
+  frame.close.text:SetText("X")
+  frame.close:SetScript("OnClick", HideFightMenu)
+  frame.rows = {}
+  local i
+  for i = 1, FIGHTS_PER_PAGE do
+    local btn = CreateFrame("Button", nil, frame)
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("LeftButtonUp")
+    if btn.SetBackdrop then
+      pcall(btn.SetBackdrop, btn, {
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+      })
+      if btn.SetBackdropColor then btn:SetBackdropColor(.05, .06, .07, .9) end
+      if btn.SetBackdropBorderColor then btn:SetBackdropBorderColor(.22, .28, .3, 1) end
+    end
+    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btn.text:SetPoint("LEFT", btn, "LEFT", 8, 0)
+    btn.text:SetJustifyH("LEFT")
+    btn:SetScript("OnEnter", function()
+      if this.SetBackdropColor then this:SetBackdropColor(.08, .4, .64, .95) end
+    end)
+    btn:SetScript("OnLeave", function()
+      if this.SetBackdropColor then this:SetBackdropColor(.05, .06, .07, .9) end
+    end)
+    btn:SetScript("OnClick", function()
+      SelectFight(this.fightIndex)
+    end)
+    frame.rows[i] = btn
+  end
+  frame.prev = CreateFrame("Button", nil, frame)
+  frame.prev:EnableMouse(true)
+  frame.prev:RegisterForClicks("LeftButtonUp")
+  frame.prev.text = frame.prev:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.prev.text:SetPoint("CENTER", frame.prev, "CENTER", 0, 0)
+  frame.prev.text:SetText("<")
+  frame.prev:SetScript("OnClick", function()
+    if fightPage > 1 then
+      fightPage = fightPage - 1
+      if QtUI.ShowFightPage then QtUI.ShowFightPage() end
+    end
+  end)
+  frame.next = CreateFrame("Button", nil, frame)
+  frame.next:EnableMouse(true)
+  frame.next:RegisterForClicks("LeftButtonUp")
+  frame.next.text = frame.next:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.next.text:SetPoint("CENTER", frame.next, "CENTER", 0, 0)
+  frame.next.text:SetText(">")
+  frame.next:SetScript("OnClick", function()
+    fightPage = fightPage + 1
+    if QtUI.ShowFightPage then QtUI.ShowFightPage() end
+  end)
+  frame.page = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.page:SetJustifyH("CENTER")
+  if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterFights") end
+  frame:SetScript("OnHide", HideFightMenu)
+  fightPicker = frame
+  HideFightMenu()
+  return frame
+end
+
+local function ShowFightPage()
+  local frame = EnsureFightPicker()
+  local rows = FightRows()
+  local total = table.getn(rows)
+  local pages = math.floor((total - 1) / FIGHTS_PER_PAGE) + 1
+  if pages < 1 then pages = 1 end
+  if fightPage < 1 then fightPage = 1 end
+  if fightPage > pages then fightPage = pages end
+  local first = (fightPage - 1) * FIGHTS_PER_PAGE + 1
+  local last = first + FIGHTS_PER_PAGE - 1
+  if last > total then last = total end
+  local visible = last - first + 1
+  if visible < 1 then visible = 1 end
+  local showPager = total > FIGHTS_PER_PAGE
+  local pagerH = 0
+  if showPager then pagerH = 24 end
+  local width = FIGHT_W
+  local height = TITLE_H + 12 + visible * FIGHT_ROW + pagerH + 8
+  LayoutCenterPanel(frame, width, height, "Fights", "Select a fight.")
+  local i
+  for i = 1, FIGHTS_PER_PAGE do
+    local btn = frame.rows[i]
+    local spec = rows[first + i - 1]
+    if spec and i <= visible then
+      local y = TITLE_H + 8 + (i - 1) * FIGHT_ROW
+      PlaceBox(btn, frame, 10, height - y - FIGHT_ROW + 2, width - 20, FIGHT_ROW - 3)
+      btn.fightIndex = spec.index
+      local active = (viewing == spec.index) or (not viewing and not spec.index)
+      if active then
+        btn.text:SetText("|cffffd24d" .. spec.label .. "|r")
+      else
+        btn.text:SetText(spec.label)
+      end
+      if btn.Show then pcall(btn.Show, btn) end
+      if btn.EnableMouse then btn:EnableMouse(true) end
+    else
+      btn.fightIndex = nil
+      btn:ClearAllPoints()
+      btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      if btn.EnableMouse then btn:EnableMouse(false) end
+    end
+  end
+  if showPager then
+    PlaceBox(frame.prev, frame, 10, 8, 28, 18)
+    PlaceBox(frame.next, frame, width - 38, 8, 28, 18)
+    frame.page:ClearAllPoints()
+    frame.page:SetPoint("CENTER", frame, "BOTTOMLEFT", width / 2, 17)
+    frame.page:SetText(tostring(fightPage) .. " / " .. tostring(pages))
+    if frame.prev.Show then pcall(frame.prev.Show, frame.prev) end
+    if frame.next.Show then pcall(frame.next.Show, frame.next) end
+    if frame.prev.EnableMouse then frame.prev:EnableMouse(fightPage > 1) end
+    if frame.next.EnableMouse then frame.next:EnableMouse(fightPage < pages) end
+  else
+    frame.prev:ClearAllPoints()
+    frame.prev:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    frame.next:ClearAllPoints()
+    frame.next:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    frame.page:ClearAllPoints()
+    frame.page:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    if frame.prev.EnableMouse then frame.prev:EnableMouse(false) end
+    if frame.next.EnableMouse then frame.next:EnableMouse(false) end
+  end
+end
+QtUI.ShowFightPage = ShowFightPage
+
+local function ToggleFightMenu(anchor)
+  if HideReportMenu then HideReportMenu() end
+  if QtUI.HideMeterModeMenu then QtUI.HideMeterModeMenu() end
+  if fightPicker and fightPicker.IsShown and fightPicker:IsShown() then
+    HideFightMenu()
+    return
+  end
+  fightPage = 1
+  ShowFightPage()
+end
+
 function QtUI:FillMeterDemo()
-  local names = { "Thrall", "Jaina", "Sylvanas", "Anduin", "Valeera", "Medivh", "Tyrande", "Gul'dan" }
-  local classes = { "SHAMAN", "MAGE", "HUNTER", "PRIEST", "ROGUE", "MAGE", "DRUID", "WARLOCK" }
+  local kits = {
+    WARRIOR = {
+      dmg = {
+        { "Mortal Strike", 22 }, { "Heroic Strike", 16 }, { "Whirlwind", 14 },
+        { "Bloodthirst", 12 }, { "Execute", 10 }, { "Cleave", 8 },
+        { "Overpower", 6 }, { "Slam", 5 }, { "Deep Wounds", 4 }, { "Auto Hit", 18 },
+      },
+      heal = {},
+    },
+    ROGUE = {
+      dmg = {
+        { "Backstab", 20 }, { "Sinister Strike", 16 }, { "Eviscerate", 14 },
+        { "Ambush", 10 }, { "Hemorrhage", 8 }, { "Rupture", 7 },
+        { "Ghostly Strike", 6 }, { "Instant Poison", 8 }, { "Deadly Poison", 6 }, { "Auto Hit", 12 },
+      },
+      heal = {},
+    },
+    MAGE = {
+      dmg = {
+        { "Fireball", 24 }, { "Scorch", 10 }, { "Pyroblast", 12 }, { "Fire Blast", 8 },
+        { "Frostbolt", 18 }, { "Cone of Cold", 6 }, { "Blizzard", 8 },
+        { "Arcane Explosion", 7 }, { "Arcane Missiles", 9 }, { "Auto Hit", 3 },
+      },
+      heal = {},
+    },
+    PRIEST = {
+      dmg = {
+        { "Mind Blast", 18 }, { "Mind Flay", 16 }, { "Shadow Word: Pain", 14 },
+        { "Smite", 10 }, { "Holy Fire", 8 }, { "Devouring Plague", 6 }, { "Starshards", 5 },
+      },
+      heal = {
+        { "Flash Heal", 22 }, { "Greater Heal", 20 }, { "Heal", 12 },
+        { "Renew", 14 }, { "Prayer of Healing", 16 }, { "Power Word: Shield", 8 },
+      },
+    },
+    WARLOCK = {
+      dmg = {
+        { "Shadow Bolt", 24 }, { "Immolate", 12 }, { "Corruption", 12 },
+        { "Curse of Agony", 10 }, { "Searing Pain", 8 }, { "Conflagrate", 7 },
+        { "Siphon Life", 6 }, { "Death Coil", 5 }, { "Rain of Fire", 8 }, { "Auto Hit", 3 },
+      },
+      heal = { { "Drain Life", 10 }, { "Death Coil", 4 } },
+    },
+    HUNTER = {
+      dmg = {
+        { "Aimed Shot", 22 }, { "Auto Shot", 18 }, { "Multi-Shot", 12 },
+        { "Arcane Shot", 10 }, { "Serpent Sting", 10 }, { "Volley", 8 },
+        { "Raptor Strike", 6 }, { "Mongoose Bite", 4 }, { "Auto Hit", 5 },
+      },
+      heal = {},
+    },
+    DRUID = {
+      dmg = {
+        { "Starfire", 20 }, { "Wrath", 14 }, { "Moonfire", 12 }, { "Insect Swarm", 8 },
+        { "Hurricane", 8 }, { "Shred", 10 }, { "Ferocious Bite", 8 },
+        { "Rake", 5 }, { "Rip", 6 }, { "Maul", 7 }, { "Auto Hit", 6 },
+      },
+      heal = {
+        { "Healing Touch", 22 }, { "Rejuvenation", 16 }, { "Regrowth", 14 },
+        { "Tranquility", 10 }, { "Swiftmend", 8 },
+      },
+    },
+    SHAMAN = {
+      dmg = {
+        { "Lightning Bolt", 20 }, { "Chain Lightning", 16 }, { "Earth Shock", 10 },
+        { "Flame Shock", 10 }, { "Stormstrike", 12 }, { "Frost Shock", 6 },
+        { "Searing Totem", 8 }, { "Magma Totem", 6 }, { "Auto Hit", 8 },
+      },
+      heal = {
+        { "Healing Wave", 20 }, { "Lesser Healing Wave", 16 }, { "Chain Heal", 18 },
+        { "Healing Stream Totem", 8 },
+      },
+    },
+    PALADIN = {
+      dmg = {
+        { "Seal of Command", 18 }, { "Judgement", 16 }, { "Consecration", 14 },
+        { "Hammer of Wrath", 10 }, { "Exorcism", 8 }, { "Holy Wrath", 6 }, { "Auto Hit", 16 },
+      },
+      heal = {
+        { "Flash of Light", 22 }, { "Holy Light", 20 }, { "Holy Shock", 12 }, { "Lay on Hands", 6 },
+      },
+    },
+  }
+
+  local function BuildRow(parts, total, duration, dests)
+    local row = { _sum = 0, _ctime = duration or 30, _hits = {}, _crits = {}, _targets = {} }
+    if type(parts) ~= "table" or table.getn(parts) < 1 or total < 1 then return row end
+    local weight = 0
+    local i
+    for i = 1, table.getn(parts) do
+      weight = weight + (parts[i][2] or 1)
+    end
+    if weight < 1 then weight = 1 end
+    for i = 1, table.getn(parts) do
+      local spec = parts[i]
+      local spell = spec[1]
+      local share = math.floor(total * (spec[2] or 1) / weight)
+      if share < 1 then share = 1 end
+      row[spell] = (row[spell] or 0) + share
+      row._sum = row._sum + share
+      local hits = math.floor(4 + share / 420)
+      if hits < 3 then hits = 3 end
+      local crits = math.floor(hits * .22)
+      row._hits[spell] = hits
+      row._crits[spell] = crits
+      row._targets[spell] = {}
+      if dests and table.getn(dests) > 0 then
+        local d
+        local left = share
+        for d = 1, table.getn(dests) do
+          local slice = math.floor(share / table.getn(dests))
+          if d == table.getn(dests) then slice = left end
+          left = left - slice
+          row._targets[spell][dests[d]] = slice
+        end
+      end
+    end
+    return row
+  end
+
+  local function ScaleRow(row, factor, duration)
+    local out = CopyTableDeep(row, 3)
+    out._ctime = duration or out._ctime
+    out._sum = math.floor((out._sum or 0) * factor)
+    local k, v
+    for k, v in pairs(out) do
+      if not INTERNALS[k] and type(v) == "number" then
+        out[k] = math.floor(v * factor)
+      end
+    end
+    if out._hits then
+      for k, v in pairs(out._hits) do
+        out._hits[k] = math.floor(v * factor)
+        if out._hits[k] < 1 then out._hits[k] = 1 end
+      end
+    end
+    if out._crits then
+      for k, v in pairs(out._crits) do
+        out._crits[k] = math.floor(v * factor)
+      end
+    end
+    if out._targets then
+      local spell, dests
+      for spell, dests in pairs(out._targets) do
+        local dest, amt
+        for dest, amt in pairs(dests) do
+          dests[dest] = math.floor(amt * factor)
+        end
+      end
+    end
+    return out
+  end
+
+  local roster = {
+    { "Thrall", "SHAMAN", 16800, 9200 },
+    { "Jaina", "MAGE", 17600, 0 },
+    { "Sylvanas", "HUNTER", 15400, 0 },
+    { "Anduin", "PRIEST", 4200, 14800 },
+    { "Valeera", "ROGUE", 16100, 0 },
+    { "Medivh", "MAGE", 14900, 0 },
+    { "Tyrande", "DRUID", 13200, 11200 },
+    { "Gul'dan", "WARLOCK", 15800, 1800 },
+    { "Uther", "PALADIN", 9800, 12600 },
+    { "Garrosh", "WARRIOR", 17100, 0 },
+    { "Cairne", "WARRIOR", 14200, 0 },
+    { "Proudmoore", "MAGE", 13900, 0 },
+    { "Vol'jin", "SHAMAN", 12100, 6400 },
+    { "Malfurion", "DRUID", 10800, 9800 },
+  }
+
   data.damage[0] = {}
   data.damage[1] = {}
   data.heal[0] = {}
   data.heal[1] = {}
+  data.classes = {}
+
   local i
-  for i = 1, table.getn(names) do
-    local name = names[i]
-    data.classes[name] = classes[i]
-    local dmg = 14000 - i * 1300
-    local heal = 9000 - i * 800
-    data.damage[1][name] = { _sum = dmg, _ctime = 28, ["Auto Hit"] = math.floor(dmg * .35), ["Wrath"] = math.floor(dmg * .65) }
-    data.damage[0][name] = { _sum = dmg * 3, _ctime = 96, ["Auto Hit"] = math.floor(dmg * 1.1), ["Wrath"] = math.floor(dmg * 1.9) }
-    data.heal[1][name] = { _sum = heal, _ctime = 28, ["Healing Touch"] = heal }
-    data.heal[0][name] = { _sum = heal * 3, _ctime = 96, ["Healing Touch"] = heal * 3 }
+  for i = 1, table.getn(roster) do
+    local spec = roster[i]
+    local name, class, dmg, heal = spec[1], spec[2], spec[3], spec[4]
+    local kit = kits[class] or kits.WARRIOR
+    data.classes[name] = class
+    data.damage[1][name] = BuildRow(kit.dmg, dmg, 48, { "Onyxia" })
+    data.heal[1][name] = BuildRow(kit.heal, heal, 48, { name, "Thrall", "Garrosh" })
+    data.damage[0][name] = ScaleRow(data.damage[1][name], 3.4, 214)
+    data.heal[0][name] = ScaleRow(data.heal[1][name], 3.4, 214)
   end
+
   local me = UnitName and UnitName("player")
   if me and me ~= "" then
     local _, class = UnitClass("player")
+    if not class or not kits[class] then class = "DRUID" end
     data.classes[me] = class
-    data.damage[1][me] = { _sum = 16200, _ctime = 28, ["Auto Hit"] = 5400, ["Starfire"] = 10800 }
-    data.damage[0][me] = { _sum = 48600, _ctime = 96, ["Auto Hit"] = 16200, ["Starfire"] = 32400 }
-    data.heal[1][me] = { _sum = 4100, _ctime = 28, ["Rejuvenation"] = 4100 }
-    data.heal[0][me] = { _sum = 12300, _ctime = 96, ["Rejuvenation"] = 12300 }
+    local kit = kits[class]
+    data.damage[1][me] = BuildRow(kit.dmg, 18200, 48, { "Onyxia" })
+    data.heal[1][me] = BuildRow(kit.heal, 7600, 48, { me, "Thrall" })
+    data.damage[0][me] = ScaleRow(data.damage[1][me], 3.4, 214)
+    data.heal[0][me] = ScaleRow(data.heal[1][me], 3.4, 214)
   end
+
+  local fights = {
+    { "Onyxia", 186, 1.00, { "Onyxia" }, { { "Anduin", 64 }, { "Valeera", 141 } } },
+    { "Ragnaros", 312, 1.35, { "Ragnaros" }, { { "Jaina", 88 }, { "Anduin", 140 }, { "Medivh", 201 } } },
+    { "Majordomo Executus", 154, .82, { "Majordomo Executus", "Flamewaker Elite" }, { { "Proudmoore", 71 } } },
+    { "Garr", 128, .74, { "Garr", "Firesworn" }, {} },
+    { "Baron Geddon", 96, .68, { "Baron Geddon" }, { { "Thrall", 44 }, { "Uther", 80 } } },
+    { "Magmadar", 118, .71, { "Magmadar" }, { { "Cairne", 52 } } },
+    { "Lucifron", 64, .55, { "Lucifron", "Flamewaker Protector" }, {} },
+    { "Gehennas", 72, .58, { "Gehennas" }, { { "Vol'jin", 39 } } },
+    { "Shazzrah", 58, .50, { "Shazzrah" }, {} },
+    { "Sulfuron Harbinger", 88, .62, { "Sulfuron Harbinger" }, { { "Malfurion", 61 } } },
+    { "Golemagg the Incinerator", 142, .79, { "Golemagg the Incinerator" }, { { "Sylvanas", 97 } } },
+    { "Vaelastrasz the Corrupt", 76, .88, { "Vaelastrasz the Corrupt" }, { { "Garrosh", 22 }, { "Jaina", 41 }, { "Anduin", 55 } } },
+    { "Razorgore the Untamed", 204, .66, { "Razorgore the Untamed" }, { { "Valeera", 110 } } },
+    { "Chromaggus", 168, .91, { "Chromaggus" }, { { "Tyrande", 73 }, { "Medivh", 119 } } },
+    { "Nefarian", 248, 1.22, { "Nefarian" }, { { "Anduin", 90 }, { "Uther", 133 }, { "Gul'dan", 188 } } },
+    { "Core Hound Pack", 38, .32, { "Core Hound", "Ancient Core Hound" }, {} },
+    { "Molten Giant", 44, .36, { "Molten Giant" }, {} },
+    { "Lava Surger", 29, .28, { "Lava Surger" }, {} },
+  }
+
+  history = {}
+  local f
+  for f = 1, table.getn(fights) do
+    local spec = fights[f]
+    local dmg, heal = {}, {}
+    for i = 1, table.getn(roster) do
+      local who = roster[i][1]
+      if data.damage[1][who] then
+        dmg[who] = ScaleRow(data.damage[1][who], spec[3], spec[2])
+        local spell, dests
+        for spell, dests in pairs(dmg[who]._targets or {}) do
+          dmg[who]._targets[spell] = {}
+          local d
+          for d = 1, table.getn(spec[4]) do
+            dmg[who]._targets[spell][spec[4][d]] = math.floor((dmg[who][spell] or 0) / table.getn(spec[4]))
+          end
+        end
+      end
+      if data.heal[1][who] then
+        heal[who] = ScaleRow(data.heal[1][who], spec[3] * .9, spec[2])
+      end
+    end
+    if me and data.damage[1][me] then
+      dmg[me] = ScaleRow(data.damage[1][me], spec[3], spec[2])
+      heal[me] = ScaleRow(data.heal[1][me], spec[3] * .9, spec[2])
+    end
+    table.insert(history, {
+      name = spec[1],
+      duration = spec[2],
+      damage = dmg,
+      heal = heal,
+      deaths = spec[5],
+    })
+  end
+  viewing = nil
   MarkMetersDirty()
   if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
 end
@@ -1126,6 +1964,8 @@ end
 
 local function SizeMeterFrame(frame, width, height)
   if not frame then return end
+  frame.qtW = width
+  frame.qtH = height
   if frame.SetWidth then
     frame:SetWidth(width + 1)
     if frame.SetHeight then frame:SetHeight(height + 1) end
@@ -1138,7 +1978,7 @@ local function PlaceBar(bar, frame, index, barH, visible, spacing)
   if not bar then return end
   if index <= visible then
     spacing = spacing or 0
-    local y = TITLE_H + 2 + (index - 1) * (barH + spacing)
+    local y = TITLE_H + (index - 1) * (barH + spacing)
     bar:ClearAllPoints()
     bar:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -y)
     bar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -y)
@@ -1162,8 +2002,7 @@ local function RefreshMeter(frame)
   if not frame then return end
   local view = frame.view or "damage"
   local segmentId = frame.segment or 1
-  local store = view == "heal" and data.heal or data.damage
-  local segment = store[segmentId] or {}
+  local segment = GetActiveSegment(frame)
   local byRate = view == "dps"
   local keys = SortedNames(segment, byRate)
   local best = 0
@@ -1184,7 +2023,18 @@ local function RefreshMeter(frame)
   if bestRate < .01 then bestRate = 1 end
 
   if frame.titleText then
-    frame.titleText:SetText(ModeLabel(view, segmentId))
+    local title = ModeLabel(view, segmentId)
+    if segmentId == 1 and viewing and history[viewing] then
+      local tag = "Dmg"
+      if view == "dps" then tag = "DPS" end
+      if view == "heal" then tag = "Heal" end
+      title = history[viewing].name .. " " .. tag
+    end
+    local dur = ActiveFightDuration(frame)
+    if dur and dur >= 1 then
+      title = title .. "  " .. FormatDuration(dur)
+    end
+    frame.titleText:SetText(title)
   end
 
   local _, _, visible = MeterLayout()
@@ -1224,45 +2074,72 @@ local function RefreshMeter(frame)
   end
 end
 
+function SpellList(row)
+  local spells = {}
+  if type(row) ~= "table" then return spells end
+  local key
+  for key in pairs(row) do
+    if not INTERNALS[key] then table.insert(spells, key) end
+  end
+  table.sort(spells, function(a, b)
+    return (row[b] or 0) < (row[a] or 0)
+  end)
+  return spells
+end
+
 local function ShowBarTooltip()
   if not this.unit or not this.row or not GameTooltip then return end
   GameTooltip:SetOwner(this, "ANCHOR_NONE")
   GameTooltip:ClearLines()
   GameTooltip:AddLine(this.unit)
-  GameTooltip:AddDoubleLine("Total", ShortNumber(this.row._sum or 0))
+  local sum = this.row._sum or 0
   local ctime = this.row._ctime or 1
   if ctime < 1 then ctime = 1 end
-  GameTooltip:AddDoubleLine("Per second", string.format("%.1f", (this.row._sum or 0) / ctime))
+  GameTooltip:AddDoubleLine("Total", ShortNumber(sum))
+  GameTooltip:AddDoubleLine("Per second", FormatRate(sum / ctime))
   GameTooltip:AddLine(" ")
-  local spells = {}
-  local key
-  for key in pairs(this.row) do
-    if not INTERNALS[key] then table.insert(spells, key) end
-  end
-  table.sort(spells, function(a, b)
-    return (this.row[b] or 0) < (this.row[a] or 0)
-  end)
+  GameTooltip:AddLine("Abilities:")
+  local spells = SpellList(this.row)
   local i
   local max = table.getn(spells)
-  if max > 8 then max = 8 end
+  if max > 12 then max = 12 end
   for i = 1, max do
-    GameTooltip:AddDoubleLine(spells[i], ShortNumber(this.row[spells[i]] or 0))
+    local amount = this.row[spells[i]] or 0
+    local pct = sum > 0 and (amount / sum * 100) or 0
+    local hits, crits = SpellHits(this.row, spells[i])
+    local extra = ShortNumber(amount) .. "  " .. string.format("%.0f%%", pct)
+    if hits > 0 then
+      extra = extra .. "  " .. tostring(hits) .. "h"
+      if crits > 0 then extra = extra .. "/" .. tostring(crits) .. "c" end
+    end
+    GameTooltip:AddDoubleLine(spells[i], extra)
   end
+  GameTooltip:AddLine(" ")
+  GameTooltip:AddLine("Click for the full list.", .7, .75, .8)
   GameTooltip:Show()
   GameTooltip:ClearAllPoints()
   GameTooltip:SetPoint("LEFT", this, "RIGHT", 6, 0)
 end
 
-local function PlaceMeterButton(btn, frame, fromRight)
-  local x = -(2 + fromRight * (BTN + 2))
-  btn:ClearAllPoints()
-  btn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", x, -2)
-  btn:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", x, -(2 + BTN))
-  btn:SetPoint("TOPLEFT", frame, "TOPRIGHT", x - BTN, -2)
+local function TitleInset(showFight)
+  local n = 2
+  if showFight then n = 3 end
+  return HEADER_PAD + (BTN + 2) * n
 end
 
-local function TitleInset(frame)
-  return (BTN + 2) * 2 + 4
+-- Emberveil ignores TOP offsets and FontString JustifyV. Place chrome from
+-- the frame's BOTTOMLEFT with a second corner, same as every other QtUI box.
+function PlaceBox(widget, parent, left, bottom, width, height)
+  if not widget then return end
+  widget:ClearAllPoints()
+  widget:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
+  widget:SetPoint("TOPRIGHT", parent, "BOTTOMLEFT", left + width, bottom + height)
+  if widget.SetWidth then
+    widget:SetWidth(width + 1)
+    if widget.SetHeight then widget:SetHeight(height + 1) end
+    widget:SetWidth(width)
+    if widget.SetHeight then widget:SetHeight(height) end
+  end
 end
 
 local function TooltipOn(frame, lines)
@@ -1305,8 +2182,8 @@ local function MakeMeterButton(parent, caption, lines, onClick, icon)
   end
   if icon then
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
-    btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 5, -5)
-    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -5, 5)
+    btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
+    btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -3, 3)
     btn.icon:SetTexture(METER_ICON .. icon)
   else
     btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1318,23 +2195,69 @@ local function MakeMeterButton(parent, caption, lines, onClick, icon)
   return btn
 end
 
-local function LayoutMeterChrome(frame)
-  PlaceMeterButton(frame.btnReset, frame, 0)
-  if frame.btnReport then PlaceMeterButton(frame.btnReport, frame, 1) end
-  frame.title:ClearAllPoints()
-  frame.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -2)
-  frame.title:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -TitleInset(frame), -2)
-  if frame.title.SetHeight then
-    frame.title:SetHeight(TITLE_H + 1)
-    frame.title:SetHeight(TITLE_H)
+local function LayoutMeterChrome(frame, width, height)
+  if not frame then return end
+  width = width or frame.qtW
+  height = height or frame.qtH
+  if not width or not height then
+    width, height = MeterLayout()
   end
+  frame.qtW = width
+  frame.qtH = height
+
+  local headerBottom = height - TITLE_H
+  local btnBottom = headerBottom + HEADER_PAD - 3
+  local resetLeft = width - HEADER_PAD - 2 - BTN
+  PlaceBox(frame.btnReset, frame, resetLeft, btnBottom, BTN, BTN)
+  if frame.btnReport then
+    PlaceBox(frame.btnReport, frame, resetLeft - (BTN + 2), btnBottom, BTN, BTN)
+  end
+  local showFight = (frame.segment or 1) ~= 0
+  if frame.btnFight then
+    if showFight then
+      PlaceBox(frame.btnFight, frame, resetLeft - (BTN + 2) * 2, btnBottom, BTN, BTN)
+      if frame.btnFight.EnableMouse then frame.btnFight:EnableMouse(true) end
+    else
+      frame.btnFight:ClearAllPoints()
+      frame.btnFight:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      if frame.btnFight.EnableMouse then frame.btnFight:EnableMouse(false) end
+      if HideFightMenu then HideFightMenu() end
+    end
+  end
+
+  local titleW = width - TitleInset(showFight) - HEADER_PAD
+  if titleW < 40 then titleW = 40 end
+  PlaceBox(frame.title, frame, HEADER_PAD, headerBottom, titleW, TITLE_H)
+
+  local label = ""
+  if frame.titleText and frame.titleText.GetText then
+    label = frame.titleText:GetText() or ""
+  end
+  if label == "" then
+    label = ModeLabel(frame.view, frame.segment)
+  end
+  if frame.titleText then
+    frame.titleText:ClearAllPoints()
+    frame.titleText:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    if frame.titleText.SetText then frame.titleText:SetText("") end
+  end
+  -- Emberveil draws FontStrings at the top of their box and ignores
+  -- JustifyV. A short box on the button midline is what actually centers it.
+  local textH = 12
+  local textBottom = headerBottom - 1
+  local fs = frame.title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  fs:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", HEADER_PAD + 4, textBottom)
+  fs:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", HEADER_PAD + titleW + 2, textBottom + textH)
+  fs:SetJustifyH("LEFT")
+  fs:SetText(label)
+  frame.titleText = fs
 end
 
 local function ApplyMeterWindow(frame)
   if not frame then return end
   local width, height, visible, barH, spacing = MeterLayout()
   SizeMeterFrame(frame, width, height)
-  LayoutMeterChrome(frame)
+  LayoutMeterChrome(frame, width, height)
   local i
   for i = 1, MAX_BARS do
     PlaceBar(frame.bars[i], frame, i, barH, visible, spacing)
@@ -1413,15 +2336,123 @@ local function NextUnusedMode()
   return MODES[1]
 end
 
-local function CycleMeterMode(frame, dir)
-  local i = ModeIndex(frame.view, frame.segment) + (dir or 1)
-  local n = table.getn(MODES)
-  if i > n then i = 1 end
-  if i < 1 then i = n end
-  frame.view = MODES[i].view
-  frame.segment = MODES[i].segment
+local function ApplyMeterMode(frame, mode)
+  if not frame or not mode then return end
+  frame.view = mode.view
+  frame.segment = mode.segment
   PersistMeters()
+  LayoutMeterChrome(frame)
   RefreshMeter(frame)
+end
+
+local modePicker
+local modeSource
+
+local function HideModeMenu()
+  if not modePicker then return end
+  modePicker:ClearAllPoints()
+  modePicker:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  if modePicker.EnableMouse then modePicker:EnableMouse(false) end
+  if modePicker.Hide then pcall(modePicker.Hide, modePicker) end
+  modeSource = nil
+end
+QtUI.HideMeterModeMenu = HideModeMenu
+
+local function EnsureModePicker()
+  if modePicker then return modePicker end
+  local frame = CreateFrame("Frame", "QtUIMeterModes", UIParent)
+  frame:SetFrameStrata("FULLSCREEN")
+  frame:SetFrameLevel(185)
+  if frame.SetBackdrop then
+    pcall(frame.SetBackdrop, frame, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    if frame.SetBackdropColor then frame:SetBackdropColor(.02, .025, .03, .96) end
+    if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(.2, .7, .62, 1) end
+  end
+  frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.title:SetJustifyH("LEFT")
+  frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.close = CreateFrame("Button", nil, frame)
+  frame.close:EnableMouse(true)
+  frame.close:RegisterForClicks("LeftButtonUp")
+  frame.close.text = frame.close:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  frame.close.text:SetPoint("CENTER", frame.close, "CENTER", 0, 0)
+  frame.close.text:SetText("X")
+  frame.close:SetScript("OnClick", HideModeMenu)
+  frame.rows = {}
+  local i
+  for i = 1, table.getn(MODES) do
+    local btn = CreateFrame("Button", nil, frame)
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("LeftButtonUp")
+    if btn.SetBackdrop then
+      pcall(btn.SetBackdrop, btn, {
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+      })
+      if btn.SetBackdropColor then btn:SetBackdropColor(.05, .06, .07, .9) end
+      if btn.SetBackdropBorderColor then btn:SetBackdropBorderColor(.22, .28, .3, 1) end
+    end
+    btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btn.text:SetPoint("LEFT", btn, "LEFT", 8, 0)
+    btn.text:SetJustifyH("LEFT")
+    btn.modeIndex = i
+    btn:SetScript("OnEnter", function()
+      if this.SetBackdropColor then this:SetBackdropColor(.08, .4, .64, .95) end
+    end)
+    btn:SetScript("OnLeave", function()
+      if this.SetBackdropColor then this:SetBackdropColor(.05, .06, .07, .9) end
+    end)
+    btn:SetScript("OnClick", function()
+      local source = modeSource
+      local spec = MODES[this.modeIndex]
+      HideModeMenu()
+      if source and spec then ApplyMeterMode(source, spec) end
+    end)
+    frame.rows[i] = btn
+  end
+  if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterModes") end
+  frame:SetScript("OnHide", HideModeMenu)
+  modePicker = frame
+  HideModeMenu()
+  return frame
+end
+
+local function ToggleModeMenu(frame)
+  if HideReportMenu then HideReportMenu() end
+  if HideFightMenu then HideFightMenu() end
+  if modePicker and modePicker.IsShown and modePicker:IsShown() and modeSource == frame then
+    HideModeMenu()
+    return
+  end
+  modeSource = frame
+  local picker = EnsureModePicker()
+  local n = table.getn(MODES)
+  local rowH = 20
+  local width = 220
+  local height = TITLE_H + 8 + n * rowH + 8
+  LayoutCenterPanel(picker, width, height, "View", "")
+  local i
+  for i = 1, n do
+    local btn = picker.rows[i]
+    local spec = MODES[i]
+    local y = TITLE_H + 4 + (i - 1) * rowH
+    PlaceBox(btn, picker, 10, height - y - rowH + 2, width - 20, rowH - 3)
+    local active = frame and spec.view == frame.view and spec.segment == frame.segment
+    if active then
+      btn.text:SetText("|cffffd24d" .. spec.label .. "|r")
+    else
+      btn.text:SetText(spec.label)
+    end
+    if btn.Show then pcall(btn.Show, btn) end
+    if btn.EnableMouse then btn:EnableMouse(true) end
+  end
 end
 
 function QtUI:CloseDamageMeterWindow(frame)
@@ -1497,21 +2528,15 @@ CreateMeterWindow = function(id, view, segment)
   frame.title:EnableMouse(true)
   frame.title:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   frame.titleText = frame.title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  frame.titleText:SetAllPoints(frame.title)
+  frame.titleText:SetPoint("TOPLEFT", frame, "TOPLEFT", HEADER_PAD, -5)
   frame.titleText:SetJustifyH("LEFT")
   frame.titleText:SetText(ModeLabel(frame.view, frame.segment))
   frame.title:SetScript("OnClick", function()
-    if arg1 == "RightButton" then
-      CycleMeterMode(frame, -1)
-    else
-      CycleMeterMode(frame, 1)
-    end
+    ToggleModeMenu(frame)
   end)
   TooltipOn(frame.title, {
     "Damage Meter",
-    "Left-click: next view",
-    "Right-click: previous view",
-    "Views: Current/Overall Damage, DPS, Heal",
+    "Click to choose Current / Overall Damage, DPS or Heal.",
   })
 
   frame.btnReset = MakeMeterButton(frame, "R", { "Reset" }, function()
@@ -1521,6 +2546,12 @@ CreateMeterWindow = function(id, view, segment)
   frame.btnReport = MakeMeterButton(frame, "P", { "Report" }, function()
     ToggleReportMenu(this, frame)
   end, "announce")
+  frame.btnFight = MakeMeterButton(frame, "F", {
+    "Fights",
+    "Current pull and previous bosses / trash.",
+  }, function()
+    ToggleFightMenu(this)
+  end, "plus")
 
   local i
   for i = 1, MAX_BARS do
@@ -1542,6 +2573,12 @@ CreateMeterWindow = function(id, view, segment)
     bar:SetScript("OnEnter", ShowBarTooltip)
     bar:SetScript("OnLeave", function()
       if GameTooltip then GameTooltip:Hide() end
+    end)
+    bar:RegisterForClicks("LeftButtonUp")
+    bar:SetScript("OnMouseUp", function()
+      if arg1 == "LeftButton" and this.unit and this.row then
+        ShowSpellDetails(this.unit, this.row, frame.view)
+      end
     end)
     frame.bars[i] = bar
   end

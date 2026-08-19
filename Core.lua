@@ -236,6 +236,30 @@ function QtUI:EnsureLayoutDefaults()
   if layout.energyTickAlpha > 1 then layout.energyTickAlpha = 1 end
   if layout.eqCompare == nil then layout.eqCompare = true end
   if layout.clockLocal == nil then layout.clockLocal = false end
+  layout.chatWidth = tonumber(layout.chatWidth) or 380
+  if layout.chatWidth < 180 then layout.chatWidth = 180 end
+  if layout.chatWidth > 700 then layout.chatWidth = 700 end
+  layout.chatHeight = tonumber(layout.chatHeight) or 190
+  if layout.chatHeight < 80 then layout.chatHeight = 80 end
+  if layout.chatHeight > 500 then layout.chatHeight = 500 end
+  layout.chatFontSize = tonumber(layout.chatFontSize) or 12
+  if layout.chatFontSize < 8 then layout.chatFontSize = 8 end
+  if layout.chatFontSize > 20 then layout.chatFontSize = 20 end
+  if layout.chatTime == nil then layout.chatTime = true end
+  layout.snapRange = tonumber(layout.snapRange) or 10
+  if layout.snapRange < 2 then layout.snapRange = 2 end
+  if layout.snapRange > 40 then layout.snapRange = 40 end
+  layout.snapPadLeft = tonumber(layout.snapPadLeft) or 0
+  layout.snapPadRight = tonumber(layout.snapPadRight) or 0
+  layout.snapPadTop = tonumber(layout.snapPadTop) or 0
+  layout.snapPadBottom = tonumber(layout.snapPadBottom) or 0
+  layout.xpBarHeight = tonumber(layout.xpBarHeight) or 20
+  if layout.xpBarHeight < 12 then layout.xpBarHeight = 12 end
+  if layout.xpBarHeight > 32 then layout.xpBarHeight = 32 end
+  layout.xpBarFontSize = tonumber(layout.xpBarFontSize) or 12
+  if layout.xpBarFontSize < 8 then layout.xpBarFontSize = 8 end
+  if layout.xpBarFontSize > 18 then layout.xpBarFontSize = 18 end
+  if layout.xpBarText == nil then layout.xpBarText = true end
   if layout.showTargetTarget == nil then layout.showTargetTarget = true end
   layout.comboPointSize = tonumber(layout.comboPointSize) or 15
   if layout.comboPointSize < 8 then layout.comboPointSize = 8 end
@@ -269,6 +293,7 @@ function QtUI:EnsureLayoutDefaults()
   layout.bagSlotSize = tonumber(layout.bagSlotSize) or 36
   if layout.bagSlotSize < 24 then layout.bagSlotSize = 24 end
   if layout.bagSlotSize > 52 then layout.bagSlotSize = 52 end
+  if layout.bagShowKeys == nil then layout.bagShowKeys = true end
   if not layout.bagColumns then layout.bagColumns = 10 end
   layout.bagColumns = tonumber(layout.bagColumns) or 10
   if layout.bagColumns < 6 then layout.bagColumns = 6 end
@@ -361,28 +386,33 @@ end
 function QtUI:ApplyActionBarBackground()
   local layout = self:GetLayout()
   local function Paint(panel, key)
-    if not panel or not panel.SetBackdropColor then return end
-    -- Always re-stamp the backdrop. Emberveil can keep a dead GetBackdrop()
-    -- after login so a skipped SetBackdrop leaves the bar fully transparent.
-    if panel.SetBackdrop then
-      pcall(panel.SetBackdrop, panel, nil)
-      panel:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 8, edgeSize = 12,
-        insets = { left = 2, right = 2, top = 2, bottom = 2 },
-      })
-    end
+    if not panel then return end
     if LayoutFlagOn(layout.barShowBackground) and self:IsBarEnabled(key) then
-      local c = layout.barBackground or {}
-      local b = layout.barBorder or {}
-      panel:SetBackdropColor(c.r or .025, c.g or .035, c.b or .045, c.a or .85)
-      panel:SetBackdropBorderColor(b.r or .18, b.g or .24, b.b or .28, b.a or 1)
+      -- Re-stamp only when the chrome should be visible. Emberveil keeps
+      -- the last drawn backdrop if we SetBackdrop and then paint alpha 0.
+      if panel.SetBackdrop then
+        pcall(panel.SetBackdrop, panel, nil)
+        panel:SetBackdrop({
+          bgFile = "Interface\\Buttons\\WHITE8X8",
+          edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+          tile = true, tileSize = 8, edgeSize = 12,
+          insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+      end
+      if panel.SetBackdropColor then
+        local c = layout.barBackground or {}
+        local b = layout.barBorder or {}
+        panel:SetBackdropColor(c.r or .025, c.g or .035, c.b or .045, c.a or .85)
+        panel:SetBackdropBorderColor(b.r or .18, b.g or .24, b.b or .28, b.a or 1)
+      end
       if panel.Show then pcall(panel.Show, panel) end
       if panel.SetAlpha then pcall(panel.SetAlpha, panel, 1) end
     else
-      panel:SetBackdropColor(0, 0, 0, 0)
-      panel:SetBackdropBorderColor(0, 0, 0, 0)
+      if panel.SetBackdrop then pcall(panel.SetBackdrop, panel, nil) end
+      if panel.SetBackdropColor then
+        panel:SetBackdropColor(0, 0, 0, 0)
+        panel:SetBackdropBorderColor(0, 0, 0, 0)
+      end
     end
   end
   Paint(self.actionPanel, "main")
@@ -403,6 +433,37 @@ function QtUI:ApplyActionBarBackground()
   end
 end
 
+local SLOT_EXTRA = 2
+
+local function ParkSlotCell(cell)
+  if not cell then return end
+  if cell.art then
+    if cell.art.SetTexture then cell.art:SetTexture(nil) end
+    if cell.art.Hide then pcall(cell.art.Hide, cell.art) end
+  end
+  if cell.ClearAllPoints then
+    cell:ClearAllPoints()
+    cell:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    cell:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -3999, 3999)
+  end
+  if cell.Hide then pcall(cell.Hide, cell) end
+  cell.qtParked = 1
+end
+
+local function PlaceSlotCell(cell, button, extra)
+  if not cell or not button then return end
+  extra = extra or SLOT_EXTRA
+  if cell.art and cell.art.SetTexture then
+    cell.art:SetTexture("Interface\\AddOns\\QtUI\\Media\\HDActionBarBtn")
+  end
+  if cell.art and cell.art.Show then pcall(cell.art.Show, cell.art) end
+  cell:ClearAllPoints()
+  cell:SetPoint("TOPLEFT", button, "TOPLEFT", -extra, extra)
+  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", extra, -extra)
+  if cell.Show then pcall(cell.Show, cell) end
+  cell.qtParked = nil
+end
+
 function QtUI:EnsureSlotCell(button, panel)
   if not button then return end
   if button.QtUISlotBg then
@@ -419,7 +480,7 @@ function QtUI:EnsureSlotCell(button, panel)
   if button.GetWidth then size = button:GetWidth() or 34 end
   -- A couple of pixels past the icon so the winged well matches the
   -- filled-slot footprint. extra=0 sat inside the art; extra=3 overshot.
-  local extra = 2
+  local extra = SLOT_EXTRA
 
   local cell = button.QtUICell
   if not cell then
@@ -437,18 +498,11 @@ function QtUI:EnsureSlotCell(button, panel)
 
   -- Vanilla 1.12 TGA from DragonflightUI-Reforged (same format as QtIcon).
   if cell.SetBackdrop then pcall(cell.SetBackdrop, cell, nil) end
-  if cell.art.SetTexture then
-    cell.art:SetTexture("Interface\\AddOns\\QtUI\\Media\\HDActionBarBtn")
-  end
-  if cell.art.Show then pcall(cell.art.Show, cell.art) end
 
   local panelLevel = 1
   if panel.GetFrameLevel then panelLevel = panel:GetFrameLevel() or 1 end
   cell:SetFrameLevel(math.max(0, panelLevel))
   if button.SetFrameLevel then button:SetFrameLevel(panelLevel + 4) end
-  cell:ClearAllPoints()
-  cell:SetPoint("TOPLEFT", button, "TOPLEFT", -extra, extra)
-  cell:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", extra, -extra)
   cell.QtUIStamp = stamp
   return cell
 end
@@ -502,9 +556,31 @@ local function ParkTexture(tex)
   if tex.Hide then pcall(tex.Hide, tex) end
 end
 
+local function RimPad(size)
+  local pad = math.floor((size or 34) * 0.38)
+  if pad < 10 then pad = 10 end
+  return pad
+end
+
+local function ParkRimFrame(frame)
+  if not frame then return end
+  if frame.art then
+    if frame.art.SetTexture then frame.art:SetTexture(nil) end
+    if frame.art.Hide then pcall(frame.art.Hide, frame.art) end
+  end
+  if frame.ClearAllPoints then
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    frame:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -3999, 3999)
+  end
+  if frame.Hide then pcall(frame.Hide, frame) end
+  frame.qtParked = 1
+end
+
 function QtUI:HideButtonRim(button, keepNormalIcon)
   if not button then return end
   ParkTexture(button.QtUIRing)
+  ParkRimFrame(button.QtUIRimFrame)
   if not keepNormalIcon then
     if button.SetNormalTexture then button:SetNormalTexture("") end
     local normal = button.GetNormalTexture and button:GetNormalTexture()
@@ -515,7 +591,13 @@ end
 
 function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
   if not button then return end
-  size = size or (button.GetWidth and button:GetWidth()) or 34
+  if not size or size < 8 then
+    size = button.QtUISize
+  end
+  if not size or size < 8 then
+    size = button.GetWidth and button:GetWidth()
+  end
+  if not size or size < 8 then size = 34 end
   local keep = keepNormalIcon and 1 or 0
   local layout = self.GetLayout and self:GetLayout()
   local show = 1
@@ -523,13 +605,10 @@ function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
     local rim = layout.slotShowRim
     if rim == false or rim == 0 or rim == "0" then show = 0 end
   end
-  -- Native ActionButton_Update can run many times per second. Re-stamping
-  -- the rim on every call is the single biggest idle cost of the bars.
-  -- When the rim is off we still have to strip the vanilla NormalTexture
-  -- that ActionButton_Update puts back.
-  if show == 1 and not self.forceButtonRim and button.QtUIRing and button.QtUIRingSize == size
-      and button.QtUIRingKeep == keep and button.QtUIRingOn == 1 then
-    if button.QtUIRing.Show then pcall(button.QtUIRing.Show, button.QtUIRing) end
+  if show == 1 and not self.forceButtonRim and button.QtUIRimFrame
+      and button.QtUIRingSize == size and button.QtUIRingKeep == keep
+      and button.QtUIRingOn == 1 and not button.QtUIRimFrame.qtParked then
+    if button.QtUIRimFrame.Show then pcall(button.QtUIRimFrame.Show, button.QtUIRimFrame) end
     return
   end
   if show == 0 then
@@ -538,30 +617,49 @@ function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
     button.QtUIRingKeep = keep
     return
   end
-  if not keepNormalIcon and button.SetNormalTexture then
-    button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+
+  -- MultiBarLeft/Right wipe textures created on the native button.
+  -- The rim is a sibling on the Qt panel, sized in pixels like slot cells.
+  if not keepNormalIcon then
+    if button.SetNormalTexture then button:SetNormalTexture("") end
+    ParkTexture(button.GetNormalTexture and button:GetNormalTexture())
   end
-  -- Emberveil often has no NormalTexture yet at login. An overlay rim
-  -- survives the later native ActionButton_Update wipe.
-  if not button.QtUIRing then
-    button.QtUIRing = button:CreateTexture(nil, "OVERLAY")
+  ParkTexture(button.QtUIRing)
+
+  local panel = button.GetParent and button:GetParent()
+  if not panel then return end
+  local rim = button.QtUIRimFrame
+  if not rim then
+    rim = CreateFrame("Frame", nil, panel)
+    button.QtUIRimFrame = rim
+    rim.art = rim:CreateTexture(nil, "ARTWORK")
+    rim.art:SetAllPoints(rim)
+  elseif rim.SetParent then
+    rim:SetParent(panel)
   end
-  local ring = button.QtUIRing
-  if ring.SetTexture then ring:SetTexture("Interface\\Buttons\\UI-Quickslot2") end
-  local pad = math.floor(size * 0.38)
-  if pad < 10 then pad = 10 end
-  ring:ClearAllPoints()
-  ring:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
-  ring:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
-  if ring.SetAlpha then ring:SetAlpha(1) end
-  if ring.Show then pcall(ring.Show, ring) end
-  local normal = button.GetNormalTexture and button:GetNormalTexture()
-  if normal and not keepNormalIcon then
-    if normal.SetAlpha then normal:SetAlpha(1) end
-    normal:ClearAllPoints()
-    normal:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
-    normal:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+  if rim.art and rim.art.SetTexture then
+    rim.art:SetTexture("Interface\\Buttons\\UI-Quickslot2")
   end
+  if rim.art and rim.art.Show then pcall(rim.art.Show, rim.art) end
+
+  local pad = RimPad(size)
+  local panelLevel = 1
+  if panel.GetFrameLevel then panelLevel = panel:GetFrameLevel() or 1 end
+  rim:SetFrameLevel(math.max(0, panelLevel + 3))
+  if button.SetFrameLevel then button:SetFrameLevel(panelLevel + 4) end
+
+  rim:ClearAllPoints()
+  if button.QtUIGridX ~= nil and button.QtUIGridY ~= nil then
+    local x = button.QtUIGridX
+    local y = button.QtUIGridY
+    rim:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", x - pad, y - pad)
+    rim:SetPoint("TOPRIGHT", panel, "BOTTOMLEFT", x + size + pad, y + size + pad)
+  else
+    rim:SetPoint("TOPLEFT", button, "TOPLEFT", -pad, pad)
+    rim:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", pad, -pad)
+  end
+  if rim.Show then pcall(rim.Show, rim) end
+  rim.qtParked = nil
   button.QtUIRingSize = size
   button.QtUIRingKeep = keep
   button.QtUIRingOn = 1
@@ -572,9 +670,9 @@ function QtUI:ApplySlotBackgrounds()
   local names = {
     "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
     "MultiBarRightButton", "MultiBarLeftButton",
-    "ShapeshiftButton", "PetActionButton",
+    "ShapeshiftButton", "PetActionButton", "BonusActionButton",
   }
-  local maxCount = { 12, 12, 12, 12, 12, 10, 10 }
+  local maxCount = { 12, 12, 12, 12, 12, 10, 10, 12 }
   local n
   for n = 1, table.getn(names) do
     local i
@@ -586,21 +684,14 @@ function QtUI:ApplySlotBackgrounds()
         local cell = self:EnsureSlotCell(button, button:GetParent())
         if cell then
           if shown and LayoutFlagOn(layout.slotShowBackground) and not SlotHasSpell(button, names[n], i) then
-            if cell.art then
-              if cell.art.SetTexture then
-                cell.art:SetTexture("Interface\\AddOns\\QtUI\\Media\\HDActionBarBtn")
-              end
-              if cell.art.Show then pcall(cell.art.Show, cell.art) end
-            end
-            cell:Show()
+            PlaceSlotCell(cell, button, SLOT_EXTRA)
           else
-            if cell.art and cell.art.Hide then pcall(cell.art.Hide, cell.art) end
-            cell:Hide()
+            ParkSlotCell(cell)
           end
         end
         local filled = SlotHasSpell(button, names[n], i)
         local keepIcon = names[n] == "ShapeshiftButton" and filled
-        self:EnsureButtonRim(button, button.GetWidth and button:GetWidth(), keepIcon)
+        self:EnsureButtonRim(button, button.QtUISize, keepIcon)
       end
     end
   end
@@ -646,12 +737,15 @@ function QtUI:ApplyLayout()
   self:EnsureLayoutDefaults()
   if self.LayoutActionBars then self:LayoutActionBars() end
   if self.RefreshBarChrome then self:RefreshBarChrome() end
+  if self.RefreshAllActionButtons then self.RefreshAllActionButtons() end
   if self.ApplyUnitFrameLayout then self:ApplyUnitFrameLayout() end
   if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
   if self.UpdateUnitFrames then self:UpdateUnitFrames() end
   if self.UpdatePartyFrames then self:UpdatePartyFrames() end
   if self.bagFrame and self.UpdateBags then self:UpdateBags() end
   if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
+  if self.LayoutChat then self:LayoutChat() end
+  if self.ApplySavedPositions then self:ApplySavedPositions() end
   if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
   if not self.pulsingBarBackground and self.ScheduleBarChromeRefresh then
     self:ScheduleBarChromeRefresh()
@@ -660,17 +754,10 @@ end
 
 function QtUI:PulseActionBarBackground()
   if self.pulsingBarBackground then return end
-  local layout = self:GetLayout()
-  local saved = layout.barShowBackground
-  local on = saved == true or saved == 1 or saved == "1"
   self.pulsingBarBackground = true
-  -- Same sequence as clicking "Show action-bar background": Emberveil only
-  -- draws the bar frame after the panel is laid out again, not after a lone
-  -- SetBackdrop. Skip unit frames and bags so this stays a login-only hitch.
-  layout.barShowBackground = not on
-  if self.LayoutActionBars then self:LayoutActionBars() end
-  if self.RefreshBarChrome then self:RefreshBarChrome() end
-  layout.barShowBackground = saved
+  -- Restamp the saved chrome only. Flipping barShowBackground used to force
+  -- Emberveil to draw, then left the backdrop stuck on and could write the
+  -- inverted value into SavedVariables.
   if self.LayoutActionBars then self:LayoutActionBars() end
   if self.RefreshBarChrome then self:RefreshBarChrome() end
   self.pulsingBarBackground = nil
@@ -741,6 +828,7 @@ function QtUI:Initialize()
   if self:IsFeatureEnabled("autoSell") then SafeSetup("autoSell", self.SetupAutoSell) end
   if self:IsFeatureEnabled("dataText") then SafeSetup("dataText", self.SetupDataText) end
   if self:IsFeatureEnabled("damageMeter") then SafeSetup("damageMeter", self.SetupDamageMeter) end
+  SafeSetup("chat", self.SetupChat)
   SafeSetup("questLog", self.SetupQuestLog)
   SafeSetup("cooldowns", self.SetupCooldowns)
   SafeSetup("eqCompare", self.SetupEqCompare)

@@ -23,6 +23,7 @@ local function TintSlotWell(button, r, g, b, a)
 end
 local SLOT_GAP = 3
 local WINDOW_PADDING = 12
+local ShowKeyring
 
 local function FormatMoney(copper)
   copper = copper or 0
@@ -373,6 +374,8 @@ local function UpdateEquippedBagButton(button)
   local texture
   if bag == 0 then
     texture = "Interface\\Buttons\\Button-Backpack-Up"
+  elseif bag == -2 then
+    texture = "Interface\\Icons\\INV_Misc_Key_03"
   else
     texture = GetInventoryItemTexture("player", button.inventorySlot)
   end
@@ -383,10 +386,47 @@ local function UpdateEquippedBagButton(button)
   else
     button.icon:SetVertexColor(.3, .3, .3, .7)
   end
-  button.slots:SetText(slots)
+  if bag == -2 then
+    button.slots:SetText("")
+  else
+    button.slots:SetText(slots)
+  end
+  if bag == -2 then
+    if ShowKeyring() then
+      TintSlotWell(button, 1, .72, .18, 1)
+      button.icon:SetVertexColor(1, 1, 1, 1)
+    else
+      TintSlotWell(button, .4, .4, .4, 1)
+      button.icon:SetVertexColor(.45, .45, .45, .8)
+    end
+  end
+end
+
+function ShowKeyring()
+  if not QtUI.GetLayout then return true end
+  local layout = QtUI:GetLayout()
+  if not layout then return true end
+  local value = layout.bagShowKeys
+  return value ~= false and value ~= 0 and value ~= "0"
+end
+
+local function BagOrder()
+  if ShowKeyring() then return { 0, 1, 2, 3, 4, -2 } end
+  return { 0, 1, 2, 3, 4 }
 end
 
 local function HandleEquippedBagClick()
+  if this.bag == -2 then
+    local layout = QtUI.GetLayout and QtUI:GetLayout()
+    if layout then
+      layout.bagShowKeys = not ShowKeyring()
+    end
+    if type(ToggleKeyRing) == "function" and ShowKeyring() then
+      pcall(ToggleKeyRing)
+    end
+    if QtUI.UpdateBags then QtUI:UpdateBags() end
+    return
+  end
   if this.bag == 0 then return end
 
   local hasCursorItem = type(CursorHasItem) == "function" and IsTruthy(CursorHasItem())
@@ -427,7 +467,10 @@ local function CreateEquippedBagButton(parent, bag)
   button:SetScript("OnEnter", function()
     HighlightBagSlots(this.bag, true)
     GameTooltip:SetOwner(this, "ANCHOR_TOP")
-    if this.bag == 0 then
+    if this.bag == -2 then
+      GameTooltip:SetText("Keyring")
+      GameTooltip:AddLine("Click to show or hide keys in the bag window.", .8, .8, .8, 1)
+    elseif this.bag == 0 then
       GameTooltip:SetText("Backpack")
       GameTooltip:AddLine("The backpack is fixed and cannot be replaced.", .75, .75, .75, 1)
     elseif GetInventoryItemLink("player", this.inventorySlot) then
@@ -500,7 +543,7 @@ end
 
 local function BagLayoutSignature()
   local signature = ""
-  local bagOrder = { 0, 1, 2, 3, 4, -2 }
+  local bagOrder = BagOrder()
   for _, bag in ipairs(bagOrder) do
     signature = signature .. bag .. ":" .. (GetContainerNumSlots(bag) or 0) .. ";"
   end
@@ -513,7 +556,7 @@ end
 
 local function UpdateSpaceText(frame)
   local free, total = 0, 0
-  local bagOrder = { 0, 1, 2, 3, 4, -2 }
+  local bagOrder = BagOrder()
   for _, bag in ipairs(bagOrder) do
     local slots = GetContainerNumSlots(bag) or 0
     total = total + slots
@@ -560,7 +603,7 @@ function QtUI:UpdateBags()
   local position = 1
   local free = 0
   local total = 0
-  local bagOrder = { 0, 1, 2, 3, 4, -2 }
+  local bagOrder = BagOrder()
   local keySlots = 0
   frame.itemByLocation = {}
   for _, bag in ipairs(bagOrder) do
@@ -611,8 +654,8 @@ end
 
 function QtUI:OpenBags()
   if not self.bagFrame then return end
-  self:UpdateBags()
-  self.bagFrame:Show()
+  pcall(self.UpdateBags, self)
+  if self.bagFrame.Show then pcall(self.bagFrame.Show, self.bagFrame) end
 end
 
 function QtUI:CloseBags()
@@ -708,14 +751,14 @@ function QtUI:SetupBags()
 
   -- Bag-management button and popover.
   frame.bagMenuButton = CreateFrame("Button", "QtUIBagMenuButton", frame)
-  frame.bagMenuButton:SetWidth(28)
-  frame.bagMenuButton:SetHeight(28)
-  frame.bagMenuButton:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 11, 5)
+  frame.bagMenuButton:SetWidth(22)
+  frame.bagMenuButton:SetHeight(22)
+  frame.bagMenuButton:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 11, 6)
   frame.bagMenuButton:SetFrameLevel(frame:GetFrameLevel() + 6)
   ApplySlotWell(frame.bagMenuButton, 2)
   frame.bagMenuButton.icon = frame.bagMenuButton:CreateTexture(nil, "ARTWORK")
-  frame.bagMenuButton.icon:SetPoint("TOPLEFT", frame.bagMenuButton, "TOPLEFT", 4, -4)
-  frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -4, 4)
+  frame.bagMenuButton.icon:SetPoint("TOPLEFT", frame.bagMenuButton, "TOPLEFT", 3, -3)
+  frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -3, 3)
   frame.bagMenuButton.icon:SetTexture("Interface\\Buttons\\Button-Backpack-Up")
 
   frame.bagMenu = self:CreatePanel("QtUIBagMenu", frame, frame:GetFrameLevel() + 8)
@@ -737,6 +780,18 @@ function QtUI:SetupBags()
     bagButton:SetPoint("BOTTOMLEFT", frame.bagMenu, "BOTTOMLEFT", 7 + bagIndex * 40, 6)
     frame.equippedBags[bagIndex + 1] = bagButton
   end
+
+  frame.keyButton = CreateEquippedBagButton(frame, -2)
+  frame.keyButton:SetWidth(22)
+  frame.keyButton:SetHeight(22)
+  frame.keyButton:SetPoint("BOTTOMLEFT", frame.bagMenuButton, "BOTTOMRIGHT", 3, 0)
+  if frame.keyButton.icon then
+    frame.keyButton.icon:ClearAllPoints()
+    frame.keyButton.icon:SetPoint("TOPLEFT", frame.keyButton, "TOPLEFT", 3, -3)
+    frame.keyButton.icon:SetPoint("BOTTOMRIGHT", frame.keyButton, "BOTTOMRIGHT", -3, 3)
+  end
+  frame.keyButton:SetFrameLevel(frame:GetFrameLevel() + 6)
+  frame.equippedBags[6] = frame.keyButton
 
   frame.bagMenuButton:SetScript("OnClick", function()
     local menu = this:GetParent().bagMenu

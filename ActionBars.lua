@@ -62,6 +62,7 @@ local SizeForGrid
 local ParkActionButton
 local SetPanelShown
 local BarEnabled
+local UpdateXPBar
 local function ResolvePrimaryAction(button)
   local buttonID = button and button:GetID()
   if not buttonID then return nil end
@@ -285,6 +286,53 @@ local function InstallActionResolvers()
       RestyleAfterNativeUpdate()
     end
   end
+  if type(ShapeshiftBar_Update) == "function" then
+    local originalShiftUpdate = ShapeshiftBar_Update
+    ShapeshiftBar_Update = function()
+      originalShiftUpdate()
+      local previousThis = this
+      local i
+      for i = 1, 10 do
+        local button = getglobal("ShapeshiftButton" .. i)
+        if button then
+          this = button
+          RestyleAfterNativeUpdate()
+        end
+      end
+      this = previousThis
+    end
+  end
+  if type(PetActionBar_Update) == "function" then
+    local originalPetUpdate = PetActionBar_Update
+    PetActionBar_Update = function()
+      originalPetUpdate()
+      local previousThis = this
+      local i
+      for i = 1, 10 do
+        local button = getglobal("PetActionButton" .. i)
+        if button then
+          this = button
+          RestyleAfterNativeUpdate()
+        end
+      end
+      this = previousThis
+    end
+  end
+  -- Emberveil's MultiActionBar_Update restyles MultiBarLeft/Right after
+  -- our layout and wipes the rim. Put the buttons back on the Qt panels
+  -- and stamp the frame again.
+  if type(MultiActionBar_Update) == "function" then
+    local originalBarUpdate = MultiActionBar_Update
+    local restamping
+    MultiActionBar_Update = function()
+      originalBarUpdate()
+      if restamping then return end
+      restamping = true
+      if QtUI.LayoutSideBars then QtUI:LayoutSideBars() end
+      if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
+      restamping = nil
+    end
+  end
 end
 
 local function RefreshActionButtons()
@@ -340,6 +388,29 @@ local function RefreshActionButtons()
         pcall(MultiActionButton_Update)
       elseif type(ActionButton_Update) == "function" then
         pcall(ActionButton_Update)
+      end
+    end
+
+    local bonusButton = getglobal("BonusActionButton" .. i)
+    if bonusButton then
+      this = bonusButton
+      if type(ActionButton_Update) == "function" then pcall(ActionButton_Update) end
+    end
+  end
+  local s
+  for s = 1, 10 do
+    local shiftButton = getglobal("ShapeshiftButton" .. s)
+    if shiftButton then
+      this = shiftButton
+      if QtUI.EnsureButtonRim then
+        QtUI:EnsureButtonRim(shiftButton, shiftButton.GetWidth and shiftButton:GetWidth(), true)
+      end
+    end
+    local petButton = getglobal("PetActionButton" .. s)
+    if petButton then
+      this = petButton
+      if QtUI.EnsureButtonRim then
+        QtUI:EnsureButtonRim(petButton, petButton.GetWidth and petButton:GetWidth())
       end
     end
   end
@@ -424,7 +495,25 @@ function QtUI:PositionAuxiliaryBars()
         else
           if button.Hide then pcall(button.Hide, button) end
           if button.EnableMouse then pcall(button.EnableMouse, button, false) end
-          if button.QtUICell then button.QtUICell:Hide() end
+          if button.QtUICell then
+            local cell = button.QtUICell
+            if cell.ClearAllPoints then
+              cell:ClearAllPoints()
+              cell:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+            end
+            if cell.Hide then pcall(cell.Hide, cell) end
+            cell.qtParked = 1
+          end
+          if button.QtUIRimFrame then
+            local rim = button.QtUIRimFrame
+            if rim.ClearAllPoints then
+              rim:ClearAllPoints()
+              rim:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+            end
+            if rim.Hide then pcall(rim.Hide, rim) end
+            rim.qtParked = 1
+            button.QtUIRingOn = 0
+          end
           if button.ClearAllPoints and button.SetPoint then
             pcall(function()
               button:ClearAllPoints()
@@ -651,6 +740,8 @@ end
 StyleActionButton = function(button, size)
   if not button then return end
   size = size or 34
+  if size < 8 then size = 34 end
+  button.QtUISize = size
   button:SetWidth(size)
   button:SetHeight(size)
   if button.QtUISlotBg then
@@ -666,7 +757,27 @@ ParkActionButton = function(button)
   if not button then return end
   if button.Hide then pcall(button.Hide, button) end
   if button.EnableMouse then pcall(button.EnableMouse, button, false) end
-  if button.QtUICell then button.QtUICell:Hide() end
+  if button.QtUICell then
+    local cell = button.QtUICell
+    if cell.art and cell.art.SetTexture then cell.art:SetTexture(nil) end
+    if cell.ClearAllPoints then
+      cell:ClearAllPoints()
+      cell:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    end
+    if cell.Hide then pcall(cell.Hide, cell) end
+    cell.qtParked = 1
+  end
+  if button.QtUIRimFrame then
+    local rim = button.QtUIRimFrame
+    if rim.art and rim.art.SetTexture then rim.art:SetTexture(nil) end
+    if rim.ClearAllPoints then
+      rim:ClearAllPoints()
+      rim:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    end
+    if rim.Hide then pcall(rim.Hide, rim) end
+    rim.qtParked = 1
+    button.QtUIRingOn = 0
+  end
   if button.ClearAllPoints and button.SetPoint then
     pcall(function()
       button:ClearAllPoints()
@@ -694,12 +805,26 @@ end
 PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
   if not button or not panel then return end
   if columns < 1 then columns = 1 end
+  if not size or size < 8 then size = 34 end
   local col = math.mod(index - 1, columns)
   local row = math.floor((index - 1) / columns)
+  local x = pad + col * (size + spacing)
+  local y = pad + row * (size + spacing)
   button:SetParent(panel)
+  button.QtUIGridX = x
+  button.QtUIGridY = y
+  button.QtUISize = size
   button:ClearAllPoints()
-  button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT",
-    pad + col * (size + spacing), pad + row * (size + spacing))
+  button:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", x, y)
+  -- Emberveil drops SetWidth on MultiBarLeft/Right. A second corner is
+  -- what actually gives the button a box for the rim to wrap.
+  button:SetPoint("TOPRIGHT", panel, "BOTTOMLEFT", x + size, y + size)
+  if button.SetWidth then
+    button:SetWidth(size + 1)
+    if button.SetHeight then button:SetHeight(size + 1) end
+    button:SetWidth(size)
+    if button.SetHeight then button:SetHeight(size) end
+  end
   StyleActionButton(button, size)
   if QtUI.EnsureSlotCell then QtUI:EnsureSlotCell(button, panel) end
   if button.EnableMouse then pcall(button.EnableMouse, button, true) end
@@ -764,22 +889,44 @@ function QtUI:LayoutActionBars()
   if self.xpBar then
     self.xpBar:SetParent(UIParent)
     local saved = QtUIDB.positions and QtUIDB.positions.experience
-    if not saved then
-      self.xpBar:ClearAllPoints()
-      if BarEnabled(main) and self.actionPanel then
-        self.xpBar:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
-      else
-        self.xpBar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 6)
-      end
+    local width = 442
+    if BarEnabled(main) and self.actionPanel and self.actionPanel.GetWidth then
+      width = self.actionPanel:GetWidth() or width
     end
-    if BarEnabled(main) then
-      self.xpBar:SetWidth(self.actionPanel:GetWidth())
+    if width < 80 then width = 442 end
+    local barH = 20
+    if self.GetLayout then
+      barH = tonumber(self:GetLayout().xpBarHeight) or 20
     end
+    if barH < 12 then barH = 12 end
+    if barH > 32 then barH = 32 end
+    self.xpBar:ClearAllPoints()
+    if saved and saved.x and saved.y then
+      local left, bottom = saved.x, saved.y
+      self.xpBar:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+      self.xpBar:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + barH)
+    elseif BarEnabled(main) and self.actionPanel then
+      self.xpBar:SetPoint("TOPLEFT", self.actionPanel, "BOTTOMLEFT", 0, -4)
+      self.xpBar:SetPoint("BOTTOMRIGHT", self.actionPanel, "BOTTOMLEFT", width, -(4 + barH))
+    else
+      self.xpBar:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 18, 6)
+      self.xpBar:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", 18 + width, 6 + barH)
+    end
+    if self.xpBar.SetWidth then
+      self.xpBar:SetWidth(width + 1)
+      self.xpBar:SetWidth(width)
+    end
+    if self.xpBar.SetHeight then
+      self.xpBar:SetHeight(barH + 1)
+      self.xpBar:SetHeight(barH)
+    end
+    UpdateXPBar()
   end
   self:LayoutSideBars()
   self:PositionAuxiliaryBars()
   SuppressPagingChrome()
   if self.ApplyActionBarBackground then self:ApplyActionBarBackground() end
+  if self.ApplySlotBackgrounds then self:ApplySlotBackgrounds() end
   PassClicksThrough(self.actionPanel)
   PassClicksThrough(self.extraActionPanel)
   PassClicksThrough(self.utilityActionPanel)
@@ -812,18 +959,60 @@ function QtUI:LayoutSideBars()
       end
     end
     local width, height = SizeForGrid(12, columns, size, spacing, pad)
-    panel:SetWidth(width)
-    panel:SetHeight(height)
+    if panel.SetWidth then
+      panel:SetWidth(width + 1)
+      if panel.SetHeight then panel:SetHeight(height + 1) end
+      panel:SetWidth(width)
+      if panel.SetHeight then panel:SetHeight(height) end
+    end
   end
 
   LayoutSide(self.sideRightPanel, "MultiBarRightButton", self:GetBarConfig("sideRight"), 24)
   LayoutSide(self.sideLeftPanel, "MultiBarLeftButton", self:GetBarConfig("sideLeft"), 36)
 end
 
-local function UpdateXPBar()
+local function ApplyXPBarFont(wrap)
+  if not wrap or not wrap.label then return end
+  local layout = QtUI.GetLayout and QtUI:GetLayout() or {}
+  local fontSize = tonumber(layout.xpBarFontSize) or 12
+  if fontSize < 8 then fontSize = 8 end
+  if fontSize > 18 then fontSize = 18 end
+  -- Emberveil ignores SetFont on live FontStrings. Switch the inherited
+  -- font object and scale the holder so the size actually changes.
+  local object, base = GameFontNormal, 12
+  if fontSize <= 10 and GameFontHighlightSmall then
+    object, base = GameFontHighlightSmall, 10
+  elseif fontSize >= 15 and GameFontNormalLarge then
+    object, base = GameFontNormalLarge, 16
+  end
+  wrap.label:ClearAllPoints()
+  wrap.label:SetPoint("CENTER", wrap, "CENTER", 0, 0)
+  wrap.label:SetPoint("TOPLEFT", wrap, "CENTER", -2, 2)
+  wrap.label:SetPoint("BOTTOMRIGHT", wrap, "CENTER", 2, -2)
+  local scale = fontSize / base
+  if scale < .6 then scale = .6 end
+  if scale > 2 then scale = 2 end
+  if wrap.label.SetScale then wrap.label:SetScale(scale) end
+  if not wrap.text then
+    wrap.text = wrap.label:CreateFontString(nil, "OVERLAY")
+    wrap.text:SetPoint("CENTER", wrap.label, "CENTER", 0, 0)
+    wrap.text:SetJustifyH("CENTER")
+  end
+  if wrap.text.SetFontObject and object then wrap.text:SetFontObject(object) end
+  local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+  if wrap.text.SetFont then
+    wrap.text:SetFont(font, fontSize + 1, "OUTLINE")
+    wrap.text:SetFont(font, fontSize, "OUTLINE")
+  end
+  if wrap.text.SetTextHeight then pcall(wrap.text.SetTextHeight, wrap.text, fontSize) end
+  wrap.text:SetTextColor(1, 1, 1)
+end
+
+function UpdateXPBar()
   local wrap = QtUI.xpBar
   local bar = wrap and wrap.status
   if not wrap or not bar then return end
+  ApplyXPBarFont(wrap)
 
   local current = UnitXP("player") or 0
   local maximum = UnitXPMax("player") or 0
@@ -844,26 +1033,28 @@ local function UpdateXPBar()
     if wrap.SetBackdropBorderColor then wrap:SetBackdropBorderColor(.18, .22, .28, 1) end
   end
 
+  local layout = QtUI.GetLayout and QtUI:GetLayout() or {}
+  local showText = layout.xpBarText ~= false
   if maximum > 0 then
     local percent = math.floor(current / maximum * 100)
     bar:SetMinMaxValues(0, maximum)
     bar:SetValue(current)
-    if resting and rested > 0 then
-      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting  -  Rested " .. rested .. "|r")
-    elseif resting then
-      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffResting|r")
-    elseif rested > 0 then
-      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%  |cff66aaffRested " .. rested .. "|r")
-    else
-      wrap.text:SetText("Level " .. level .. "  -  " .. percent .. "%")
+    if wrap.text then
+      if showText then
+        wrap.text:SetText(level .. "   " .. current .. " / " .. maximum .. "   " .. percent .. "%")
+      else
+        wrap.text:SetText("")
+      end
     end
   else
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(1)
-    if resting then
-      wrap.text:SetText("Level " .. level .. "  -  Maximum Level  |cff66aaffResting|r")
-    else
-      wrap.text:SetText("Level " .. level .. "  -  Maximum Level")
+    if wrap.text then
+      if showText then
+        wrap.text:SetText(level .. "   max")
+      else
+        wrap.text:SetText("")
+      end
     end
   end
 
@@ -877,29 +1068,33 @@ function QtUI:SetupXPBar()
   if self.xpBar then return end
 
   local parent = self.actionPanel or UIParent
-  local wrap = CreateFrame("Frame", "QtUIXPBar", parent)
+  local wrap = CreateFrame("Frame", "QtUIXPBar", UIParent)
   wrap:SetWidth(442)
-  wrap:SetHeight(14)
+  wrap:SetHeight(18)
   if self.actionPanel then
-    wrap:SetPoint("TOP", self.actionPanel, "BOTTOM", 0, -4)
+    wrap:SetPoint("TOPLEFT", self.actionPanel, "BOTTOMLEFT", 0, -4)
+    wrap:SetPoint("TOPRIGHT", self.actionPanel, "BOTTOMRIGHT", 0, -4)
+    wrap:SetPoint("BOTTOMLEFT", self.actionPanel, "BOTTOMLEFT", 0, -22)
   else
-    wrap:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
+    wrap:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 18, 6)
+    wrap:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", 460, 24)
   end
   wrap:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
+  -- Thin bar: large tooltip edgeSize eats the fill and the text.
   wrap:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true,
     tileSize = 8,
-    edgeSize = 14,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    edgeSize = 8,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
   })
-  wrap:SetBackdropColor(.025, .03, .04, .9)
+  wrap:SetBackdropColor(.025, .03, .04, .92)
   wrap:SetBackdropBorderColor(.18, .22, .28, 1)
 
   local bar = CreateFrame("StatusBar", "QtUIXPBarStatus", wrap)
-  bar:SetPoint("TOPLEFT", wrap, "TOPLEFT", 3, -3)
-  bar:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -3, 3)
+  bar:SetPoint("TOPLEFT", wrap, "TOPLEFT", 2, -2)
+  bar:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -2, 2)
   bar:SetStatusBarTexture(self.media.statusbar)
   bar:SetStatusBarColor(.38, .28, .78)
   wrap.status = bar
@@ -909,8 +1104,14 @@ function QtUI:SetupXPBar()
   bar.background:SetTexture(self.media.statusbar)
   bar.background:SetVertexColor(.035, .04, .055, .9)
 
-  wrap.text = wrap:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  wrap.text:SetPoint("CENTER", wrap, "CENTER", 0, 0)
+  wrap.label = CreateFrame("Frame", nil, wrap)
+  wrap.label:SetPoint("TOPLEFT", wrap, "TOPLEFT", 0, 0)
+  wrap.label:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", 0, 0)
+  if wrap.label.SetFrameLevel then
+    wrap.label:SetFrameLevel((wrap:GetFrameLevel() or 5) + 8)
+  end
+  if wrap.label.EnableMouse then wrap.label:EnableMouse(false) end
+  ApplyXPBarFont(wrap)
 
   wrap:EnableMouse(true)
   wrap:SetScript("OnEnter", function()
@@ -1183,8 +1384,7 @@ function QtUI:SetupActionBars()
   panel:SetWidth(442)
   panel:SetHeight(82)
   panel:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 18)
-  panel:SetBackdropColor(0, 0, 0, 0)
-  panel:SetBackdropBorderColor(0, 0, 0, 0)
+  if panel.SetBackdrop then pcall(panel.SetBackdrop, panel, nil) end
   PassClicksThrough(panel)
   self.actionPanel = panel
 
@@ -1194,8 +1394,7 @@ function QtUI:SetupActionBars()
   extraPanel:SetWidth(442)
   extraPanel:SetHeight(44)
   extraPanel:SetPoint("BOTTOM", panel, "TOP", 0, 4)
-  extraPanel:SetBackdropColor(0, 0, 0, 0)
-  extraPanel:SetBackdropBorderColor(0, 0, 0, 0)
+  if extraPanel.SetBackdrop then pcall(extraPanel.SetBackdrop, extraPanel, nil) end
   PassClicksThrough(extraPanel)
   self.extraActionPanel = extraPanel
 
@@ -1206,8 +1405,7 @@ function QtUI:SetupActionBars()
   utilityPanel:SetWidth(442)
   utilityPanel:SetHeight(44)
   utilityPanel:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -14, 14)
-  utilityPanel:SetBackdropColor(0, 0, 0, 0)
-  utilityPanel:SetBackdropBorderColor(0, 0, 0, 0)
+  if utilityPanel.SetBackdrop then pcall(utilityPanel.SetBackdrop, utilityPanel, nil) end
   PassClicksThrough(utilityPanel)
   self.utilityActionPanel = utilityPanel
 
@@ -1239,15 +1437,13 @@ function QtUI:SetupActionBars()
 
   local sideRight = self:CreatePanel("QtUISideRightPanel", UIParent, 1)
   sideRight:SetPoint("RIGHT", UIParent, "RIGHT", -14, 40)
-  sideRight:SetBackdropColor(0, 0, 0, 0)
-  sideRight:SetBackdropBorderColor(0, 0, 0, 0)
+  if sideRight.SetBackdrop then pcall(sideRight.SetBackdrop, sideRight, nil) end
   PassClicksThrough(sideRight)
   self.sideRightPanel = sideRight
 
   local sideLeft = self:CreatePanel("QtUISideLeftPanel", UIParent, 1)
   sideLeft:SetPoint("RIGHT", sideRight, "LEFT", -8, 0)
-  sideLeft:SetBackdropColor(0, 0, 0, 0)
-  sideLeft:SetBackdropBorderColor(0, 0, 0, 0)
+  if sideLeft.SetBackdrop then pcall(sideLeft.SetBackdrop, sideLeft, nil) end
   PassClicksThrough(sideLeft)
   self.sideLeftPanel = sideLeft
 
@@ -1255,6 +1451,7 @@ function QtUI:SetupActionBars()
   if SHOW_MULTI_ACTIONBAR_4 ~= nil then SHOW_MULTI_ACTIONBAR_4 = 1 end
   if type(MultiActionBar_Update) == "function" then pcall(MultiActionBar_Update) end
 
+  self.RefreshAllActionButtons = RefreshActionButtons
   self:LayoutActionBars()
   SetupActionPageEvents()
   RefreshActionButtons()

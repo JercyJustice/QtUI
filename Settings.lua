@@ -1034,16 +1034,22 @@ function QtUI:SetupSettingsWindow()
       if frame.copyPopup then frame.copyPopup:Hide() end
       dialog:Hide()
     end, 90)
-    dialog.copy = CreateSmallButton(dialog, "Copy", 216, function()
+    dialog.copy = CreateSmallButton(dialog, "Browser", 216, function()
       local text = ""
       if dialog.data and dialog.data.GetText then text = dialog.data:GetText() or "" end
       if text == "" then
-        QtUI:Print("Nothing to copy.")
+        QtUI:Print("Nothing to export.")
+        return
+      end
+      if QtUI.OpenTextInBrowser and QtUI:OpenTextInBrowser(text, "QtUI Export") then
+        QtUI:Print("Opened export in your browser.")
+        if dialog.copy.text then dialog.copy.text:SetText("Opened") end
         return
       end
       if TryCopyText(text) then
         QtUI:Print("Profile copied.")
         if dialog.copy.text then dialog.copy.text:SetText("Copied") end
+        return
       end
       local popup = EnsureCopyPopup()
       popup.CopyText(text)
@@ -1082,7 +1088,7 @@ function QtUI:SetupSettingsWindow()
     elseif kind == "export" then
       SizeDialog(dialog, 520, 170)
       dialog.title:SetText("|cff33ffccExport Profile|r")
-      dialog.note:SetText("Copy, then Ctrl+C if needed. Positions scale on import.")
+      dialog.note:SetText("Browser opens the string so you can copy it. Positions scale on import.")
       ParkFrame(dialog.nameBox)
       dialog.nameLabel:Hide()
       dialog.dataLabel:Show()
@@ -1095,7 +1101,7 @@ function QtUI:SetupSettingsWindow()
       PlaceDialogButton(dialog.copy, dialog, 16)
       PlaceDialogButton(dialog.cancel, dialog, 116)
       ParkFrame(dialog.accept)
-      if dialog.copy.text then dialog.copy.text:SetText("Copy") end
+      if dialog.copy.text then dialog.copy.text:SetText("Browser") end
       dialog.onAccept = function(d) d:Hide() end
     else
       SizeDialog(dialog, 520, 200)

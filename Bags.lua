@@ -402,12 +402,60 @@ local function UpdateEquippedBagButton(button)
   end
 end
 
+local function HasKeyringItem()
+  if type(HasKey) ~= "function" then return true end
+  local ok, has = pcall(HasKey)
+  if not ok then return true end
+  return has == true or has == 1 or has == "1"
+end
+
 function ShowKeyring()
-  if not QtUI.GetLayout then return true end
+  if not QtUI.GetLayout then return HasKeyringItem() end
   local layout = QtUI:GetLayout()
-  if not layout then return true end
+  if not layout then return HasKeyringItem() end
   local value = layout.bagShowKeys
-  return value ~= false and value ~= 0 and value ~= "0"
+  if value == false or value == 0 or value == "0" then return nil end
+  return HasKeyringItem()
+end
+
+local function ShowKeyButton()
+  return HasKeyringItem()
+end
+
+local function ContainerSlots(bag)
+  if bag == -2 then
+    local n = tonumber(GetContainerNumSlots(-2)) or 0
+    if n > 0 then return n end
+    local last = 0
+    local i
+    for i = 1, 32 do
+      local ok, link = pcall(GetContainerItemLink, -2, i)
+      if ok and link and link ~= "" then last = i end
+    end
+    if last > 0 then
+      last = math.ceil(last / 4) * 4
+      if last < 4 then last = 4 end
+      return last
+    end
+    return 0
+  end
+  return tonumber(GetContainerNumSlots(bag)) or 0
+end
+
+local function PlaceKeyButton(frame)
+  local button = frame and frame.keyButton
+  if not button then return end
+  if ShowKeyButton() then
+    button:ClearAllPoints()
+    button:SetPoint("BOTTOMLEFT", frame.bagMenuButton, "BOTTOMRIGHT", 3, 0)
+    if button.EnableMouse then button:EnableMouse(true) end
+    if button.Show then pcall(button.Show, button) end
+  else
+    button:ClearAllPoints()
+    button:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    if button.EnableMouse then button:EnableMouse(false) end
+    if button.Hide then pcall(button.Hide, button) end
+  end
 end
 
 local function BagOrder()
@@ -469,7 +517,7 @@ local function CreateEquippedBagButton(parent, bag)
     GameTooltip:SetOwner(this, "ANCHOR_TOP")
     if this.bag == -2 then
       GameTooltip:SetText("Keyring")
-      GameTooltip:AddLine("Click to show or hide keys in the bag window.", .8, .8, .8, 1)
+      GameTooltip:AddLine("Shown while you have keys. Click to include them in this window.", .8, .8, .8, 1)
     elseif this.bag == 0 then
       GameTooltip:SetText("Backpack")
       GameTooltip:AddLine("The backpack is fixed and cannot be replaced.", .75, .75, .75, 1)
@@ -545,7 +593,7 @@ local function BagLayoutSignature()
   local signature = ""
   local bagOrder = BagOrder()
   for _, bag in ipairs(bagOrder) do
-    signature = signature .. bag .. ":" .. (GetContainerNumSlots(bag) or 0) .. ";"
+    signature = signature .. bag .. ":" .. ContainerSlots(bag) .. ";"
   end
   return signature
 end
@@ -558,7 +606,7 @@ local function UpdateSpaceText(frame)
   local free, total = 0, 0
   local bagOrder = BagOrder()
   for _, bag in ipairs(bagOrder) do
-    local slots = GetContainerNumSlots(bag) or 0
+    local slots = ContainerSlots(bag)
     total = total + slots
     for slot = 1, slots do
       if not GetContainerItemLink(bag, slot) then free = free + 1 end
@@ -570,6 +618,7 @@ local function UpdateSpaceText(frame)
 end
 
 local function UpdateEquippedBags(frame)
+  PlaceKeyButton(frame)
   if frame.equippedBags then
     for _, button in ipairs(frame.equippedBags) do UpdateEquippedBagButton(button) end
   end
@@ -577,7 +626,7 @@ end
 
 local function UpdateOneBag(frame, bag)
   if not frame.itemByLocation then return end
-  local slots = GetContainerNumSlots(bag) or 0
+  local slots = ContainerSlots(bag)
   for slot = 1, slots do
     local button = frame.itemByLocation[bag .. ":" .. slot]
     if button then UpdateSlot(button, bag, slot, bag == -2) end
@@ -607,9 +656,7 @@ function QtUI:UpdateBags()
   local keySlots = 0
   frame.itemByLocation = {}
   for _, bag in ipairs(bagOrder) do
-    local okSlots, slots = pcall(GetContainerNumSlots, bag)
-    if not okSlots then slots = 0 end
-    slots = tonumber(slots) or 0
+    local slots = ContainerSlots(bag)
     local slot
     for slot = 1, slots do
       local button = frame.items[position]

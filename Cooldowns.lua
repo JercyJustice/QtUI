@@ -32,8 +32,12 @@ local function ClampSize(size)
 end
 
 local function StyleCDFont(fontString, size, r, g, b)
-  local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-  if fontString.SetFont then fontString:SetFont(font, size, "") end
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(fontString, size)
+  else
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    if fontString.SetFont then fontString:SetFont(font, size, "") end
+  end
   if fontString.SetShadowColor then fontString:SetShadowColor(0, 0, 0, 0) end
   if fontString.SetShadowOffset then fontString:SetShadowOffset(0, 0) end
   if fontString.SetTextColor then fontString:SetTextColor(r, g, b) end

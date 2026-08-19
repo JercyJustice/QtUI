@@ -1115,11 +1115,39 @@ local function FormatRate(value)
   return string.format("%.1f", value)
 end
 
+local SHARE_PREFIX = "QtUI"
+
 local function AnnounceLine(text, chatType)
-  if type(SendChatMessage) ~= "function" then return end
-  if type(chatType) ~= "string" or chatType == "" then chatType = "SAY" end
-  pcall(SendChatMessage, text, chatType)
+  if QtUI.Print then QtUI:Print(text) end
+  if type(chatType) ~= "string" or chatType == "" or chatType == "SELF" then return end
+  if type(SendAddonMessage) ~= "function" then return end
+  pcall(SendAddonMessage, SHARE_PREFIX, "R:" .. tostring(text), chatType)
 end
+
+local function HandleAddonShare()
+  local prefix = arg1
+  local message = arg2
+  local sender = arg4
+  if type(prefix) == "string" and string.sub(prefix, 1, 5) == "QtUI\t" then
+    message = string.sub(prefix, 6)
+    prefix = SHARE_PREFIX
+    sender = arg3 or arg4
+  end
+  if prefix ~= SHARE_PREFIX or type(message) ~= "string" then return end
+  if string.sub(message, 1, 2) ~= "R:" then return end
+  local me
+  if type(UnitName) == "function" then me = UnitName("player") end
+  if sender and me and string.lower(sender) == string.lower(me) then return end
+  if QtUI.Print then
+    QtUI:Print("|cff88ccff" .. (sender or "?") .. "|r " .. string.sub(message, 3))
+  end
+end
+
+local shareWatch = CreateFrame("Frame", "QtUIMeterShare")
+shareWatch:RegisterEvent("CHAT_MSG_ADDON")
+shareWatch:SetScript("OnEvent", function()
+  if event == "CHAT_MSG_ADDON" then HandleAddonShare() end
+end)
 
 local function ReportMeter(frame, chatType)
   if not frame then return end
@@ -1178,9 +1206,10 @@ local function EnsureReportMenu()
     if menu.SetBackdropBorderColor then menu:SetBackdropBorderColor(.25, .34, .36, 1) end
   end
   local channels = {
-    { "SAY", "Say" },
+    { "SELF", "Self" },
     { "PARTY", "Party" },
     { "RAID", "Raid" },
+    { "GUILD", "Guild" },
   }
   local rowH = 18
   local width = 72
@@ -1232,7 +1261,7 @@ local function ToggleReportMenu(anchor, frame)
   end
   reportSource = frame
   menu:ClearAllPoints()
-  local width, height = 72, 62
+  local width, height = 72, 80
   menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
   menu:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", -width, -2 - height)
   if menu.EnableMouse then menu:EnableMouse(true) end
@@ -2543,7 +2572,10 @@ CreateMeterWindow = function(id, view, segment)
     ResetSegment(frame.segment)
     RefreshMeter(frame)
   end, "reset")
-  frame.btnReport = MakeMeterButton(frame, "P", { "Report" }, function()
+  frame.btnReport = MakeMeterButton(frame, "P", {
+    "Report",
+    "Share with other QtUI users. Self prints only to you.",
+  }, function()
     ToggleReportMenu(this, frame)
   end, "announce")
   frame.btnFight = MakeMeterButton(frame, "F", {

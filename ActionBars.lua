@@ -708,7 +708,7 @@ StyleActionButtonText = function(button, size)
     hotkey:SetPoint(spec[1], button, spec[2], spec[3], spec[4])
     if hotkey.SetJustifyH then hotkey:SetJustifyH(spec[5]) end
     if hotkey.SetJustifyV then hotkey:SetJustifyV(spec[6]) end
-    if hotkey.SetFont then hotkey:SetFont(font, hotSize, "OUTLINE") end
+    if QtUI.ApplyFont then QtUI:ApplyFont(hotkey, hotSize) elseif hotkey.SetFont then hotkey:SetFont(font, hotSize, "OUTLINE") end
     if hotkey.SetShadowColor then hotkey:SetShadowColor(0, 0, 0, shadow > 0 and 1 or 0) end
     if hotkey.SetShadowOffset then hotkey:SetShadowOffset(shadow, -shadow) end
     if hotkey.SetNonSpaceWrap then hotkey:SetNonSpaceWrap(false) end
@@ -725,14 +725,14 @@ StyleActionButtonText = function(button, size)
     macro:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
     macro:SetWidth(size - 4)
     if macro.SetJustifyH then macro:SetJustifyH("CENTER") end
-    if macro.SetFont then macro:SetFont(font, nameSize, "OUTLINE") end
+    if QtUI.ApplyFont then QtUI:ApplyFont(macro, nameSize) elseif macro.SetFont then macro:SetFont(font, nameSize, "OUTLINE") end
   end
 
   local count = getglobal(name .. "Count")
   if count then
     count:ClearAllPoints()
     count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
-    if count.SetFont then count:SetFont(font, hotSize, "OUTLINE") end
+    if QtUI.ApplyFont then QtUI:ApplyFont(count, hotSize) elseif count.SetFont then count:SetFont(font, hotSize, "OUTLINE") end
     if count.SetJustifyH then count:SetJustifyH("RIGHT") end
   end
 end
@@ -977,34 +977,21 @@ local function ApplyXPBarFont(wrap)
   local fontSize = tonumber(layout.xpBarFontSize) or 12
   if fontSize < 8 then fontSize = 8 end
   if fontSize > 18 then fontSize = 18 end
-  -- Emberveil ignores SetFont on live FontStrings. Switch the inherited
-  -- font object and scale the holder so the size actually changes.
-  local object, base = GameFontNormal, 12
-  if fontSize <= 10 and GameFontHighlightSmall then
-    object, base = GameFontHighlightSmall, 10
-  elseif fontSize >= 15 and GameFontNormalLarge then
-    object, base = GameFontNormalLarge, 16
-  end
   wrap.label:ClearAllPoints()
   wrap.label:SetPoint("CENTER", wrap, "CENTER", 0, 0)
   wrap.label:SetPoint("TOPLEFT", wrap, "CENTER", -2, 2)
   wrap.label:SetPoint("BOTTOMRIGHT", wrap, "CENTER", 2, -2)
-  local scale = fontSize / base
-  if scale < .6 then scale = .6 end
-  if scale > 2 then scale = 2 end
-  if wrap.label.SetScale then wrap.label:SetScale(scale) end
+  if wrap.label.SetScale then wrap.label:SetScale(1) end
   if not wrap.text then
     wrap.text = wrap.label:CreateFontString(nil, "OVERLAY")
     wrap.text:SetPoint("CENTER", wrap.label, "CENTER", 0, 0)
     wrap.text:SetJustifyH("CENTER")
   end
-  if wrap.text.SetFontObject and object then wrap.text:SetFontObject(object) end
-  local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-  if wrap.text.SetFont then
-    wrap.text:SetFont(font, fontSize + 1, "OUTLINE")
-    wrap.text:SetFont(font, fontSize, "OUTLINE")
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(wrap.text, fontSize)
+  elseif wrap.text.SetFont then
+    wrap.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize)
   end
-  if wrap.text.SetTextHeight then pcall(wrap.text.SetTextHeight, wrap.text, fontSize) end
   wrap.text:SetTextColor(1, 1, 1)
 end
 

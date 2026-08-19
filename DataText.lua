@@ -92,7 +92,11 @@ end
 
 local function LabelInCell(parent, align)
   local text = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  if text.SetFont then pcall(text.SetFont, text, TEXT_FONT, TEXT_SIZE, "") end
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(text, TEXT_SIZE)
+  elseif text.SetFont then
+    pcall(text.SetFont, text, TEXT_FONT, TEXT_SIZE, "")
+  end
   text:ClearAllPoints()
   -- One shared vertical point so every column sits on the same baseline.
   -- Stretching LEFT+RIGHT without TOP/BOTTOM lets Emberveil pick a random Y.

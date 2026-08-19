@@ -27,12 +27,15 @@ end
 
 local function UpdateMinimapCoords()
   if not QtUI.minimapCoords then return end
-  if WorldMapFrame and WorldMapFrame.IsShown and not WorldMapFrame:IsShown() then
+  if not (WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsShown()) then
     if type(SetMapToCurrentZone) == "function" then pcall(SetMapToCurrentZone) end
   end
-  local x, y = 0, 0
+  local x, y
   if type(GetPlayerMapPosition) == "function" then
-    x, y = GetPlayerMapPosition("player")
+    local ok, px, py = pcall(GetPlayerMapPosition, "player")
+    if ok then
+      x, y = px, py
+    end
   end
   x = tonumber(x) or 0
   y = tonumber(y) or 0
@@ -133,6 +136,7 @@ function QtUI:SetupMinimap()
   zone:SetWidth(MAP_SIZE)
   zone:SetJustifyH("CENTER")
   zone:SetTextColor(1, .82, .2)
+  if QtUI.ApplyFont then QtUI:ApplyFont(zone, 12) end
   if zone.SetShadowOffset then zone:SetShadowOffset(1, -1) end
   if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
   self.minimapZone = zone
@@ -142,7 +146,9 @@ function QtUI:SetupMinimap()
   coords:SetWidth(MAP_SIZE)
   coords:SetJustifyH("CENTER")
   coords:SetTextColor(1, 1, 1)
-  if coords.SetFont then
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(coords, 11)
+  elseif coords.SetFont then
     local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
     coords:SetFont(font, 11, "OUTLINE")
   end

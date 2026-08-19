@@ -39,7 +39,11 @@ local function ConfigureChat(frame, panel, index, fontSize)
   end
   if frame.SetFading then frame:SetFading(false) end
   fontSize = tonumber(fontSize) or 12
-  if frame.SetFont then frame:SetFont("Fonts\\FRIZQT__.TTF", fontSize) end
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(frame, fontSize)
+  elseif frame.SetFont then
+    frame:SetFont("Fonts\\FRIZQT__.TTF", fontSize)
+  end
   if frame.SetMaxLines then frame:SetMaxLines(500) end
   if frame.Show then pcall(frame.Show, frame) end
   HideChatChrome(index)

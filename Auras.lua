@@ -464,11 +464,15 @@ local function CreateAuraIcon(row, index, size)
   icon.timer:SetPoint("BOTTOM", icon, "BOTTOM", 0, 1)
   icon.timer:SetTextColor(1, 1, 1)
   if icon.timer.SetJustifyH then icon.timer:SetJustifyH("CENTER") end
-  local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
   local timerSize = math.floor(size * 0.48)
   if timerSize < 9 then timerSize = 9 end
   if timerSize > 13 then timerSize = 13 end
-  if icon.timer.SetFont then icon.timer:SetFont(font, timerSize, "OUTLINE") end
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(icon.timer, timerSize)
+  else
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    if icon.timer.SetFont then icon.timer:SetFont(font, timerSize, "OUTLINE") end
+  end
 
   icon:SetScript("OnEnter", ShowAuraTooltip)
   icon:SetScript("OnLeave", function() GameTooltip:Hide() end)

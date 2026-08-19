@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.11.0"
+QtUI.version = "0.12.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -54,6 +54,74 @@ function QtUI:UsePendingActionOnUnit(unit)
       return true
     end
   end
+  return nil
+end
+
+-- Emberveil: FontString:SetFont is a no-op while a Font object is assigned,
+-- and CreateFontString always assigns GameFontNormal. Own Font objects via
+-- CreateFont + SetFontObject. One Font per widget so SetTextColor does not
+-- bleed through a shared object.
+local FONT_PATH = "Fonts\\FRIZQT__.TTF"
+local fontSeq = 0
+
+function QtUI:ApplyFont(widget, size)
+  if not widget then return end
+  size = math.floor(tonumber(size) or 12)
+  if size < 6 then size = 6 end
+  if size > 32 then size = 32 end
+  local path = STANDARD_TEXT_FONT or FONT_PATH
+  local font = widget.qtFontObject
+  if not font and type(CreateFont) == "function" then
+    fontSeq = fontSeq + 1
+    local ok, created = pcall(CreateFont, "QtUIFont" .. fontSeq)
+    if ok then font = created end
+    widget.qtFontObject = font
+  end
+  if font and font.SetFont and widget.qtFontSize ~= size then
+    pcall(font.SetFont, font, path, size)
+  end
+  if font and widget.SetFontObject then
+    pcall(widget.SetFontObject, widget, font)
+    widget.qtFontSize = size
+    return
+  end
+  if widget.SetFont then
+    pcall(widget.SetFont, widget, path, size)
+    widget.qtFontSize = size
+  end
+end
+
+local function UrlEncode(str)
+  str = tostring(str or "")
+  str = string.gsub(str, "\r\n", "\n")
+  str = string.gsub(str, "\n", "\r\n")
+  str = string.gsub(str, "([^%w])", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end)
+  return str
+end
+
+local function HtmlEscape(str)
+  str = tostring(str or "")
+  str = string.gsub(str, "&", "&amp;")
+  str = string.gsub(str, "<", "&lt;")
+  str = string.gsub(str, ">", "&gt;")
+  return str
+end
+
+function QtUI:OpenTextInBrowser(text, title)
+  if type(LaunchURL) ~= "function" then return nil end
+  title = title or "QtUI"
+  local html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>"
+    .. HtmlEscape(title)
+    .. "</title></head><body style=\"margin:0;background:#111;color:#9ef\">"
+    .. "<textarea readonly style=\"box-sizing:border-box;width:100%;height:100%;"
+    .. "padding:16px;background:#111;color:#9ef;border:0;outline:0;"
+    .. "font:13px/1.4 Consolas,monospace\">"
+    .. HtmlEscape(text)
+    .. "</textarea></body></html>"
+  local ok = pcall(LaunchURL, "data:text/html;charset=utf-8," .. UrlEncode(html))
+  if ok then return true end
   return nil
 end
 

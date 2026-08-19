@@ -2989,6 +2989,21 @@ local function ApplyMeterWindow(frame)
   if not frame then return end
   local width, height, visible, barH, spacing = MeterLayout()
   SizeMeterFrame(frame, width, height)
+  local showBg = true
+  if QtUI.GetLayout then
+    local layout = QtUI:GetLayout()
+    local flag = layout and layout.meterShowBackground
+    if flag == false or flag == 0 or flag == "0" then showBg = nil end
+  end
+  if frame.SetBackdropColor then
+    if showBg then
+      frame:SetBackdropColor(.025, .035, .045, .92)
+      if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(.18, .24, .28, 1) end
+    else
+      frame:SetBackdropColor(0, 0, 0, 0)
+      if frame.SetBackdropBorderColor then frame:SetBackdropBorderColor(0, 0, 0, 0) end
+    end
+  end
   LayoutMeterChrome(frame, width, height)
   local i
   for i = 1, MAX_BARS do

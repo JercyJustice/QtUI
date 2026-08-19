@@ -1509,7 +1509,7 @@ function QtUI:SetupSettingsWindow()
   end)
 
   local xp = AddPage("xpbar")
-  CreateSection(xp, 0, 140)
+  CreateSection(xp, 0, 162)
   CreateHeader(xp, -8, "Experience Bar")
   CreateFeatureToggle(xp, -28, "experienceBar")
   xp.note = xp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1517,17 +1517,22 @@ function QtUI:SetupSettingsWindow()
   xp.note:SetWidth(450)
   xp.note:SetJustifyH("LEFT")
   xp.note:SetText("")
-  CreateStepper(xp, -48, "Height", function()
+  CreateStepper(xp, -48, "Width", function()
+    return QtUI:GetLayout().xpBarWidth or 442
+  end, function(value)
+    QtUI:GetLayout().xpBarWidth = value
+  end, 80, 800, 10, 0)
+  CreateStepper(xp, -70, "Height", function()
     return QtUI:GetLayout().xpBarHeight or 20
   end, function(value)
     QtUI:GetLayout().xpBarHeight = value
   end, 12, 32, 1, 0)
-  CreateStepper(xp, -74, "Text size", function()
+  CreateStepper(xp, -92, "Text size", function()
     return QtUI:GetLayout().xpBarFontSize or 12
   end, function(value)
     QtUI:GetLayout().xpBarFontSize = value
   end, 8, 18, 1, 0)
-  CreateToggleRow(xp, -104, "Show text on the bar", function()
+  CreateToggleRow(xp, -118, "Show text on the bar", function()
     local value = QtUI:GetLayout().xpBarText
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
@@ -1623,7 +1628,7 @@ function QtUI:SetupSettingsWindow()
   BuildBarPage("bar-sideleft", "sideLeft", "Left side bar. All 12 buttons stay visible.")
 
   local units = AddPage("unitframes")
-  CreateSection(units, 0, 332)
+  CreateSection(units, 0, 356)
   CreateHeader(units, -8, "Unit Frames")
   CreateFeatureToggle(units, -28, "unitFrames")
   CreateFeatureToggle(units, -48, "partyFrames")
@@ -1780,6 +1785,15 @@ function QtUI:SetupSettingsWindow()
       end, function(value)
         QtUI:GetUnitStyle(styleKey).classAlign = value
       end)
+      y = y - 26
+    end
+    if extras.healthDb then
+      CreateToggleRow(page, y, "Enemy health database", function()
+        local value = QtUI:GetLayout().estimateMobHealth
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().estimateMobHealth = value and true or false
+      end)
     end
     return page
   end
@@ -1791,7 +1805,7 @@ function QtUI:SetupSettingsWindow()
   })
   BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors.", {
     height = true, powerHeight = true, powerText = true, classText = true, portrait = true,
-    minHeight = 40, maxHeight = 100,
+    healthDb = true, minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-tot", "targettarget", "Target-of-target size, mana bar and text anchors.", {
     height = true, powerHeight = true, powerText = true,
@@ -1838,7 +1852,7 @@ function QtUI:SetupSettingsWindow()
   end)
 
   local meter = AddPage("damagemeter")
-  CreateSection(meter, 0, 220)
+  CreateSection(meter, 0, 242)
   CreateFeatureToggle(meter, -10, "damageMeter")
   meter.note = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   meter.note:SetPoint("TOPLEFT", meter, "TOPLEFT", 16, -32)
@@ -1883,9 +1897,15 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().meterBarSpacing = value
   end, 0, 8, 1, 0)
+  CreateToggleRow(meter, -154, "Show window background", function()
+    local value = QtUI:GetLayout().meterShowBackground
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().meterShowBackground = value and true or false
+  end)
 
   meter.count = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  meter.count:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -154)
+  meter.count:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -176)
   meter.count:SetJustifyH("LEFT")
   local function RefreshMeterWindows()
     local n = 0
@@ -1920,21 +1940,21 @@ function QtUI:SetupSettingsWindow()
     if QtUI.AddDamageMeterWindow then QtUI:AddDamageMeterWindow() end
     RefreshMeterWindows()
   end, 128)
-  PlaceMeterAction(addBtn, 16, -176, 128)
+  PlaceMeterAction(addBtn, 16, -198, 128)
 
   local closeBtn = CreateSmallButton(meter, "Close window", 150, function()
     if QtUI.CloseLastDamageMeterWindow then QtUI:CloseLastDamageMeterWindow() end
     RefreshMeterWindows()
   end, 128)
-  PlaceMeterAction(closeBtn, 152, -176, 128)
+  PlaceMeterAction(closeBtn, 152, -198, 128)
 
   local demoBtn = CreateSmallButton(meter, "Demo values", 12, function()
     if QtUI.FillMeterDemo then QtUI:FillMeterDemo() end
   end, 128)
-  PlaceMeterAction(demoBtn, 288, -176, 128)
+  PlaceMeterAction(demoBtn, 288, -198, 128)
 
   local chat = AddPage("chat")
-  CreateSection(chat, 0, 188)
+  CreateSection(chat, 0, 232)
   CreateHeader(chat, -8, "Chat")
   CreateFeatureToggle(chat, -28, "dataText")
   chat.note = chat:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1942,32 +1962,44 @@ function QtUI:SetupSettingsWindow()
   chat.note:SetWidth(430)
   chat.note:SetJustifyH("LEFT")
   chat.note:SetText("Both windows share size and font.")
-  CreateStepper(chat, -70, "Width", function()
+  CreateToggleRow(chat, -70, "Show social chat", function()
+    local value = QtUI:GetLayout().chatSocial
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().chatSocial = value and true or false
+  end)
+  CreateStepper(chat, -92, "Width", function()
     return QtUI:GetLayout().chatWidth
   end, function(value)
     QtUI:GetLayout().chatWidth = value
   end, 180, 700, 10, 0)
-  CreateStepper(chat, -92, "Height", function()
+  CreateStepper(chat, -114, "Height", function()
     return QtUI:GetLayout().chatHeight
   end, function(value)
     QtUI:GetLayout().chatHeight = value
   end, 80, 500, 10, 0)
-  CreateStepper(chat, -114, "Font size", function()
+  CreateStepper(chat, -136, "Font size", function()
     return QtUI:GetLayout().chatFontSize
   end, function(value)
     QtUI:GetLayout().chatFontSize = value
   end, 8, 20, 1, 0)
-  CreateToggleRow(chat, -136, "Show time on messages", function()
+  CreateToggleRow(chat, -158, "Show time on messages", function()
     local value = QtUI:GetLayout().chatTime
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().chatTime = value and true or false
   end)
-  CreateToggleRow(chat, -158, "Use local clock on the info bar", function()
+  CreateToggleRow(chat, -180, "Use local clock on the info bar", function()
     local value = QtUI:GetLayout().clockLocal
     return value == true or value == 1 or value == "1"
   end, function(value)
     QtUI:GetLayout().clockLocal = value and true or false
+  end)
+  CreateToggleRow(chat, -202, "Color names by class", function()
+    local value = QtUI:GetLayout().chatClassNames
+    return value == true or value == 1 or value == "1"
+  end, function(value)
+    QtUI:GetLayout().chatClassNames = value and true or false
   end)
 
   CreateSmallButton(frame, "Reload UI", 18, function()

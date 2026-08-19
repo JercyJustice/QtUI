@@ -12,6 +12,8 @@ Settings.lua
 Chat.lua
 ActionBars.lua
 Auras.lua
+MobHealthDB.lua
+MobHealth.lua
 UnitFrames.lua
 CastBar.lua
 PartyFrames.lua

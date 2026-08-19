@@ -1085,17 +1085,23 @@ function QtUI:LayoutActionBars()
     self.xpBar:SetParent(UIParent)
     local saved = QtUIDB.positions and QtUIDB.positions.experience
     local width = 442
-    if BarEnabled(main) and self.actionPanel and self.actionPanel.GetWidth then
-      width = self.actionPanel:GetWidth() or width
-    end
-    if width < 80 then width = 442 end
     local barH = 20
     if self.GetLayout then
-      barH = tonumber(self:GetLayout().xpBarHeight) or 20
+      local layout = self:GetLayout()
+      if layout then
+        width = tonumber(layout.xpBarWidth) or width
+        barH = tonumber(layout.xpBarHeight) or barH
+      end
     end
+    if width < 80 then width = 80 end
+    if width > 800 then width = 800 end
     if barH < 12 then barH = 12 end
     if barH > 32 then barH = 32 end
     self.xpBar:ClearAllPoints()
+    if saved then
+      saved.w = width
+      saved.h = barH
+    end
     if saved and saved.x and saved.y then
       local left, bottom = saved.x, saved.y
       self.xpBar:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
@@ -1251,15 +1257,25 @@ function QtUI:SetupXPBar()
 
   local parent = self.actionPanel or UIParent
   local wrap = CreateFrame("Frame", "QtUIXPBar", UIParent)
-  wrap:SetWidth(442)
-  wrap:SetHeight(18)
+  local width = 442
+  local barH = 20
+  if self.GetLayout then
+    local layout = self:GetLayout()
+    if layout then
+      width = tonumber(layout.xpBarWidth) or width
+      barH = tonumber(layout.xpBarHeight) or barH
+    end
+  end
+  if width < 80 then width = 80 end
+  if barH < 12 then barH = 12 end
+  wrap:SetWidth(width)
+  wrap:SetHeight(barH)
   if self.actionPanel then
     wrap:SetPoint("TOPLEFT", self.actionPanel, "BOTTOMLEFT", 0, -4)
-    wrap:SetPoint("TOPRIGHT", self.actionPanel, "BOTTOMRIGHT", 0, -4)
-    wrap:SetPoint("BOTTOMLEFT", self.actionPanel, "BOTTOMLEFT", 0, -22)
+    wrap:SetPoint("BOTTOMRIGHT", self.actionPanel, "BOTTOMLEFT", width, -(4 + barH))
   else
     wrap:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 18, 6)
-    wrap:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", 460, 24)
+    wrap:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", 18 + width, 6 + barH)
   end
   wrap:SetFrameLevel((parent:GetFrameLevel() or 1) + 3)
   -- Thin bar: large tooltip edgeSize eats the fill and the text.

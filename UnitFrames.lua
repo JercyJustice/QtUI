@@ -446,7 +446,16 @@ local function UpdateUnitFrame(frame, skipAuras)
   local name = UnitName(unit) or "Unknown"
   local level = UnitLevel(unit) or 0
   frame.name:SetText((level > 0 and level .. " " or "") .. name)
-  frame.healthText:SetText(ShortNumber(health) .. " / " .. ShortNumber(healthMax))
+  local healthLabel = ShortNumber(health) .. " / " .. ShortNumber(healthMax)
+  if QtUI.GetMobHealth then
+    local cur, maxHp, mode = QtUI:GetMobHealth(unit)
+    if mode == "hp" then
+      healthLabel = ShortNumber(cur) .. " / " .. ShortNumber(maxHp)
+    elseif mode == "pct" then
+      healthLabel = tostring(cur) .. "%"
+    end
+  end
+  frame.healthText:SetText(healthLabel)
   frame.powerText:SetText(ShortNumber(power) .. " / " .. ShortNumber(powerMax))
 
   if unit == "target" and type(UnitClassification) == "function" then

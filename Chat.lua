@@ -88,6 +88,97 @@ local function SizeChatPanel(panel, key, width, height, defaultLeft, defaultBott
   end
 end
 
+local function SocialOn(layout)
+  if not layout then return true end
+  local value = layout.chatSocial
+  return value ~= false and value ~= 0 and value ~= "0"
+end
+
+function QtUI:IsChatSocialEnabled()
+  return SocialOn(self.GetLayout and self:GetLayout())
+end
+
+local function ParkSocial(panel, frame)
+  local function Park(f)
+    if not f then return end
+    if f.SetClampedToScreen then pcall(f.SetClampedToScreen, f, false) end
+    if f.EnableMouse then pcall(f.EnableMouse, f, false) end
+    if f.ClearAllPoints then
+      f:ClearAllPoints()
+      f:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -4000, -4000)
+      f:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -3600, -3700)
+    end
+  end
+  if frame and panel and frame.SetParent then pcall(frame.SetParent, frame, panel) end
+  Park(panel)
+  Park(frame)
+  HideChatChrome(2)
+  Park(getglobal("ChatFrame2EditBox"))
+  Park(getglobal("ChatFrame2Tab"))
+end
+
+local CLASS_HEX = {
+  WARRIOR = "c79c6e", MAGE = "69ccf0", ROGUE = "fff569",
+  DRUID = "ff7d0a", HUNTER = "abd473", SHAMAN = "2459ff",
+  PRIEST = "ffffff", WARLOCK = "9482c9", PALADIN = "f58cba",
+}
+
+local classCache = {}
+
+local function RememberUnit(unit)
+  if type(UnitName) ~= "function" or type(UnitClass) ~= "function" then return end
+  if type(UnitExists) == "function" then
+    local ok, exists = pcall(UnitExists, unit)
+    if not ok or not (exists == true or exists == 1 or exists == "1") then return end
+  end
+  local name = UnitName(unit)
+  local ok, _, token = pcall(UnitClass, unit)
+  if ok and name and token and CLASS_HEX[token] then
+    classCache[string.lower(name)] = token
+  end
+end
+
+local function HexForName(name)
+  if type(name) ~= "string" or name == "" then return "ffffff" end
+  RememberUnit("player")
+  RememberUnit("target")
+  RememberUnit("mouseover")
+  local token = classCache[string.lower(name)]
+  if token and CLASS_HEX[token] then return CLASS_HEX[token] end
+  return "ffffff"
+end
+
+local function ColorPlayerNames(text, byClass)
+  if type(text) ~= "string" then return text end
+  if not string.find(text, "|Hplayer:", 1, true) then return text end
+  local out = ""
+  local pos = 1
+  local len = string.len(text)
+  while pos <= len do
+    local startAt, payloadEnd, payload = string.find(text, "|Hplayer:([^|]+)|h", pos)
+    if not startAt then
+      out = out .. string.sub(text, pos)
+      break
+    end
+    local close = string.find(text, "|h", payloadEnd + 1, true)
+    if not close then
+      out = out .. string.sub(text, pos)
+      break
+    end
+    local display = string.sub(text, payloadEnd + 1, close - 1)
+    display = string.gsub(display, "|c%x%x%x%x%x%x%x%x", "")
+    display = string.gsub(display, "|r", "")
+    local name = payload
+    local colon = string.find(name, ":", 1, true)
+    if colon then name = string.sub(name, 1, colon - 1) end
+    local hex = "ffffff"
+    if byClass then hex = HexForName(name) end
+    out = out .. string.sub(text, pos, startAt - 1) .. "|Hplayer:" .. payload .. "|h|cff" .. hex .. display .. "|r|h"
+    pos = close + 2
+  end
+  return out
+end
+
 local function TimeStamp()
   if type(date) == "function" then
     local ok, value = pcall(date, "%H:%M")
@@ -107,13 +198,17 @@ local function HookChatTimestamp(frame)
   frame.qtTimeHooked = true
   frame.AddMessage = function(self, text, r, g, b, id)
     local layout = QtUI.GetLayout and QtUI:GetLayout()
-    if layout and layout.chatTime ~= false and type(text) == "string" then
-      if not string.find(text, "^|cff888888%[%d%d:%d%d%]") then
-        local stamp = TimeStamp()
-        if stamp then
-          text = "|cff888888[" .. stamp .. "]|r " .. text
+    if type(text) == "string" then
+      if layout and layout.chatTime ~= false then
+        if not string.find(text, "^|cff888888%[%d%d:%d%d%]") then
+          local stamp = TimeStamp()
+          if stamp then
+            text = "|cff888888[" .. stamp .. "]|r " .. text
+          end
         end
       end
+      local byClass = layout and (layout.chatClassNames == true or layout.chatClassNames == 1 or layout.chatClassNames == "1")
+      text = ColorPlayerNames(text, byClass)
     end
     r = tonumber(r)
     g = tonumber(g)
@@ -147,11 +242,23 @@ function QtUI:LayoutChat()
   if fontSize > 20 then fontSize = 20 end
 
   SizeChatPanel(self.leftChatPanel, "chat", width, height, 14, 14)
-  local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
-  SizeChatPanel(self.rightChatPanel, "chatSocial", width, height, sw - width - 14, 14)
-
   if self.leftChat then ConfigureChat(self.leftChat, self.leftChatPanel, 1, fontSize) end
-  if self.rightChat then ConfigureChat(self.rightChat, self.rightChatPanel, 2, fontSize) end
+  if SocialOn(layout) then
+    local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+    SizeChatPanel(self.rightChatPanel, "chatSocial", width, height, sw - width - 14, 14)
+    if self.rightChat then ConfigureChat(self.rightChat, self.rightChatPanel, 2, fontSize) end
+    local i
+    for i = 1, table.getn(rightGroups) do
+      SafeChatCall(ChatFrame_RemoveMessageGroup, self.leftChat, rightGroups[i])
+      SafeChatCall(ChatFrame_AddMessageGroup, self.rightChat, rightGroups[i])
+    end
+  else
+    ParkSocial(self.rightChatPanel, self.rightChat)
+    local i
+    for i = 1, table.getn(rightGroups) do
+      SafeChatCall(ChatFrame_AddMessageGroup, self.leftChat, rightGroups[i])
+    end
+  end
   HookAllChatTimestamps()
 end
 

@@ -21,6 +21,40 @@ local function TintSlotWell(button, r, g, b, a)
     button.well:SetVertexColor(r or 1, g or 1, b or 1, a or 1)
   end
 end
+
+local QUALITY_RGB = {
+  [2] = { .12, 1, 0 }, [3] = { 0, .44, .87 }, [4] = { .64, .21, .93 },
+  [5] = { 1, .5, 0 }, [6] = { .9, .8, .5 },
+}
+
+local function PaintQuality(button, quality)
+  if not button then return end
+  if not button.qRing then
+    local ring = button:CreateTexture(nil, "BORDER")
+    ring:SetTexture("Interface\\Buttons\\WHITE8X8")
+    ring:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
+    ring:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+    button.qRing = ring
+  end
+  quality = tonumber(quality)
+  if quality and quality > 1 then
+    local r, g, b = 1, 1, 1
+    if type(GetItemQualityColor) == "function" then
+      local ok, qr, qg, qb = pcall(GetItemQualityColor, quality)
+      if ok and qr then r, g, b = qr, qg, qb end
+    elseif QUALITY_RGB[quality] then
+      r = QUALITY_RGB[quality][1]
+      g = QUALITY_RGB[quality][2]
+      b = QUALITY_RGB[quality][3]
+    end
+    button.qRing:SetVertexColor(r, g, b, 1)
+    if button.qRing.Show then pcall(button.qRing.Show, button.qRing) end
+    TintSlotWell(button, r, g, b, 1)
+  else
+    if button.qRing.Hide then pcall(button.qRing.Hide, button.qRing) end
+    TintSlotWell(button, 1, 1, 1, 1)
+  end
+end
 local SLOT_GAP = 3
 local WINDOW_PADDING = 12
 local ShowKeyring
@@ -547,13 +581,13 @@ local function CreateEquippedBagButton(parent, bag)
 end
 
 local function UpdateSlot(button, bag, slot, isKeySlot)
-  local texture, count, locked = GetContainerItemInfo(bag, slot)
+  local texture, count, locked, quality = GetContainerItemInfo(bag, slot)
   local link = GetContainerItemLink(bag, slot)
   button.bag = bag
   button.slot = slot
   button.isKeySlot = isKeySlot
 
-  if texture then
+  if texture and texture ~= "" then
     button.icon:SetTexture(texture)
     button.icon:Show()
     if IsTruthy(locked) then
@@ -577,18 +611,20 @@ local function UpdateSlot(button, bag, slot, isKeySlot)
     QtUI:SetCooldownText(button, start, duration, enable, 12)
   end
 
-  local quality
   if link then
-    local _, _, itemQuality = GetItemInfo(link)
-    quality = itemQuality
+    quality = tonumber(quality)
+    if not quality or quality == 0 then
+      local _, _, itemQuality = GetItemInfo(link)
+      if itemQuality ~= nil then quality = tonumber(itemQuality) end
+    end
+  else
+    quality = nil
   end
   if isKeySlot then
+    PaintQuality(button, nil)
     TintSlotWell(button, 1, .72, .18, 1)
-  elseif quality and quality > 1 and type(GetItemQualityColor) == "function" then
-    local r, g, b = GetItemQualityColor(quality)
-    TintSlotWell(button, r or 1, g or 1, b or 1, 1)
   else
-    TintSlotWell(button, 1, 1, 1, 1)
+    PaintQuality(button, quality)
   end
 
   button:Show()

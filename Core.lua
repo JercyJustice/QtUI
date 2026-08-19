@@ -385,6 +385,13 @@ function QtUI:EnsureLayoutDefaults()
   if layout.chatFontSize < 8 then layout.chatFontSize = 8 end
   if layout.chatFontSize > 20 then layout.chatFontSize = 20 end
   if layout.chatTime == nil then layout.chatTime = true end
+  if layout.chatClassNames == nil then layout.chatClassNames = false end
+  if layout.chatSocial == nil then layout.chatSocial = true end
+  layout.xpBarWidth = tonumber(layout.xpBarWidth) or 442
+  if layout.xpBarWidth < 80 then layout.xpBarWidth = 80 end
+  if layout.xpBarWidth > 800 then layout.xpBarWidth = 800 end
+  if layout.meterShowBackground == nil then layout.meterShowBackground = true end
+  if layout.estimateMobHealth == nil then layout.estimateMobHealth = true end
   layout.snapRange = tonumber(layout.snapRange) or 10
   if layout.snapRange < 2 then layout.snapRange = 2 end
   if layout.snapRange > 40 then layout.snapRange = 40 end
@@ -979,6 +986,7 @@ function QtUI:Initialize()
 
   if self:IsFeatureEnabled("actionBars") then SafeSetup("actionBars", self.SetupActionBars) end
   if self:IsFeatureEnabled("experienceBar") then SafeSetup("experienceBar", self.SetupXPBar) end
+  SafeSetup("mobHealth", self.SetupMobHealth)
   if self:IsFeatureEnabled("unitFrames") then SafeSetup("unitFrames", self.SetupUnitFrames) end
   if self:IsFeatureEnabled("castBar") then SafeSetup("castBar", self.SetupCastBar) end
   if self:IsFeatureEnabled("partyFrames") then SafeSetup("partyFrames", self.SetupPartyFrames) end

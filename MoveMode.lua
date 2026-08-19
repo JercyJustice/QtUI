@@ -1485,7 +1485,9 @@ function QtUI:RegisterMovable(key, label, frame, alwaysShow)
         ReanchorOverlay(existing.overlay)
       end
       local saved = QtUIDB.positions and QtUIDB.positions[key]
-      if saved then PlaceSaved(frame, saved) end
+      if saved and not (key == "chatSocial" and QtUI.IsChatSocialEnabled and not QtUI:IsChatSocialEnabled()) then
+        PlaceSaved(frame, saved)
+      end
       return
     end
   end
@@ -1500,7 +1502,9 @@ function QtUI:RegisterMovable(key, label, frame, alwaysShow)
     y = y or 0,
   }
   local saved = QtUIDB.positions and QtUIDB.positions[key]
-  if saved then PlaceSaved(frame, saved) end
+  if saved and not (key == "chatSocial" and QtUI.IsChatSocialEnabled and not QtUI:IsChatSocialEnabled()) then
+    PlaceSaved(frame, saved)
+  end
 
   if frame.SetClampedToScreen then frame:SetClampedToScreen(false) end
   table.insert(self.movableEntries, entry)
@@ -1515,7 +1519,7 @@ function QtUI:ApplySavedPositions()
       local _, entry
       for _, entry in ipairs(self.movableEntries) do
         local saved = QtUIDB.positions[entry.key]
-        if saved and entry.frame then
+        if saved and entry.frame and not (entry.key == "chatSocial" and QtUI.IsChatSocialEnabled and not QtUI:IsChatSocialEnabled()) then
           local needsOther = saved.to
           if (pass == 1 and not needsOther) or (pass == 2 and needsOther) then
             PlaceSaved(entry.frame, saved)

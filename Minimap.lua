@@ -27,9 +27,6 @@ end
 
 local function UpdateMinimapCoords()
   if not QtUI.minimapCoords then return end
-  if not (WorldMapFrame and WorldMapFrame.IsShown and WorldMapFrame:IsShown()) then
-    if type(SetMapToCurrentZone) == "function" then pcall(SetMapToCurrentZone) end
-  end
   local x, y
   if type(GetPlayerMapPosition) == "function" then
     local ok, px, py = pcall(GetPlayerMapPosition, "player")
@@ -160,7 +157,7 @@ function QtUI:SetupMinimap()
   coordTicker.elapsed = 0
   coordTicker:SetScript("OnUpdate", function()
     this.elapsed = this.elapsed + (arg1 or 0)
-    if this.elapsed < .2 then return end
+    if this.elapsed < .5 then return end
     this.elapsed = 0
     UpdateMinimapCoords()
   end)
@@ -171,7 +168,11 @@ function QtUI:SetupMinimap()
   events:RegisterEvent("ZONE_CHANGED")
   events:RegisterEvent("ZONE_CHANGED_INDOORS")
   events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-  events:SetScript("OnEvent", UpdateZoneName)
+  events:SetScript("OnEvent", function()
+    if type(SetMapToCurrentZone) == "function" then pcall(SetMapToCurrentZone) end
+    UpdateZoneName()
+    UpdateMinimapCoords()
+  end)
 
   UpdateZoneName()
 end

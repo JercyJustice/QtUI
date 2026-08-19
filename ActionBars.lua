@@ -96,6 +96,53 @@ local function ResolvePrimaryAction(button)
   return buttonID + (page - 1) * 12
 end
 
+local function SlotForButton(button)
+  if not button then return nil end
+  if button.QtUIAction then return button.QtUIAction end
+  if button.QtUIPrimaryAction then return ResolvePrimaryAction(button) end
+  if button.action then return button.action end
+  if type(ActionButton_GetPagedID) == "function" then
+    local ok, slot = pcall(ActionButton_GetPagedID, button)
+    if ok then return slot end
+  end
+  if button.GetID then return button:GetID() end
+  return nil
+end
+
+local function ButtonHasAction(button)
+  if not button then return nil end
+  local name = button.GetName and button:GetName()
+  local id = button.GetID and button:GetID()
+  if name and string.find(name, "ShapeshiftButton", 1, true) then
+    if type(GetShapeshiftFormInfo) == "function" and id then
+      local ok, icon = pcall(GetShapeshiftFormInfo, id)
+      if ok and icon and icon ~= "" then return true end
+    end
+    return nil
+  end
+  if name and string.find(name, "PetActionButton", 1, true) then
+    if type(GetPetActionInfo) == "function" and id then
+      local ok, petName, _, texture = pcall(GetPetActionInfo, id)
+      if ok and ((petName and petName ~= "") or (texture and texture ~= "")) then return true end
+    end
+    return nil
+  end
+  local slot = tonumber(SlotForButton(button))
+  if not slot then return nil end
+  if type(HasAction) == "function" then
+    local ok, has = pcall(HasAction, slot)
+    if ok then
+      if has == true or has == 1 or has == "1" then return true end
+      return nil
+    end
+  end
+  if type(GetActionTexture) == "function" then
+    local ok, tex = pcall(GetActionTexture, slot)
+    if ok and tex and tex ~= "" then return true end
+  end
+  return nil
+end
+
 local function InstallActionResolvers()
   if actionResolversInstalled then return end
   actionResolversInstalled = true
@@ -252,6 +299,7 @@ local function InstallActionResolvers()
       QtUI:EnsureButtonRim(button, button.GetWidth and button:GetWidth())
     end
     TintActionIcon(button)
+    if StyleActionButtonText then StyleActionButtonText(button, button.QtUISize) end
   end
 
   if type(ActionButton_UpdateUsable) == "function" then
@@ -261,16 +309,27 @@ local function InstallActionResolvers()
       TintActionIcon(this)
     end
   end
-  if type(ActionButton_OnUpdate) == "function" then
-    local originalOnUpdate = ActionButton_OnUpdate
-    ActionButton_OnUpdate = function(elapsed)
-      originalOnUpdate(elapsed)
-      this.qtRangeElapsed = (this.qtRangeElapsed or 0) + (elapsed or arg1 or 0)
-      if this.qtRangeElapsed >= .15 then
-        this.qtRangeElapsed = 0
-        TintActionIcon(this)
+  if not QtUI.rangeTintTicker then
+    local ticker = CreateFrame("Frame", "QtUIRangeTint")
+    ticker.elapsed = 0
+    ticker:SetScript("OnUpdate", function()
+      this.elapsed = this.elapsed + (arg1 or 0)
+      if this.elapsed < .25 then return end
+      this.elapsed = 0
+      local prefixes = {
+        "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+        "MultiBarRightButton", "MultiBarLeftButton",
+      }
+      local p
+      for p = 1, table.getn(prefixes) do
+        local i
+        for i = 1, 12 do
+          local button = getglobal(prefixes[p] .. i)
+          if button and button.unit ~= false then TintActionIcon(button) end
+        end
       end
-    end
+    end)
+    QtUI.rangeTintTicker = ticker
   end
   if type(ActionButton_Update) == "function" then
     local originalUpdate = ActionButton_Update
@@ -359,6 +418,8 @@ local function RefreshActionButtons()
       elseif type(ActionButton_Update) == "function" then
         pcall(ActionButton_Update)
       end
+      if type(ActionButton_UpdateCooldown) == "function" then pcall(ActionButton_UpdateCooldown) end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(bottomLeftButton) end
     end
 
     local bottomRightButton = getglobal("MultiBarBottomRightButton" .. i)
@@ -369,6 +430,8 @@ local function RefreshActionButtons()
       elseif type(ActionButton_Update) == "function" then
         pcall(ActionButton_Update)
       end
+      if type(ActionButton_UpdateCooldown) == "function" then pcall(ActionButton_UpdateCooldown) end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(bottomRightButton) end
     end
 
     local rightButton = getglobal("MultiBarRightButton" .. i)
@@ -379,6 +442,8 @@ local function RefreshActionButtons()
       elseif type(ActionButton_Update) == "function" then
         pcall(ActionButton_Update)
       end
+      if type(ActionButton_UpdateCooldown) == "function" then pcall(ActionButton_UpdateCooldown) end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(rightButton) end
     end
 
     local leftButton = getglobal("MultiBarLeftButton" .. i)
@@ -389,6 +454,8 @@ local function RefreshActionButtons()
       elseif type(ActionButton_Update) == "function" then
         pcall(ActionButton_Update)
       end
+      if type(ActionButton_UpdateCooldown) == "function" then pcall(ActionButton_UpdateCooldown) end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(leftButton) end
     end
 
     local bonusButton = getglobal("BonusActionButton" .. i)
@@ -405,6 +472,7 @@ local function RefreshActionButtons()
       if QtUI.EnsureButtonRim then
         QtUI:EnsureButtonRim(shiftButton, shiftButton.GetWidth and shiftButton:GetWidth(), true)
       end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(shiftButton) end
     end
     local petButton = getglobal("PetActionButton" .. s)
     if petButton then
@@ -412,6 +480,7 @@ local function RefreshActionButtons()
       if QtUI.EnsureButtonRim then
         QtUI:EnsureButtonRim(petButton, petButton.GetWidth and petButton:GetWidth())
       end
+      if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(petButton) end
     end
   end
   this = previousThis
@@ -654,6 +723,153 @@ local function AbbreviateHotkey(text)
   return text
 end
 
+-- Native OUTLINE is ignored, and SetShadowOffset does not enable a shadow on
+-- CreateFont objects. Fake a 8-direction outline with extra FontStrings.
+local HOTKEY_OUTLINE_DIRS = {
+  { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+  { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 },
+}
+
+local function PaintHotkeyOutline(button, text)
+  local copies = button and button.QtUIHotOutline
+  if not copies then return end
+  local on = button.QtUIHotOutlineOn
+  if not on or not text or text == "" then text = "" end
+  local i
+  for i = 1, table.getn(copies) do
+    local fs = copies[i]
+    if fs then
+      if text ~= "" then
+        fs:SetText("|cff010101" .. text)
+      else
+        fs:SetText("")
+      end
+    end
+  end
+end
+
+local function ParkNativeHotkey(button)
+  local name = button and button.GetName and button:GetName()
+  if not name then return nil end
+  local native = getglobal(name .. "HotKey")
+  if not native then return nil end
+  native:ClearAllPoints()
+  native:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  return native
+end
+
+local function EnsureHotkeyOutline(button, thickness, hotSize, align, size)
+  if not button then return end
+  thickness = tonumber(thickness) or 0
+  if thickness < 0 then thickness = 0 end
+  if thickness > 4 then thickness = 4 end
+  button.QtUIHotOutlineOn = thickness >= 1
+  local copies = button.QtUIHotOutline
+  if not copies then
+    copies = {}
+    button.QtUIHotOutline = copies
+  end
+  local need = 0
+  if thickness >= 1 then need = thickness * 8 end
+  local i
+  for i = 1, need do
+    local fs = copies[i]
+    if not fs then
+      fs = button:CreateFontString(nil, "ARTWORK")
+      copies[i] = fs
+    end
+    if fs.SetDrawLayer then fs:SetDrawLayer("ARTWORK") end
+    local ring = math.floor((i - 1) / 8) + 1
+    local dir = HOTKEY_OUTLINE_DIRS[math.mod(i - 1, 8) + 1]
+    local dx = dir[1] * ring
+    local dy = dir[2] * ring
+    if QtUI.PlaceAlignedText then
+      QtUI:PlaceAlignedText(fs, button, align, 1, size, size, dx, dy)
+    end
+    if QtUI.ApplyFont then QtUI:ApplyFont(fs, hotSize) end
+    if fs.SetNonSpaceWrap then fs:SetNonSpaceWrap(false) end
+    if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
+    if fs.Show then pcall(fs.Show, fs) end
+  end
+  for i = need + 1, table.getn(copies) do
+    if copies[i] then copies[i]:SetText("") end
+  end
+end
+
+local function ApplyHotkeyVisibility(button)
+  if not button then return end
+  local native = ParkNativeHotkey(button)
+  local text = ""
+  if ButtonHasAction(button) and native and native.GetText then
+    text = AbbreviateHotkey(native:GetText()) or ""
+    if text == RANGE_INDICATOR then text = "" end
+  end
+  local hotkey = button.QtUIHot
+  if hotkey and hotkey.SetText then hotkey:SetText(text) end
+  PaintHotkeyOutline(button, text)
+end
+
+local function PlaceCountText(button, size, hotSize)
+  if not button or not button.GetName then return end
+  size = size or button.QtUISize or (button.GetWidth and button:GetWidth()) or 34
+  hotSize = tonumber(hotSize) or 10
+
+  -- Native Count is Hide()'d on empty slots; Emberveil often never Show()s it
+  -- again after a move. Park it and draw the stack size ourselves.
+  local native = getglobal(button:GetName() .. "Count")
+  if native and not native.qtParked then
+    native:ClearAllPoints()
+    native:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    if native.SetText then native:SetText("") end
+    native.qtParked = 1
+  end
+
+  local count = button.QtUICount
+  if not count then
+    count = button:CreateFontString(nil, "OVERLAY")
+    button.QtUICount = count
+  end
+  -- Tight corner box. PlaceAlignedText's 58%x50% well sits the number inward.
+  local boxW = hotSize + 10
+  local boxH = hotSize + 2
+  if boxW < 16 then boxW = 16 end
+  if boxH < 10 then boxH = 10 end
+  count:ClearAllPoints()
+  count:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", size - boxW + 4, -3)
+  count:SetPoint("TOPRIGHT", button, "BOTTOMLEFT", size + 3, boxH - 3)
+  if count.SetWidth then
+    count:SetWidth(boxW + 1)
+    count:SetWidth(boxW)
+  end
+  if count.SetHeight then
+    count:SetHeight(boxH + 1)
+    count:SetHeight(boxH)
+  end
+  if count.SetJustifyH then count:SetJustifyH("RIGHT") end
+  if count.SetJustifyV then count:SetJustifyV("BOTTOM") end
+  if count.SetDrawLayer then count:SetDrawLayer("OVERLAY") end
+  if QtUI.ApplyFont then QtUI:ApplyFont(count, hotSize) end
+  if count.SetTextColor then count:SetTextColor(1, 1, 1) end
+
+  local text = ""
+  local slot = tonumber(SlotForButton(button))
+  if slot then
+    local n = 0
+    local consumable
+    if type(GetActionCount) == "function" then
+      local ok, value = pcall(GetActionCount, slot)
+      if ok then n = tonumber(value) or 0 end
+    end
+    if type(IsConsumableAction) == "function" then
+      local ok, value = pcall(IsConsumableAction, slot)
+      if ok and (value == true or value == 1 or value == "1") then consumable = true end
+    end
+    if consumable or n > 0 then text = tostring(n) end
+  end
+  if count.SetText then count:SetText(text) end
+  if count.Show then pcall(count.Show, count) end
+end
+
 local function BarConfigForButton(button)
   local name = button and button.GetName and button:GetName()
   if not name or not QtUI.GetBarConfig then return QtUI:GetBarConfig("main") end
@@ -665,18 +881,6 @@ local function BarConfigForButton(button)
   if string.find(name, "PetAction", 1, true) then return QtUI:GetBarConfig("aux") end
   return QtUI:GetBarConfig("main")
 end
-
-local HOTKEY_ALIGN = {
-  left = { "LEFT", "LEFT", 2, 0, "LEFT", "MIDDLE" },
-  right = { "RIGHT", "RIGHT", -2, 0, "RIGHT", "MIDDLE" },
-  top = { "TOP", "TOP", 0, -1, "CENTER", "TOP" },
-  bottom = { "BOTTOM", "BOTTOM", 0, 1, "CENTER", "BOTTOM" },
-  center = { "CENTER", "CENTER", 0, 0, "CENTER", "MIDDLE" },
-  topleft = { "TOPLEFT", "TOPLEFT", 2, -1, "LEFT", "TOP" },
-  topright = { "TOPRIGHT", "TOPRIGHT", -2, -1, "RIGHT", "TOP" },
-  bottomleft = { "BOTTOMLEFT", "BOTTOMLEFT", 2, 1, "LEFT", "BOTTOM" },
-  bottomright = { "BOTTOMRIGHT", "BOTTOMRIGHT", -2, 1, "RIGHT", "BOTTOM" },
-}
 
 StyleActionButtonText = function(button, size)
   if not button or not button.GetName then return end
@@ -693,48 +897,37 @@ StyleActionButtonText = function(button, size)
   local shadow = 1
   if cfg and cfg.hotkeyShadow ~= nil then shadow = cfg.hotkeyShadow end
   local align = (cfg and cfg.hotkeyAlign) or "center"
-  local spec = HOTKEY_ALIGN[align] or HOTKEY_ALIGN.center
-  local stamp = tostring(size) .. ":" .. hotSize .. ":" .. shadow .. ":" .. align
-  local hotkey = getglobal(name .. "HotKey")
-  if button.QtUITextStamp == stamp then
-    if hotkey and hotkey.GetText and hotkey.SetText then
-      hotkey:SetText(AbbreviateHotkey(hotkey:GetText()))
+  local stamp = tostring(size) .. ":" .. hotSize .. ":" .. shadow .. ":" .. align .. ":own"
+  if button.QtUITextStamp ~= stamp then
+    button.QtUITextStamp = stamp
+    ParkNativeHotkey(button)
+    local hotkey = button.QtUIHot
+    if not hotkey then
+      hotkey = button:CreateFontString(nil, "OVERLAY")
+      button.QtUIHot = hotkey
     end
-    return
-  end
-  button.QtUITextStamp = stamp
-  if hotkey then
-    hotkey:ClearAllPoints()
-    hotkey:SetPoint(spec[1], button, spec[2], spec[3], spec[4])
-    if hotkey.SetJustifyH then hotkey:SetJustifyH(spec[5]) end
-    if hotkey.SetJustifyV then hotkey:SetJustifyV(spec[6]) end
-    if QtUI.ApplyFont then QtUI:ApplyFont(hotkey, hotSize) elseif hotkey.SetFont then hotkey:SetFont(font, hotSize, "OUTLINE") end
-    if hotkey.SetShadowColor then hotkey:SetShadowColor(0, 0, 0, shadow > 0 and 1 or 0) end
-    if hotkey.SetShadowOffset then hotkey:SetShadowOffset(shadow, -shadow) end
+    if QtUI.PlaceAlignedText then
+      QtUI:PlaceAlignedText(hotkey, button, align, 1, size, size)
+    end
+    if QtUI.ApplyFont then QtUI:ApplyFont(hotkey, hotSize) elseif hotkey.SetFont then hotkey:SetFont(font, hotSize) end
+    if hotkey.SetTextColor then hotkey:SetTextColor(1, 1, 1) end
+    if hotkey.SetShadowOffset then hotkey:SetShadowOffset(0, 0) end
     if hotkey.SetNonSpaceWrap then hotkey:SetNonSpaceWrap(false) end
+    if hotkey.SetDrawLayer then hotkey:SetDrawLayer("OVERLAY") end
     if hotkey.Show then pcall(hotkey.Show, hotkey) end
-    if hotkey.SetAlpha then pcall(hotkey.SetAlpha, hotkey, 1) end
-    if hotkey.GetText and hotkey.SetText then
-      hotkey:SetText(AbbreviateHotkey(hotkey:GetText()))
+    EnsureHotkeyOutline(button, shadow, hotSize, align, size)
+
+    local macro = getglobal(name .. "Name")
+    if macro then
+      macro:ClearAllPoints()
+      macro:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+      macro:SetWidth(size - 4)
+      if macro.SetJustifyH then macro:SetJustifyH("CENTER") end
+      if QtUI.ApplyFont then QtUI:ApplyFont(macro, nameSize) elseif macro.SetFont then macro:SetFont(font, nameSize) end
     end
   end
-
-  local macro = getglobal(name .. "Name")
-  if macro then
-    macro:ClearAllPoints()
-    macro:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
-    macro:SetWidth(size - 4)
-    if macro.SetJustifyH then macro:SetJustifyH("CENTER") end
-    if QtUI.ApplyFont then QtUI:ApplyFont(macro, nameSize) elseif macro.SetFont then macro:SetFont(font, nameSize, "OUTLINE") end
-  end
-
-  local count = getglobal(name .. "Count")
-  if count then
-    count:ClearAllPoints()
-    count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
-    if QtUI.ApplyFont then QtUI:ApplyFont(count, hotSize) elseif count.SetFont then count:SetFont(font, hotSize, "OUTLINE") end
-    if count.SetJustifyH then count:SetJustifyH("RIGHT") end
-  end
+  ApplyHotkeyVisibility(button)
+  PlaceCountText(button, size, hotSize)
 end
 
 StyleActionButton = function(button, size)
@@ -827,6 +1020,8 @@ PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
   end
   StyleActionButton(button, size)
   if QtUI.EnsureSlotCell then QtUI:EnsureSlotCell(button, panel) end
+  if QtUI.EnsureCooldownSweep then QtUI:EnsureCooldownSweep(button) end
+  if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(button) end
   if button.EnableMouse then pcall(button.EnableMouse, button, true) end
   button:Show()
 end

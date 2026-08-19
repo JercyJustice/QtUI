@@ -33,6 +33,9 @@ local fightPullName
 local fightStart
 local lastFightDuration
 local startNextSegment
+local PersistMeters
+local LoadMeterState
+local ShowBarTooltip
 local parser = CreateFrame("Frame", "QtUIDamageParser")
 
 local validUnits = { player = true }
@@ -973,6 +976,7 @@ local function ArchiveCurrentFight()
   while table.getn(history) > MAX_FIGHTS do
     table.remove(history)
   end
+  PersistMeters()
   fightDests = {}
   fightDeaths = {}
   fightPullName = nil
@@ -1031,16 +1035,26 @@ local function UpdateCombatState()
     end
   end
 end
-combatWatch:SetScript("OnEvent", UpdateCombatState)
-combatWatch.elapsed = 0
-combatWatch:SetScript("OnUpdate", function()
-  this.elapsed = this.elapsed + (arg1 or 0)
-  if this.elapsed >= 1 then
-    this.elapsed = 0
-    UpdateCombatState()
-    if this.state == "COMBAT" then MarkMetersDirty() end
+combatWatch:SetScript("OnEvent", function()
+  UpdateCombatState()
+  if combatWatch.state == "COMBAT" then
+    combatWatch.elapsed = 0
+    combatWatch:SetScript("OnUpdate", function()
+      this.elapsed = this.elapsed + (arg1 or 0)
+      if this.elapsed < 1 then return end
+      this.elapsed = 0
+      UpdateCombatState()
+      if this.state == "COMBAT" then
+        MarkMetersDirty()
+      else
+        this:SetScript("OnUpdate", nil)
+      end
+    end)
+  else
+    combatWatch:SetScript("OnUpdate", nil)
   end
 end)
+combatWatch.elapsed = 0
 
 local function SortedNames(segment, byRate)
   local keys = {}
@@ -1180,14 +1194,29 @@ end
 
 local reportMenu
 local reportSource
+local reportOpen
+
+local function ParkPopup(frame)
+  if not frame then return end
+  frame:ClearAllPoints()
+  frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  if frame.EnableMouse then frame:EnableMouse(false) end
+end
+
+-- Emberveil Hide() re-enters OnHide. Calling Hide from OnHide stacks until
+-- the client hangs / AVs (crash 0x338). Park first, Hide once, never nest.
+local function SafeHidePopup(frame)
+  if not frame or frame.qtHiding or frame.qtShowing then return end
+  frame.qtHiding = true
+  ParkPopup(frame)
+  if frame.Hide then pcall(frame.Hide, frame) end
+  frame.qtHiding = nil
+end
 
 local function HideReportMenu()
-  if not reportMenu then return end
-  reportMenu:ClearAllPoints()
-  reportMenu:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -2000, 2000)
-  if reportMenu.EnableMouse then reportMenu:EnableMouse(false) end
-  if reportMenu.Hide then pcall(reportMenu.Hide, reportMenu) end
+  reportOpen = nil
   reportSource = nil
+  SafeHidePopup(reportMenu)
 end
 
 local function EnsureReportMenu()
@@ -1249,24 +1278,25 @@ local function EnsureReportMenu()
     HideReportMenu()
   end)
   reportMenu = menu
-  HideReportMenu()
+  ParkPopup(menu)
   return menu
 end
 
 local function ToggleReportMenu(anchor, frame)
   local menu = EnsureReportMenu()
-  if reportSource == frame and menu.IsShown and menu:IsShown() then
+  if reportOpen and reportSource == frame then
     HideReportMenu()
     return
   end
   reportSource = frame
+  reportOpen = true
   menu:ClearAllPoints()
   local width, height = 72, 80
   menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -2)
   menu:SetPoint("BOTTOMLEFT", anchor, "BOTTOMRIGHT", -width, -2 - height)
   if menu.EnableMouse then menu:EnableMouse(true) end
   if menu.Show then pcall(menu.Show, menu) end
-  if menu.SetFrameLevel then menu:SetFrameLevel(200) end
+  if menu.SetFrameLevel then pcall(menu.SetFrameLevel, menu, 200) end
 end
 
 local PlaceBox
@@ -1278,17 +1308,332 @@ local function SpellHits(row, spell)
   if row and row._crits then crits = row._crits[spell] or 0 end
   return hits, crits
 end
-local MAX_DETAIL = 14
-local DETAIL_W = 340
+local MAX_DETAIL = 16
+local MAX_ROSTER = 16
+local DETAIL_W = 560
 local DETAIL_ROW = 16
+local ROSTER_W = 172
+local FOOTER_H = 20
 local detailFrame
+local detailOpen
+local detailView = "damage"
+local detailSegment = 1
+local detailUnit
+local detailCmp
+local detailPick
+local detailMode = "spells"
+local detailSpell
+local detailRosterScroll = 0
+local detailSpellScroll = 0
+local RefreshOverview
+local ShowSpellDetails
+local MakeDetailBar
 
 local function HideSpellDetails()
+  if detailFrame and (detailFrame.qtHiding or detailFrame.qtShowing) then return end
+  detailOpen = nil
+  detailPick = nil
+  detailMode = "spells"
+  detailSpell = nil
   if not detailFrame then return end
-  detailFrame:ClearAllPoints()
-  detailFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-  if detailFrame.EnableMouse then detailFrame:EnableMouse(false) end
-  if detailFrame.Hide then pcall(detailFrame.Hide, detailFrame) end
+  detailFrame._placed = nil
+  SafeHidePopup(detailFrame)
+end
+
+MakeDetailBar = function(parent)
+  local bar = CreateFrame("StatusBar", nil, parent)
+  bar:SetStatusBarTexture(QtUI.media.statusbar)
+  bar:SetMinMaxValues(0, 1)
+  bar.bg = bar:CreateTexture(nil, "BACKGROUND")
+  bar.bg:SetAllPoints(bar)
+  bar.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+  bar.bg:SetVertexColor(.04, .05, .06, .7)
+  bar.left = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  bar.left:SetPoint("LEFT", bar, "LEFT", 4, 0)
+  bar.left:SetJustifyH("LEFT")
+  bar.right = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  bar.right:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+  bar.right:SetJustifyH("RIGHT")
+  return bar
+end
+
+local function ParkDetailBar(bar)
+  if not bar then return end
+  bar:ClearAllPoints()
+  bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  bar.spell = nil
+  bar.click = nil
+  bar.unit = nil
+  bar.row = nil
+  if bar.EnableMouse then bar:EnableMouse(false) end
+  if bar.Hide then pcall(bar.Hide, bar) end
+end
+
+local function OverviewHeight()
+  return TITLE_H + MAX_DETAIL * DETAIL_ROW + FOOTER_H + 10
+end
+
+local function FormatDiff(a, b)
+  local d = (tonumber(a) or 0) - (tonumber(b) or 0)
+  if d > 0 then return "+" .. ShortNumber(d) end
+  if d < 0 then return "-" .. ShortNumber(-d) end
+  return "="
+end
+
+local function DetailTag(view)
+  if view == "heal" then return "Healing" end
+  if view == "dps" then return "DPS" end
+  return "Damage"
+end
+
+local function DetailStore()
+  return GetActiveSegment({ view = detailView, segment = detailSegment })
+end
+
+local function UnionSpells(rowA, rowB)
+  local seen = {}
+  local spells = {}
+  local function addFrom(row)
+    if type(row) ~= "table" then return end
+    local key
+    for key in pairs(row) do
+      if not INTERNALS[key] and not seen[key] then
+        seen[key] = true
+        table.insert(spells, key)
+      end
+    end
+  end
+  addFrom(rowA)
+  addFrom(rowB)
+  table.sort(spells, function(a, b)
+    local ma, mb = 0, 0
+    if rowA then
+      ma = rowA[a] or 0
+      mb = rowA[b] or 0
+    end
+    if rowB then
+      local oa = rowB[a] or 0
+      local ob = rowB[b] or 0
+      if oa > ma then ma = oa end
+      if ob > mb then mb = ob end
+    end
+    return mb < ma
+  end)
+  return spells
+end
+
+local function SpellRowsFor(unit, row, view)
+  local rows = {}
+  if not unit or not row then
+    table.insert(rows, { label = "(no data)", value = 0, right = "" })
+    return rows
+  end
+  local spells = SpellList(row)
+  local sum = row._sum or 0
+  local ctime = row._ctime or 1
+  if ctime < 1 then ctime = 1 end
+  local i
+  local count = table.getn(spells)
+  if count < 1 then
+    table.insert(rows, { label = "(none)", value = 0, right = "" })
+    return rows
+  end
+  for i = 1, count do
+    local spell = spells[i]
+    local amount = spell and (row[spell] or 0) or 0
+    local pct = sum > 0 and (amount / sum * 100) or 0
+    local hits, crits = SpellHits(row, spell)
+    local right = ShortNumber(amount) .. "  " .. FormatRate(amount / ctime) .. "  " .. string.format("%.0f%%", pct)
+    if hits > 0 then
+      right = right .. "  " .. tostring(hits) .. "h"
+      if crits > 0 then right = right .. "/" .. tostring(crits) .. "c" end
+    end
+    table.insert(rows, {
+      label = spell or "(none)",
+      value = amount,
+      right = right,
+      spell = spell,
+      row = row,
+      unit = unit,
+      click = function()
+        detailMode = "targets"
+        detailSpell = spell
+        RefreshOverview()
+      end,
+    })
+  end
+  return rows
+end
+
+local function CompareRows(unitA, rowA, unitB, rowB)
+  local rows = {}
+  local spells = UnionSpells(rowA, rowB)
+  local i
+  local count = table.getn(spells)
+  if count < 1 then
+    table.insert(rows, { label = "(none)", value = 0, right = "" })
+    return rows
+  end
+  for i = 1, count do
+    local spell = spells[i]
+    local a = (rowA and spell and rowA[spell]) or 0
+    local b = (rowB and spell and rowB[spell]) or 0
+    local best = a
+    if b > best then best = b end
+    local tint = { .45, .45, .48 }
+    if a > b then tint = { .18, .62, .45 } end
+    if b > a then tint = { .72, .38, .28 } end
+    table.insert(rows, {
+      label = spell or "(none)",
+      value = a,
+      best = best,
+      right = ShortNumber(a) .. "  " .. ShortNumber(b) .. "  " .. FormatDiff(a, b),
+      color = tint,
+      spell = spell,
+      row = rowA,
+      unit = unitA,
+      click = function()
+        detailMode = "targets"
+        detailSpell = spell
+        RefreshOverview()
+      end,
+    })
+  end
+  return rows
+end
+
+local function TargetRows(unit, spell, row)
+  local rows = {}
+  local hits = row and row._targets and row._targets[spell]
+  local names = {}
+  if hits then
+    local dest
+    for dest in pairs(hits) do table.insert(names, dest) end
+    table.sort(names, function(a, b) return (hits[b] or 0) < (hits[a] or 0) end)
+  end
+  local total = (row and spell and row[spell]) or 0
+  local i
+  local count = table.getn(names)
+  if count < 1 then
+    table.insert(rows, { label = "(no targets)", value = 0, right = "" })
+    return rows
+  end
+  for i = 1, count do
+    local dest = names[i]
+    local amount = dest and hits[dest] or 0
+    local pct = total > 0 and (amount / total * 100) or 0
+    table.insert(rows, {
+      label = dest or "(no targets)",
+      value = amount,
+      right = dest and (ShortNumber(amount) .. "  " .. string.format("%.0f%%", pct)) or "",
+    })
+  end
+  return rows
+end
+
+local function FillDetailBars(frame, rows, left, width, height, color, y0, offset)
+  offset = tonumber(offset) or 0
+  y0 = y0 or (TITLE_H + 20)
+  local total = table.getn(rows)
+  local best = 1
+  local i
+  for i = 1, total do
+    local val = rows[i].best or rows[i].value or 0
+    if val > best then best = val end
+  end
+  for i = 1, MAX_DETAIL do
+    local bar = frame.bars[i]
+    local spec = rows[i + offset]
+    if spec then
+      local y = y0 + (i - 1) * DETAIL_ROW
+      PlaceBox(bar, frame, left, height - y - DETAIL_ROW + 2, width, DETAIL_ROW - 2)
+      bar:SetMinMaxValues(0, best)
+      bar:SetValue(spec.value or 0)
+      local tint = spec.color or color
+      bar:SetStatusBarColor(tint[1], tint[2], tint[3], .9)
+      bar.left:SetText((i + offset) .. ". " .. (spec.label or ""))
+      bar.right:SetText(spec.right or "")
+      bar.spell = spec.spell
+      bar.row = spec.row
+      bar.unit = spec.unit
+      bar.click = spec.click
+      if bar.Show then pcall(bar.Show, bar) end
+      if bar.EnableMouse then bar:EnableMouse(true) end
+      bar:SetScript("OnMouseUp", function()
+        if this.click then this.click() end
+      end)
+    else
+      ParkDetailBar(bar)
+    end
+  end
+end
+
+local function LayoutCenterPanel(frame, width, height, title, hint)
+  local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+  local sh = (UIParent.GetHeight and UIParent:GetHeight()) or 768
+  if sw < 200 then sw = 1024 end
+  if sh < 200 then sh = 768 end
+  local left = math.floor((sw - width) / 2)
+  local bottom = math.floor((sh - height) / 2)
+  PlaceBox(frame, UIParent, left, bottom, width, height)
+  frame.qtW = width
+  frame.qtH = height
+  frame.lastLeft = left
+  frame.lastBottom = bottom
+  PlaceBox(frame.close, frame, width - 18, height - 16, 14, 14)
+  frame.title:ClearAllPoints()
+  frame.title:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - 16)
+  frame.title:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 22, height - 4)
+  frame.title:SetText(title or "")
+  if hint and hint ~= "" then
+    frame.hint:ClearAllPoints()
+    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - TITLE_H - 2)
+    frame.hint:SetText(hint)
+  else
+    frame.hint:SetText("")
+    frame.hint:ClearAllPoints()
+    frame.hint:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  end
+  if frame.EnableMouse then frame:EnableMouse(true) end
+  frame.qtShowing = true
+  if frame.Show then pcall(frame.Show, frame) end
+  frame.qtShowing = nil
+end
+
+local function SelectOverviewPlayer(name)
+  if not name then return end
+  if detailPick then
+    if name ~= detailUnit then
+      detailCmp = name
+    end
+    detailPick = nil
+    detailMode = "spells"
+    RefreshOverview()
+    return
+  end
+  if name == detailUnit then
+    detailMode = "spells"
+    detailSpell = nil
+    RefreshOverview()
+    return
+  end
+  detailUnit = name
+  if detailCmp == name then detailCmp = nil end
+  detailMode = "spells"
+  detailSpell = nil
+  RefreshOverview()
+end
+
+local function ToggleCompare()
+  if detailCmp or detailPick then
+    detailCmp = nil
+    detailPick = nil
+    detailMode = "spells"
+    RefreshOverview()
+    return
+  end
+  detailPick = true
+  RefreshOverview()
 end
 
 local function EnsureSpellDetails()
@@ -1309,7 +1654,11 @@ local function EnsureSpellDetails()
   frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   frame.title:SetJustifyH("LEFT")
   frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  frame.hint:SetText("Click a player bar for this list.")
+  frame.sub = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.sub:SetJustifyH("LEFT")
+  frame.split = frame:CreateTexture(nil, "ARTWORK")
+  frame.split:SetTexture("Interface\\Buttons\\WHITE8X8")
+  frame.split:SetVertexColor(.2, .7, .62, .35)
   frame.close = CreateFrame("Button", nil, frame)
   frame.close:EnableMouse(true)
   frame.close:RegisterForClicks("LeftButtonUp")
@@ -1317,169 +1666,252 @@ local function EnsureSpellDetails()
   frame.close.text:SetPoint("CENTER", frame.close, "CENTER", 0, 0)
   frame.close.text:SetText("X")
   frame.close:SetScript("OnClick", HideSpellDetails)
+  frame.compare = CreateFrame("Button", nil, frame)
+  frame.compare:EnableMouse(true)
+  frame.compare:RegisterForClicks("LeftButtonUp")
+  if frame.compare.SetBackdrop then
+    pcall(frame.compare.SetBackdrop, frame.compare, {
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    if frame.compare.SetBackdropColor then frame.compare:SetBackdropColor(.08, .12, .14, .95) end
+    if frame.compare.SetBackdropBorderColor then frame.compare:SetBackdropBorderColor(.2, .7, .62, 1) end
+  end
+  frame.compare.text = frame.compare:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  frame.compare.text:SetPoint("CENTER", frame.compare, "CENTER", 0, 0)
+  frame.compare.text:SetText("Compare")
+  frame.compare:SetScript("OnClick", ToggleCompare)
+  frame.roster = {}
   frame.bars = {}
   local i
+  for i = 1, MAX_ROSTER do
+    local bar = MakeDetailBar(frame)
+    bar:EnableMouse(true)
+    if bar.RegisterForClicks then bar:RegisterForClicks("LeftButtonUp") end
+    bar:SetScript("OnMouseUp", function()
+      if this.unit then SelectOverviewPlayer(this.unit) end
+    end)
+    if bar.EnableMouseWheel then bar:EnableMouseWheel(1) end
+    bar:SetScript("OnMouseWheel", function()
+      local delta = tonumber(arg1) or 0
+      if delta > 0 then delta = 1 else delta = -1 end
+      detailRosterScroll = (detailRosterScroll or 0) - delta
+      RefreshOverview()
+    end)
+    frame.roster[i] = bar
+  end
   for i = 1, MAX_DETAIL do
-    local bar = CreateFrame("StatusBar", nil, frame)
-    bar:SetStatusBarTexture(QtUI.media.statusbar)
-    bar:SetMinMaxValues(0, 1)
-    bar.bg = bar:CreateTexture(nil, "BACKGROUND")
-    bar.bg:SetAllPoints(bar)
-    bar.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
-    bar.bg:SetVertexColor(.04, .05, .06, .7)
-    bar.left = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    bar.left:SetPoint("LEFT", bar, "LEFT", 4, 0)
-    bar.left:SetJustifyH("LEFT")
-    bar.right = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    bar.right:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
-    bar.right:SetJustifyH("RIGHT")
+    local bar = MakeDetailBar(frame)
+    if bar.EnableMouseWheel then bar:EnableMouseWheel(1) end
+    bar:SetScript("OnMouseWheel", function()
+      local delta = tonumber(arg1) or 0
+      if delta > 0 then delta = 1 else delta = -1 end
+      detailSpellScroll = (detailSpellScroll or 0) - delta
+      RefreshOverview()
+    end)
     frame.bars[i] = bar
   end
+  if frame.EnableMouseWheel then frame:EnableMouseWheel(1) end
+  frame:SetScript("OnMouseWheel", function()
+    local delta = tonumber(arg1) or 0
+    if delta > 0 then delta = 1 else delta = -1 end
+    detailSpellScroll = (detailSpellScroll or 0) - delta
+    RefreshOverview()
+  end)
   if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterDetails") end
   frame:SetScript("OnHide", HideSpellDetails)
   detailFrame = frame
-  HideSpellDetails()
+  ParkPopup(frame)
   return frame
 end
 
-local function FillDetailBars(frame, rows, width, height, color)
-  local count = table.getn(rows)
-  if count < 1 then count = 1 end
-  if count > MAX_DETAIL then count = MAX_DETAIL end
-  local best = 1
-  local i
-  for i = 1, table.getn(rows) do
-    if (rows[i].value or 0) > best then best = rows[i].value end
+local overviewBusy
+RefreshOverview = function()
+  if not detailOpen or overviewBusy then return end
+  overviewBusy = true
+  local frame = EnsureSpellDetails()
+  local segment = DetailStore()
+  local byRate = detailView == "dps"
+  local keys = SortedNames(segment, byRate)
+  if not detailUnit or not segment[detailUnit] then
+    detailUnit = keys[1]
   end
-  for i = 1, MAX_DETAIL do
-    local bar = frame.bars[i]
-    if i <= count and rows[i] then
-      local y = TITLE_H + 4 + (i - 1) * DETAIL_ROW
-      bar:ClearAllPoints()
-      bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, height - y - DETAIL_ROW + 2)
-      bar:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 8, height - y)
-      bar:SetMinMaxValues(0, best)
-      bar:SetValue(rows[i].value or 0)
-      bar:SetStatusBarColor(color[1], color[2], color[3], .9)
-      bar.left:SetText(i .. ". " .. (rows[i].label or ""))
-      bar.right:SetText(rows[i].right or "")
-      bar.spell = rows[i].spell
-      bar.row = rows[i].row
-      bar.unit = rows[i].unit
-      bar.click = rows[i].click
-      if bar.Show then pcall(bar.Show, bar) end
-      bar:EnableMouse(true)
-      bar:SetScript("OnMouseUp", function()
-        if this.click then this.click() end
-      end)
-    else
-      bar:ClearAllPoints()
-      bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-      bar.spell = nil
-      bar.click = nil
-      if bar.Hide then pcall(bar.Hide, bar) end
-    end
+  if detailCmp and not segment[detailCmp] then
+    detailCmp = nil
   end
-end
-
-local function LayoutCenterPanel(frame, width, height, title, hint)
-  local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
-  local sh = (UIParent.GetHeight and UIParent:GetHeight()) or 768
-  if sw < 200 then sw = 1024 end
-  if sh < 200 then sh = 768 end
-  local left = math.floor((sw - width) / 2)
-  local bottom = math.floor((sh - height) / 2)
-  PlaceBox(frame, UIParent, left, bottom, width, height)
-  PlaceBox(frame.close, frame, width - 18, height - 16, 14, 14)
+  if detailCmp == detailUnit then detailCmp = nil end
+  local width = DETAIL_W
+  local height = OverviewHeight()
+  local tag = DetailTag(detailView)
+  local title = tag .. " overview"
+  if detailPick then
+    title = "Click a second player"
+  elseif detailCmp then
+    title = tag .. " compare"
+  elseif detailMode == "targets" then
+    title = tag .. " targets"
+  end
+  if not frame._placed then
+    LayoutCenterPanel(frame, width, height, title, "")
+    frame._placed = true
+    PlaceBox(frame.split, frame, 8 + ROSTER_W + 4, 8, 1, height - TITLE_H - 10)
+    PlaceBox(frame.compare, frame, 8, 6, ROSTER_W, 16)
+  else
+    if frame.title then frame.title:SetText(title) end
+    if frame.EnableMouse then frame:EnableMouse(true) end
+    if frame.Show then pcall(frame.Show, frame) end
+  end
   frame.title:ClearAllPoints()
   frame.title:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - 16)
-  frame.title:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 22, height - 4)
-  frame.title:SetText(title or "")
-  if hint and hint ~= "" then
-    frame.hint:ClearAllPoints()
-    frame.hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, height - TITLE_H - 2)
-    frame.hint:SetText(hint)
-  else
-    frame.hint:SetText("")
-    frame.hint:ClearAllPoints()
-    frame.hint:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  frame.title:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", 8 + ROSTER_W, height - 4)
+  if frame.close and frame.close.SetFrameLevel then frame.close:SetFrameLevel(190) end
+  if frame.compare and frame.compare.SetFrameLevel then frame.compare:SetFrameLevel(190) end
+  if frame.compare.text then
+    if detailCmp or detailPick then
+      frame.compare.text:SetText("Clear vs")
+    else
+      frame.compare.text:SetText("Compare")
+    end
   end
-  if frame.EnableMouse then frame:EnableMouse(true) end
-  if frame.Show then pcall(frame.Show, frame) end
+  if frame.compare.EnableMouse then frame.compare:EnableMouse(true) end
+  if frame.compare.Show then pcall(frame.compare.Show, frame.compare) end
+
+  local total = 0
+  local rosterBest = 1
+  local n
+  for n = 1, table.getn(keys) do
+    local row = segment[keys[n]]
+    local sum = (row and row._sum) or 0
+    total = total + sum
+    local ctime = (row and row._ctime) or 1
+    if ctime < 1 then ctime = 1 end
+    local val = sum
+    if byRate then val = sum / ctime end
+    if val > rosterBest then rosterBest = val end
+  end
+  local rosterMax = table.getn(keys) - MAX_ROSTER
+  if rosterMax < 0 then rosterMax = 0 end
+  if detailRosterScroll < 0 then detailRosterScroll = 0 end
+  if detailRosterScroll > rosterMax then detailRosterScroll = rosterMax end
+  local listTop = TITLE_H + 4
+  for n = 1, MAX_ROSTER do
+    local bar = frame.roster[n]
+    local name = keys[n + detailRosterScroll]
+    local row = name and segment[name] or nil
+    if name and row then
+      local y = listTop + (n - 1) * DETAIL_ROW
+      PlaceBox(bar, frame, 8, height - y - DETAIL_ROW + 2, ROSTER_W, DETAIL_ROW - 2)
+      local sum = row._sum or 0
+      local ctime = row._ctime or 1
+      if ctime < 1 then ctime = 1 end
+      local rate = sum / ctime
+      local pct = total > 0 and (sum / total * 100) or 0
+      bar:SetMinMaxValues(0, rosterBest)
+      if byRate then
+        bar:SetValue(rate)
+        bar.right:SetText(FormatRate(rate))
+      else
+        bar:SetValue(sum)
+        bar.right:SetText(ShortNumber(sum) .. "  " .. string.format("%.0f%%", pct))
+      end
+      local r, g, b = ClassColor(name)
+      local label = (n + detailRosterScroll) .. ". " .. name
+      if name == detailUnit then
+        bar:SetStatusBarColor(r, g, b, .95)
+        label = "> " .. label
+      elseif name == detailCmp then
+        bar:SetStatusBarColor(.72, .42, .18, .95)
+        label = "vs " .. label
+      else
+        bar:SetStatusBarColor(r * .7, g * .7, b * .7, .75)
+      end
+      bar.left:SetText(label)
+      bar.unit = name
+      bar.row = row
+      if bar.Show then pcall(bar.Show, bar) end
+      if bar.EnableMouse then bar:EnableMouse(true) end
+    else
+      ParkDetailBar(bar)
+    end
+  end
+
+  local rowA = detailUnit and segment[detailUnit] or nil
+  local rowB = detailCmp and segment[detailCmp] or nil
+  local paneLeft = 8 + ROSTER_W + 10
+  local paneW = width - paneLeft - 8
+  local sub = ""
+  if detailUnit and rowA then
+    local sum = rowA._sum or 0
+    local ctime = rowA._ctime or 1
+    if ctime < 1 then ctime = 1 end
+    sub = detailUnit .. "  " .. ShortNumber(sum) .. "  " .. FormatRate(sum / ctime)
+    if detailCmp and rowB and detailMode ~= "targets" then
+      local sumB = rowB._sum or 0
+      local ctimeB = rowB._ctime or 1
+      if ctimeB < 1 then ctimeB = 1 end
+      sub = detailUnit .. " vs " .. detailCmp .. "  " .. ShortNumber(sum) .. " / " .. ShortNumber(sumB) .. "  " .. FormatDiff(sum, sumB)
+    elseif detailMode == "targets" and detailSpell then
+      sub = detailUnit .. "  -  " .. detailSpell .. " hits"
+    end
+  else
+    sub = "No player selected"
+  end
+  frame.sub:ClearAllPoints()
+  frame.sub:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", paneLeft, height - 16)
+  frame.sub:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", width - 22, height - 4)
+  frame.sub:SetText(sub)
+
+  local rows
+  local tint = { .18, .62, .55 }
+  if detailMode == "targets" and detailUnit and detailSpell and rowA then
+    rows = TargetRows(detailUnit, detailSpell, rowA)
+    tint = { .72, .42, .18 }
+  elseif detailCmp and rowA then
+    rows = CompareRows(detailUnit, rowA, detailCmp, rowB)
+  else
+    rows = SpellRowsFor(detailUnit, rowA, detailView)
+    if detailUnit then
+      local r, g, b = ClassColor(detailUnit)
+      tint = { r, g, b }
+    end
+  end
+  local spellMax = table.getn(rows) - MAX_DETAIL
+  if spellMax < 0 then spellMax = 0 end
+  if detailSpellScroll < 0 then detailSpellScroll = 0 end
+  if detailSpellScroll > spellMax then detailSpellScroll = spellMax end
+  FillDetailBars(frame, rows, paneLeft, paneW, height, tint, TITLE_H + 4, detailSpellScroll)
+  overviewBusy = nil
 end
 
 local function ShowSpellTargets(unit, spell, row)
-  if not unit or not spell or not row then return end
-  local frame = EnsureSpellDetails()
-  local hits = row._targets and row._targets[spell]
-  local names = {}
-  if hits then
-    local dest
-    for dest in pairs(hits) do table.insert(names, dest) end
-    table.sort(names, function(a, b) return (hits[b] or 0) < (hits[a] or 0) end)
-  end
-  local count = table.getn(names)
-  if count < 1 then count = 1 end
-  if count > MAX_DETAIL then count = MAX_DETAIL end
-  local width = DETAIL_W
-  local height = TITLE_H + 4 + count * DETAIL_ROW + 8
-  local rows = {}
-  local total = row[spell] or 0
-  local i
-  for i = 1, count do
-    local dest = names[i]
-    local amount = dest and hits[dest] or 0
-    local pct = total > 0 and (amount / total * 100) or 0
-    table.insert(rows, {
-      label = dest or "(no targets)",
-      value = amount,
-      right = dest and (ShortNumber(amount) .. "  " .. string.format("%.0f%%", pct)) or "",
-    })
-  end
-  LayoutCenterPanel(frame, width, height, unit .. "  -  " .. spell .. " hits", "")
-  FillDetailBars(frame, rows, width, height, { .72, .42, .18 })
+  if not unit or not spell then return end
+  detailUnit = unit
+  detailMode = "targets"
+  detailSpell = spell
+  detailOpen = true
+  RefreshOverview()
 end
 
-local function ShowSpellDetails(unit, row, view)
-  if not unit or not row then return end
-  local frame = EnsureSpellDetails()
-  local spells = SpellList(row)
-  local count = table.getn(spells)
-  if count < 1 then count = 1 end
-  if count > MAX_DETAIL then count = MAX_DETAIL end
-  local width = DETAIL_W
-  local height = TITLE_H + 4 + count * DETAIL_ROW + 8
-  local tag = "Damage"
-  if view == "heal" then tag = "Healing" end
-  local sum = row._sum or 0
-  local ctime = row._ctime or 1
-  if ctime < 1 then ctime = 1 end
-  local rows = {}
-  local i
-  for i = 1, count do
-    local spell = spells[i]
-    local amount = spell and (row[spell] or 0) or 0
-    local pct = sum > 0 and (amount / sum * 100) or 0
-    local hits, crits = SpellHits(row, spell)
-    local right = ShortNumber(amount) .. "  " .. FormatRate(amount / ctime) .. "  " .. string.format("%.0f%%", pct)
-    if hits > 0 then
-      right = right .. "  " .. tostring(hits) .. "h"
-      if crits > 0 then right = right .. "/" .. tostring(crits) .. "c" end
-    end
-    table.insert(rows, {
-      label = spell or "(none)",
-      value = amount,
-      right = right,
-      spell = spell,
-      row = row,
-      unit = unit,
-      click = function()
-        ShowSpellTargets(unit, spell, row)
-      end,
-    })
+ShowSpellDetails = function(unit, row, viewOrFrame)
+  if not unit then return end
+  if type(viewOrFrame) == "table" then
+    detailView = viewOrFrame.view or "damage"
+    detailSegment = viewOrFrame.segment or 1
+  elseif type(viewOrFrame) == "string" then
+    detailView = viewOrFrame
   end
-  LayoutCenterPanel(frame, width, height, unit .. "  -  " .. tag, "")
-  FillDetailBars(frame, rows, width, height, { .18, .62, .55 })
+  detailUnit = unit
+  detailCmp = nil
+  detailPick = nil
+  detailMode = "spells"
+  detailSpell = nil
+  detailRosterScroll = 0
+  detailSpellScroll = 0
+  EnsureSpellDetails()
+  detailOpen = true
+  if not pcall(RefreshOverview) then overviewBusy = nil end
 end
 
 local FIGHTS_PER_PAGE = 10
@@ -1488,12 +1920,11 @@ local FIGHT_W = 300
 local fightPage = 1
 local fightPicker
 
+local fightOpen
+
 local function HideFightMenu()
-  if not fightPicker then return end
-  fightPicker:ClearAllPoints()
-  fightPicker:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-  if fightPicker.EnableMouse then fightPicker:EnableMouse(false) end
-  if fightPicker.Hide then pcall(fightPicker.Hide, fightPicker) end
+  fightOpen = nil
+  SafeHidePopup(fightPicker)
 end
 
 local function FightRows()
@@ -1601,7 +2032,7 @@ local function EnsureFightPicker()
   if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterFights") end
   frame:SetScript("OnHide", HideFightMenu)
   fightPicker = frame
-  HideFightMenu()
+  ParkPopup(frame)
   return frame
 end
 
@@ -1673,11 +2104,12 @@ QtUI.ShowFightPage = ShowFightPage
 local function ToggleFightMenu(anchor)
   if HideReportMenu then HideReportMenu() end
   if QtUI.HideMeterModeMenu then QtUI.HideMeterModeMenu() end
-  if fightPicker and fightPicker.IsShown and fightPicker:IsShown() then
+  if fightOpen then
     HideFightMenu()
     return
   end
   fightPage = 1
+  fightOpen = true
   ShowFightPage()
 end
 
@@ -1948,24 +2380,52 @@ local function ResetSegment(segmentId)
   data.damage[segmentId] = {}
   data.heal[segmentId] = {}
   MarkMetersDirty()
+  PersistMeters()
 end
 
-local function PersistMeters()
+PersistMeters = function()
   if not QtUI.GetLayout then return end
   local layout = QtUI:GetLayout()
   if not layout then return end
   layout.meterWindows = {}
   local frames = QtUI.meterFrames
-  if not frames then return end
-  local i
-  for i = 1, table.getn(frames) do
-    local frame = frames[i]
-    table.insert(layout.meterWindows, {
-      id = frame.meterId,
-      view = frame.view,
-      segment = frame.segment,
-    })
+  if frames then
+    local i
+    for i = 1, table.getn(frames) do
+      local frame = frames[i]
+      table.insert(layout.meterWindows, {
+        id = frame.meterId,
+        view = frame.view,
+        segment = frame.segment,
+      })
+    end
   end
+  if not QtUIDB then return end
+  QtUIDB.meter = {
+    damage = CopyTableDeep(data.damage, 5),
+    heal = CopyTableDeep(data.heal, 5),
+    classes = CopyTableDeep(data.classes, 3),
+    history = CopyTableDeep(history, 5),
+    viewing = viewing,
+  }
+end
+
+LoadMeterState = function()
+  local snap = QtUIDB and QtUIDB.meter
+  if type(snap) ~= "table" then return end
+  if type(snap.damage) == "table" then
+    data.damage = snap.damage
+    if type(data.damage[0]) ~= "table" then data.damage[0] = {} end
+    if type(data.damage[1]) ~= "table" then data.damage[1] = {} end
+  end
+  if type(snap.heal) == "table" then
+    data.heal = snap.heal
+    if type(data.heal[0]) ~= "table" then data.heal[0] = {} end
+    if type(data.heal[1]) ~= "table" then data.heal[1] = {} end
+  end
+  if type(snap.classes) == "table" then data.classes = snap.classes end
+  if type(snap.history) == "table" then history = snap.history end
+  viewing = snap.viewing
 end
 
 local function MeterLayout()
@@ -2067,10 +2527,18 @@ local function RefreshMeter(frame)
   end
 
   local _, _, visible = MeterLayout()
+  local totalKeys = table.getn(keys)
+  local maxScroll = totalKeys - visible
+  if maxScroll < 0 then maxScroll = 0 end
+  local offset = tonumber(frame.scroll) or 0
+  if offset < 0 then offset = 0 end
+  if offset > maxScroll then offset = maxScroll end
+  frame.scroll = offset
   for n = 1, MAX_BARS do
     local bar = frame.bars[n]
     if bar then
-      local name = n <= visible and keys[n] or nil
+      local rank = n + offset
+      local name = n <= visible and keys[rank] or nil
       if name and segment[name] then
         local row = segment[name]
         local sum = row._sum or 0
@@ -2089,7 +2557,7 @@ local function RefreshMeter(frame)
         end
         local r, g, b = ClassColor(name)
         bar:SetStatusBarColor(r, g, b, .85)
-        bar.left:SetText(n .. ". " .. name)
+        bar.left:SetText(rank .. ". " .. name)
         bar.unit = name
         bar.row = row
       else
@@ -2101,6 +2569,241 @@ local function RefreshMeter(frame)
       end
     end
   end
+  if detailOpen and RefreshOverview and not overviewBusy then RefreshOverview() end
+end
+
+local function WheelDelta(a, b)
+  local delta = tonumber(arg1)
+  if (not delta or delta == 0) and type(b) == "number" then delta = b end
+  if (not delta or delta == 0) and type(a) == "number" then delta = a end
+  return tonumber(delta) or 0
+end
+
+local function ScrollMeter(frame, delta)
+  if not frame then return end
+  delta = tonumber(delta) or 0
+  if delta == 0 then return end
+  if delta > 0 then delta = 1 else delta = -1 end
+  local _, _, visible = MeterLayout()
+  local segment = GetActiveSegment(frame)
+  local keys = SortedNames(segment, frame.view == "dps")
+  local maxScroll = table.getn(keys) - visible
+  if maxScroll < 0 then maxScroll = 0 end
+  local scroll = tonumber(frame.scroll) or 0
+  scroll = scroll - delta
+  if scroll < 0 then scroll = 0 end
+  if scroll > maxScroll then scroll = maxScroll end
+  if frame.scroll == scroll then return end
+  frame.scroll = scroll
+  RefreshMeter(frame)
+end
+
+local function CursorUI()
+  local x, y = GetCursorPosition()
+  local scale = 1
+  if UIParent.GetEffectiveScale then scale = UIParent:GetEffectiveScale() or 1 end
+  if scale < .01 then scale = 1 end
+  return (x or 0) / scale, (y or 0) / scale
+end
+
+local function BarAtCursor(frame)
+  if not frame or not frame.bars then return nil end
+  local x, y = CursorUI()
+  local i
+  for i = 1, table.getn(frame.bars) do
+    local bar = frame.bars[i]
+    if bar and bar.unit and bar.GetLeft then
+      local l, r = bar:GetLeft(), bar:GetRight()
+      local t, b = bar:GetTop(), bar:GetBottom()
+      if l and r and t and b and x >= l and x <= r then
+        local lo, hi = b, t
+        if t < b then lo, hi = t, b end
+        if y >= lo and y <= hi then return bar end
+      end
+    end
+  end
+  return nil
+end
+
+local function RaiseMeterChrome(frame)
+  if not frame then return end
+  local lvl = (frame.GetFrameLevel and frame:GetFrameLevel() or 4) + 30
+  local catch = frame.wheelCatch
+  if catch and catch.GetFrameLevel then
+    local cl = catch:GetFrameLevel() or 0
+    if lvl <= cl then lvl = cl + 2 end
+  end
+  local widgets = { frame.title, frame.btnReset, frame.btnReport, frame.btnFight }
+  local i
+  for i = 1, table.getn(widgets) do
+    local w = widgets[i]
+    if w then
+      if w.SetFrameLevel then w:SetFrameLevel(lvl) end
+      if w.EnableMouse then w:EnableMouse(true) end
+    end
+  end
+end
+
+local function SizeWheelCatch(frame)
+  local catch = frame and frame.wheelCatch
+  if not catch then return end
+  local w = frame.qtW or 190
+  local h = frame.qtH or 160
+  -- Keep the header (R/P/F + title) free so those buttons receive clicks.
+  local listH = h - TITLE_H
+  if listH < 20 then listH = 20 end
+  catch:ClearAllPoints()
+  catch:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+  catch:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", w, listH)
+  if catch.SetWidth then
+    catch:SetWidth(w + 1)
+    catch:SetWidth(w)
+  end
+  if catch.SetHeight then
+    catch:SetHeight(listH + 1)
+    catch:SetHeight(listH)
+  end
+  RaiseMeterChrome(frame)
+end
+
+local function FrameContainsCursor(frame)
+  if not frame then return nil end
+  if frame.IsShown then
+    local ok, shown = pcall(frame.IsShown, frame)
+    if ok and not (shown == true or shown == 1 or shown == "1") then return nil end
+  end
+  local x, y = CursorUI()
+  local l = frame.GetLeft and frame:GetLeft()
+  local r = frame.GetRight and frame:GetRight()
+  local t = frame.GetTop and frame:GetTop()
+  local b = frame.GetBottom and frame:GetBottom()
+  if l and r then
+    if r < l then l, r = r, l end
+    if x < l or x > r then return nil end
+    if t and b then
+      local lo, hi = b, t
+      if t < b then lo, hi = t, b end
+      if y >= lo and y <= hi then return true end
+    end
+  end
+  local w, h = frame.qtW, frame.qtH
+  local left, bottom = frame.lastLeft, frame.lastBottom
+  if (not left or not bottom) and l and b then
+    left, bottom = l, b
+    if t and b and t < b then bottom = t end
+  end
+  if left and bottom and w and h then
+    if x >= left and x <= left + w and y >= bottom and y <= bottom + h then return true end
+  end
+  return nil
+end
+
+local function MeterUnderCursor()
+  local frames = QtUI.meterFrames
+  if not frames then return nil end
+  local i
+  for i = 1, table.getn(frames) do
+    if FrameContainsCursor(frames[i]) then return frames[i] end
+  end
+  return nil
+end
+
+local function ScrollDetail(delta)
+  if not detailOpen or not detailFrame then return nil end
+  if not FrameContainsCursor(detailFrame) then return nil end
+  delta = tonumber(delta) or 0
+  if delta == 0 then return true end
+  if delta > 0 then delta = 1 else delta = -1 end
+  local x = CursorUI()
+  local left = detailFrame.GetLeft and detailFrame:GetLeft()
+  local roster = true
+  if left and x > left + 8 + ROSTER_W + 6 then roster = nil end
+  if roster then
+    detailRosterScroll = (detailRosterScroll or 0) - delta
+  else
+    detailSpellScroll = (detailSpellScroll or 0) - delta
+  end
+  RefreshOverview()
+  return true
+end
+
+local function HookCameraForMeterScroll()
+  if QtUI.meterZoomHooked then return end
+  if type(CameraZoomIn) ~= "function" and type(CameraZoomOut) ~= "function" then return end
+  QtUI.meterZoomHooked = true
+  local zoomIn = CameraZoomIn
+  local zoomOut = CameraZoomOut
+  CameraZoomIn = function(inc)
+    local meter = MeterUnderCursor()
+    if meter then
+      ScrollMeter(meter, 1)
+      return
+    end
+    if ScrollDetail(1) then return end
+    if type(zoomIn) == "function" then return zoomIn(inc) end
+  end
+  CameraZoomOut = function(inc)
+    local meter = MeterUnderCursor()
+    if meter then
+      ScrollMeter(meter, -1)
+      return
+    end
+    if ScrollDetail(-1) then return end
+    if type(zoomOut) == "function" then return zoomOut(inc) end
+  end
+end
+
+local function AttachMeterWheel(frame)
+  if not frame then return end
+  HookCameraForMeterScroll()
+  if frame.wheelCatch then
+    SizeWheelCatch(frame)
+    return
+  end
+  local catch = CreateFrame("Button", "QtUIMeterWheel" .. tostring(frame.meterId or 1), frame)
+  catch:SetFrameLevel((frame.GetFrameLevel and frame:GetFrameLevel() or 4) + 8)
+  catch:EnableMouse(true)
+  catch:EnableMouseWheel(true)
+  if catch.EnableMouseWheel then catch:EnableMouseWheel(1) end
+  catch:RegisterForClicks("LeftButtonUp")
+  catch:SetScript("OnMouseWheel", function(a, b)
+    ScrollMeter(frame, WheelDelta(a, b))
+  end)
+  catch:SetScript("OnMouseUp", function()
+    local bar = BarAtCursor(frame)
+    if bar and bar.unit and bar.row then
+      pcall(ShowSpellDetails, bar.unit, bar.row, frame)
+    end
+  end)
+  catch:SetScript("OnEnter", function()
+    this.hover = true
+  end)
+  catch:SetScript("OnLeave", function()
+    this.hover = nil
+    this.tipBar = nil
+    if GameTooltip then GameTooltip:Hide() end
+  end)
+  catch.tipElapsed = 0
+  catch:SetScript("OnUpdate", function()
+    if not this.hover then return end
+    this.tipElapsed = this.tipElapsed + (arg1 or 0)
+    if this.tipElapsed < .12 then return end
+    this.tipElapsed = 0
+    local bar = BarAtCursor(frame)
+    if bar ~= this.tipBar then
+      this.tipBar = bar
+      if bar then
+        local prev = this
+        this = bar
+        ShowBarTooltip()
+        this = prev
+      elseif GameTooltip then
+        GameTooltip:Hide()
+      end
+    end
+  end)
+  frame.wheelCatch = catch
+  SizeWheelCatch(frame)
 end
 
 function SpellList(row)
@@ -2116,7 +2819,7 @@ function SpellList(row)
   return spells
 end
 
-local function ShowBarTooltip()
+ShowBarTooltip = function()
   if not this.unit or not this.row or not GameTooltip then return end
   GameTooltip:SetOwner(this, "ANCHOR_NONE")
   GameTooltip:ClearLines()
@@ -2257,6 +2960,7 @@ local function LayoutMeterChrome(frame, width, height)
   local titleW = width - TitleInset(showFight) - HEADER_PAD
   if titleW < 40 then titleW = 40 end
   PlaceBox(frame.title, frame, HEADER_PAD, headerBottom, titleW, TITLE_H)
+  RaiseMeterChrome(frame)
 
   local label = ""
   if frame.titleText and frame.titleText.GetText then
@@ -2265,21 +2969,20 @@ local function LayoutMeterChrome(frame, width, height)
   if label == "" then
     label = ModeLabel(frame.view, frame.segment)
   end
-  if frame.titleText then
-    frame.titleText:ClearAllPoints()
-    frame.titleText:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-    if frame.titleText.SetText then frame.titleText:SetText("") end
-  end
   -- Emberveil draws FontStrings at the top of their box and ignores
   -- JustifyV. A short box on the button midline is what actually centers it.
   local textH = 12
   local textBottom = headerBottom - 1
-  local fs = frame.title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  local fs = frame.titleText
+  if not fs then
+    fs = frame.title:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    frame.titleText = fs
+  end
+  fs:ClearAllPoints()
   fs:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", HEADER_PAD + 4, textBottom)
   fs:SetPoint("TOPRIGHT", frame, "BOTTOMLEFT", HEADER_PAD + titleW + 2, textBottom + textH)
   fs:SetJustifyH("LEFT")
   fs:SetText(label)
-  frame.titleText = fs
 end
 
 local function ApplyMeterWindow(frame)
@@ -2291,6 +2994,7 @@ local function ApplyMeterWindow(frame)
   for i = 1, MAX_BARS do
     PlaceBar(frame.bars[i], frame, i, barH, visible, spacing)
   end
+  SizeWheelCatch(frame)
   frame.dirty = true
   RefreshMeter(frame)
 end
@@ -2377,13 +3081,12 @@ end
 local modePicker
 local modeSource
 
+local modeOpen
+
 local function HideModeMenu()
-  if not modePicker then return end
-  modePicker:ClearAllPoints()
-  modePicker:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-  if modePicker.EnableMouse then modePicker:EnableMouse(false) end
-  if modePicker.Hide then pcall(modePicker.Hide, modePicker) end
+  modeOpen = nil
   modeSource = nil
+  SafeHidePopup(modePicker)
 end
 QtUI.HideMeterModeMenu = HideModeMenu
 
@@ -2449,18 +3152,19 @@ local function EnsureModePicker()
   if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMeterModes") end
   frame:SetScript("OnHide", HideModeMenu)
   modePicker = frame
-  HideModeMenu()
+  ParkPopup(frame)
   return frame
 end
 
 local function ToggleModeMenu(frame)
   if HideReportMenu then HideReportMenu() end
   if HideFightMenu then HideFightMenu() end
-  if modePicker and modePicker.IsShown and modePicker:IsShown() and modeSource == frame then
+  if modeOpen and modeSource == frame then
     HideModeMenu()
     return
   end
   modeSource = frame
+  modeOpen = true
   local picker = EnsureModePicker()
   local n = table.getn(MODES)
   local rowH = 20
@@ -2499,7 +3203,6 @@ function QtUI:CloseDamageMeterWindow(frame)
   self.meterFrame = keep[1]
   RefreshMeterCanClose()
   PersistMeters()
-  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
 end
 
 function QtUI:CloseLastDamageMeterWindow()
@@ -2535,7 +3238,6 @@ function QtUI:AddDamageMeterWindow(view, segment)
   if self.RegisterMovable then
     self:RegisterMovable(MeterMoveKey(frame.meterId), "Damage Meter " .. frame.meterId, frame)
   end
-  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
   return frame
 end
 
@@ -2546,6 +3248,11 @@ CreateMeterWindow = function(id, view, segment)
   frame:SetFrameStrata("MEDIUM")
   frame:SetMovable(true)
   frame:EnableMouse(true)
+  if frame.EnableMouseWheel then frame:EnableMouseWheel(1) end
+  frame:SetScript("OnMouseWheel", function()
+    ScrollMeter(this, arg1)
+  end)
+  frame.scroll = 0
   frame.meterId = id
   frame.view = view or "damage"
   frame.segment = segment
@@ -2563,9 +3270,14 @@ CreateMeterWindow = function(id, view, segment)
   frame.title:SetScript("OnClick", function()
     ToggleModeMenu(frame)
   end)
+  if frame.title.EnableMouseWheel then frame.title:EnableMouseWheel(1) end
+  frame.title:SetScript("OnMouseWheel", function()
+    ScrollMeter(this:GetParent(), arg1)
+  end)
   TooltipOn(frame.title, {
     "Damage Meter",
     "Click to choose Current / Overall Damage, DPS or Heal.",
+    "Mouse wheel scrolls the list.",
   })
 
   frame.btnReset = MakeMeterButton(frame, "R", { "Reset" }, function()
@@ -2592,6 +3304,10 @@ CreateMeterWindow = function(id, view, segment)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(0)
     bar:EnableMouse(true)
+    if bar.EnableMouseWheel then bar:EnableMouseWheel(1) end
+    bar:SetScript("OnMouseWheel", function()
+      ScrollMeter(this:GetParent(), arg1)
+    end)
     bar.bg = bar:CreateTexture(nil, "BACKGROUND")
     bar.bg:SetAllPoints(bar)
     bar.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -2609,11 +3325,13 @@ CreateMeterWindow = function(id, view, segment)
     bar:RegisterForClicks("LeftButtonUp")
     bar:SetScript("OnMouseUp", function()
       if arg1 == "LeftButton" and this.unit and this.row then
-        ShowSpellDetails(this.unit, this.row, frame.view)
+        pcall(ShowSpellDetails, this.unit, this.row, frame)
       end
     end)
     frame.bars[i] = bar
   end
+
+  AttachMeterWheel(frame)
 
   frame.elapsed = 0
   frame:SetScript("OnUpdate", function()
@@ -2654,6 +3372,8 @@ function QtUI:ApplyDamageMeterLayout()
 end
 
 function QtUI:SetupDamageMeter()
+  HookCameraForMeterScroll()
+  LoadMeterState()
   if self.meterFrames and table.getn(self.meterFrames) > 0 then
     if self:IsFeatureEnabled("damageMeter") then
       self:ShowDamageMeter()
@@ -2702,4 +3422,103 @@ function QtUI:SetupDamageMeter()
   else
     self:HideDamageMeter()
   end
+
+  local function ShowMeterResetPrompt()
+    if QtUI.meterResetDialog then
+      if QtUI.meterResetDialog.Show then pcall(QtUI.meterResetDialog.Show, QtUI.meterResetDialog) end
+      return
+    end
+    local d = CreateFrame("Frame", "QtUIMeterResetDialog", UIParent)
+    d:SetFrameStrata("FULLSCREEN_DIALOG")
+    d:SetFrameLevel(300)
+    d:SetPoint("TOPLEFT", UIParent, "CENTER", -140, 50)
+    d:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", 140, -40)
+    d:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 12,
+      insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    d:SetBackdropColor(.015, .018, .022, .98)
+    d:SetBackdropBorderColor(.4, .52, .54, 1)
+    d:EnableMouse(true)
+    d.title = d:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    d.title:SetPoint("TOPLEFT", d, "TOPLEFT", 14, -12)
+    d.title:SetText("|cff33ffccInstance|r")
+    d.body = d:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    d.body:SetPoint("TOPLEFT", d, "TOPLEFT", 14, -34)
+    d.body:SetPoint("TOPRIGHT", d, "TOPRIGHT", -14, -34)
+    d.body:SetJustifyH("LEFT")
+    d.body:SetText("Reset the damage meter for this instance?")
+    local yes = CreateFrame("Button", nil, d)
+    yes:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 14, 10)
+    yes:SetPoint("TOPRIGHT", d, "BOTTOMLEFT", 130, 32)
+    yes:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    yes:SetBackdropColor(.08, .4, .64, .95)
+    yes.text = yes:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    yes.text:SetPoint("CENTER", yes, "CENTER", 0, 0)
+    yes.text:SetText("Reset")
+    yes:SetScript("OnClick", function()
+      ResetSegment(0)
+      ResetSegment(1)
+      history = {}
+      viewing = nil
+      PersistMeters()
+      MarkMetersDirty()
+      if QtUI.ApplyDamageMeterLayout then QtUI:ApplyDamageMeterLayout() end
+      d:Hide()
+    end)
+    local no = CreateFrame("Button", nil, d)
+    no:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 138, 10)
+    no:SetPoint("TOPRIGHT", d, "BOTTOMLEFT", 254, 32)
+    no:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    no:SetBackdropColor(.04, .05, .06, .95)
+    no.text = no:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    no.text:SetPoint("CENTER", no, "CENTER", 0, 0)
+    no.text:SetText("Keep")
+    no:SetScript("OnClick", function() d:Hide() end)
+    QtUI.meterResetDialog = d
+  end
+
+  if not self.meterPersistWatch then
+    local watch = CreateFrame("Frame", "QtUIMeterPersist")
+    self.meterPersistWatch = watch
+    watch.wasInstance = nil
+    watch:RegisterEvent("PLAYER_LOGOUT")
+    watch:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watch:SetScript("OnEvent", function()
+      if event == "PLAYER_LOGOUT" then
+        PersistMeters()
+        return
+      end
+      if event ~= "PLAYER_ENTERING_WORLD" then return end
+      local inInst
+      if type(IsInInstance) == "function" then
+        local ok, value = pcall(IsInInstance)
+        inInst = ok and (value == true or value == 1 or value == "1")
+      end
+      local layout = QtUI.GetLayout and QtUI:GetLayout()
+      local ask = layout and (layout.meterAskInstance == true or layout.meterAskInstance == 1)
+      if watch.wasInstance == nil then
+        watch.wasInstance = inInst
+        return
+      end
+      if inInst and not watch.wasInstance and ask then
+        ShowMeterResetPrompt()
+      end
+      watch.wasInstance = inInst
+    end)
+  end
 end
+
+

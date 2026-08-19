@@ -1,8 +1,9 @@
 ## Interface: 11200
-## Title: |cffffcc00Qt|rUI
+## Title: QtUI
 ## Notes: Compact Emberveil interface with dual chat, unit frames and data text
 ## Author: JercyJustice
-## Version: 0.12.0
+## Version: 0.13.0
+## DefaultState: enabled
 ## SavedVariables: QtUIDB
 
 Core.lua
@@ -24,4 +25,5 @@ DataText.lua
 MoveMode.lua
 Cooldowns.lua
 EqCompare.lua
+Tooltips.lua
 DamageMeter.lua

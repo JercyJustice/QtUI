@@ -44,9 +44,20 @@ local function ConfigureChat(frame, panel, index, fontSize)
   elseif frame.SetFont then
     frame:SetFont("Fonts\\FRIZQT__.TTF", fontSize)
   end
+  -- CreateFont defaults to black on Emberveil. Chat must stay readable.
+  if frame.SetTextColor then pcall(frame.SetTextColor, frame, 1, 1, 1) end
+  if frame.qtFontObject and frame.qtFontObject.SetTextColor then
+    pcall(frame.qtFontObject.SetTextColor, frame.qtFontObject, 1, 1, 1)
+  end
   if frame.SetMaxLines then frame:SetMaxLines(500) end
   if frame.Show then pcall(frame.Show, frame) end
   HideChatChrome(index)
+  local edit = getglobal("ChatFrame" .. tostring(index) .. "EditBox")
+  if edit then
+    if QtUI.ApplyFont then QtUI:ApplyFont(edit, fontSize) end
+    if edit.SetTextColor then pcall(edit.SetTextColor, edit, 1, 1, 1) end
+    if edit.SetTextInsets then pcall(edit.SetTextInsets, edit, 6, 6, 2, 2) end
+  end
 end
 
 local function SizeChatPanel(panel, key, width, height, defaultLeft, defaultBottom)
@@ -103,6 +114,12 @@ local function HookChatTimestamp(frame)
           text = "|cff888888[" .. stamp .. "]|r " .. text
         end
       end
+    end
+    r = tonumber(r)
+    g = tonumber(g)
+    b = tonumber(b)
+    if not r or not g or not b or (r <= .04 and g <= .04 and b <= .04) then
+      r, g, b = 1, 1, 1
     end
     return original(self, text, r, g, b, id)
   end

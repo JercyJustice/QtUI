@@ -419,7 +419,12 @@ function ShowKeyring()
 end
 
 local function ShowKeyButton()
-  return HasKeyringItem()
+  if not QtUI.GetLayout then return true end
+  local layout = QtUI:GetLayout()
+  if not layout then return true end
+  local value = layout.bagShowKeys
+  if value == false or value == 0 or value == "0" then return nil end
+  return true
 end
 
 local function ContainerSlots(bag)
@@ -672,7 +677,7 @@ function QtUI:UpdateBags()
       button:ClearAllPoints()
       button:SetPoint("TOPLEFT", frame, "TOPLEFT",
         WINDOW_PADDING + column * (slotSize + SLOT_GAP),
-        -42 - row * (slotSize + SLOT_GAP))
+        -28 - row * (slotSize + SLOT_GAP))
       UpdateSlot(button, bag, slot, bag == -2)
       frame.itemByLocation[bag .. ":" .. slot] = button
 
@@ -690,7 +695,7 @@ function QtUI:UpdateBags()
 
   local rows = math.max(1, math.floor((total + columns - 1) / columns))
   local windowWidth = WINDOW_PADDING * 2 + columns * slotSize + (columns - 1) * SLOT_GAP
-  local windowHeight = 78 + rows * (slotSize + SLOT_GAP)
+  local windowHeight = 62 + rows * (slotSize + SLOT_GAP)
   frame:SetWidth(windowWidth)
   frame:SetHeight(windowHeight)
   frame.layoutSignature = BagLayoutSignature()
@@ -742,7 +747,7 @@ function QtUI:SetupBags()
   frame.dragHandle = CreateFrame("Button", "QtUIBagDragHandle", frame)
   frame.dragHandle:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
   frame.dragHandle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-  frame.dragHandle:SetHeight(38)
+  frame.dragHandle:SetHeight(26)
   frame.dragHandle:SetFrameLevel(frame:GetFrameLevel() + 5)
   frame.dragHandle:RegisterForDrag("LeftButton")
   frame.dragHandle:SetScript("OnDragStart", function()
@@ -764,13 +769,13 @@ function QtUI:SetupBags()
   end)
 
   frame.space = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 12, -6)
-  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -28, -6)
+  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 10, -12)
+  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -22, -12)
   frame.space:SetJustifyH("LEFT")
 
   frame.close = CreateFrame("Button", "QtUIBagClose", frame)
-  frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -8)
-  frame.close:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", -24, -26)
+  frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
+  frame.close:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", -23, -23)
   frame.close:SetFrameLevel(frame:GetFrameLevel() + 10)
   if frame.close.SetNormalTexture then
     frame.close:SetNormalTexture("Interface\\AddOns\\QtUI\\Media\\close_normal")

@@ -566,5 +566,9 @@ function QtUI:UpdateAuraRow(row)
     row.timerOn = nil
     row:SetScript("OnUpdate", nil)
   end
-  if hasAura then row:Show() else row:Hide() end
+  if hasAura or QtUI.moveMode then
+    if row.Show then pcall(row.Show, row) end
+  else
+    if row.Hide then pcall(row.Hide, row) end
+  end
 end

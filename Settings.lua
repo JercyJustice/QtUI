@@ -78,14 +78,14 @@ end
 local function CreateFeatureRow(parent, option, column, rowIndex)
   local row = CreateFrame("Button", nil, parent)
   row:SetWidth(214)
-  row:SetHeight(24)
-  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 12 + column * 222, -4 - rowIndex * 26)
+  row:SetHeight(20)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 12 + column * 222, -4 - rowIndex * 22)
   row.featureKey = option.key
   row.description = option.description
 
   row.box = CreateFrame("Frame", nil, row)
-  row.box:SetWidth(22)
-  row.box:SetHeight(22)
+  row.box:SetWidth(14)
+  row.box:SetHeight(14)
   row.box:SetPoint("LEFT", row, "LEFT", 0, 0)
   row.box:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -121,8 +121,8 @@ end
 
 local function CreateSmallButton(parent, textValue, x, handler, width)
   local button = CreateFrame("Button", nil, parent)
-  button:SetWidth(width or 104)
-  button:SetHeight(26)
+  button:SetWidth(width or 88)
+  button:SetHeight(20)
   button:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", x, 12)
   button:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -154,7 +154,7 @@ end
 local function CreateStepper(parent, y, label, getter, setter, minValue, maxValue, step, digits, x)
   local row = CreateFrame("Frame", nil, parent)
   row:SetWidth(x and 220 or 440)
-  row:SetHeight(24)
+  row:SetHeight(20)
   row:SetPoint("TOPLEFT", parent, "TOPLEFT", x or 10, y)
 
   row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -173,8 +173,8 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
   end
 
   local minus = CreateFrame("Button", nil, row)
-  minus:SetWidth(24)
-  minus:SetHeight(22)
+  minus:SetWidth(20)
+  minus:SetHeight(18)
   minus:SetPoint("LEFT", row, "LEFT", x and 100 or 220, 0)
   minus:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -200,8 +200,8 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
   row.value:SetJustifyH("CENTER")
 
   local plus = CreateFrame("Button", nil, row)
-  plus:SetWidth(24)
-  plus:SetHeight(22)
+  plus:SetWidth(20)
+  plus:SetHeight(18)
   plus:SetPoint("LEFT", row.value, "RIGHT", 8, 0)
   plus:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -226,11 +226,11 @@ local function CreateStepper(parent, y, label, getter, setter, minValue, maxValu
   return row
 end
 
-local function CreateHeader(parent, y, text)
+local function CreateHeader(parent, y, text, x, width)
   local row = CreateFrame("Frame", nil, parent)
-  row:SetWidth(460)
+  row:SetWidth(width or 460)
   row:SetHeight(20)
-  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", x or 10, y)
   row.title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   row.title:SetPoint("LEFT", row, "LEFT", 0, 0)
   row.title:SetText("|cff33ffcc" .. text .. "|r")
@@ -268,10 +268,10 @@ end
 local function CreateDropdown(parent, y, label, getter, setter, options)
   local row = CreateFrame("Frame", nil, parent)
   row:SetWidth(460)
-  row:SetHeight(24)
+  row:SetHeight(20)
   -- Emberveil ignores SetWidth/SetHeight; opposite corners give the row a real box.
   row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
-  row:SetPoint("BOTTOMRIGHT", parent, "TOPLEFT", 470, y - 24)
+  row:SetPoint("BOTTOMRIGHT", parent, "TOPLEFT", 470, y - 20)
   row.options = options
 
   row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -296,8 +296,8 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
   row.button:SetBackdropBorderColor(.22, .28, .3, 1)
   row.button.text = row.button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   -- Fill the inner face so the value sits in the well, not on the tooltip border.
-  row.button.text:SetPoint("TOPLEFT", row.button, "TOPLEFT", 10, -5)
-  row.button.text:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -22, 5)
+  row.button.text:SetPoint("TOPLEFT", row.button, "TOPLEFT", 8, -3)
+  row.button.text:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -18, 3)
   row.button.text:SetJustifyH("LEFT")
   if row.button.text.SetJustifyV then row.button.text:SetJustifyV("MIDDLE") end
   row.button.arrow = row.button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -327,7 +327,7 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
       row.menu.buttons[i]:Hide()
     end
     local count = table.getn(row.options)
-    local height = 8 + count * 18
+    local height = 6 + count * 16
     row.menu:ClearAllPoints()
     row.menu:SetPoint("TOPLEFT", row.button, "BOTTOMLEFT", 0, -2)
     row.menu:SetPoint("TOPRIGHT", row.button, "BOTTOMRIGHT", 0, -2)
@@ -362,9 +362,9 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
       btn.text:SetText(spec.label)
       btn.text:SetTextColor(.82, .84, .86)
       btn:ClearAllPoints()
-      btn:SetPoint("TOPLEFT", row.menu, "TOPLEFT", 4, -(4 + (i - 1) * 18))
-      btn:SetPoint("TOPRIGHT", row.menu, "TOPRIGHT", -4, -(4 + (i - 1) * 18))
-      btn:SetPoint("BOTTOMLEFT", row.menu, "TOPLEFT", 4, -(4 + i * 18))
+      btn:SetPoint("TOPLEFT", row.menu, "TOPLEFT", 4, -(3 + (i - 1) * 16))
+      btn:SetPoint("TOPRIGHT", row.menu, "TOPRIGHT", -4, -(3 + (i - 1) * 16))
+      btn:SetPoint("BOTTOMLEFT", row.menu, "TOPLEFT", 4, -(3 + i * 16))
       btn:Show()
     end
   end
@@ -398,10 +398,149 @@ local COLOR_PRESETS = {
   { .12, .38, .82 }, { .88, .58, .16 }, { .96, .55, .73 }, { .78, .61, .43 },
 }
 
+local colorPicker
+
+local function ClampByte(value)
+  value = math.floor((tonumber(value) or 0) + .5)
+  if value < 0 then value = 0 end
+  if value > 255 then value = 255 end
+  return value
+end
+
+local function EnsureColorPicker()
+  if colorPicker then return colorPicker end
+  local p = CreateFrame("Frame", "QtUIColorPicker", UIParent)
+  p:SetFrameStrata("FULLSCREEN_DIALOG")
+  p:SetFrameLevel(320)
+  p:SetPoint("TOPLEFT", UIParent, "CENTER", -110, 80)
+  p:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", 110, -80)
+  p:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+  })
+  p:SetBackdropColor(.015, .018, .022, .98)
+  p:SetBackdropBorderColor(.4, .52, .54, 1)
+  p:EnableMouse(true)
+  p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -10)
+  p.title:SetText("|cff33ffccColor|r")
+  p.preview = CreateFrame("Frame", nil, p)
+  p.preview:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -10)
+  p.preview:SetPoint("BOTTOMRIGHT", p, "TOPRIGHT", -12, -36)
+  p.preview:SetPoint("BOTTOMLEFT", p, "TOPRIGHT", -48, -36)
+  p.preview:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
+  })
+  p.r = 255
+  p.g = 255
+  p.b = 255
+  local function PaintPreview()
+    p.preview:SetBackdropColor(p.r / 255, p.g / 255, p.b / 255, 1)
+    if p.rLabel then p.rLabel:SetText("R  " .. p.r) end
+    if p.gLabel then p.gLabel:SetText("G  " .. p.g) end
+    if p.bLabel then p.bLabel:SetText("B  " .. p.b) end
+  end
+  local function MakeChannel(key, y)
+    local label = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", p, "TOPLEFT", 12, y)
+    p[key .. "Label"] = label
+    local minus = CreateFrame("Button", nil, p)
+    minus:SetPoint("TOPLEFT", p, "TOPLEFT", 86, y + 2)
+    minus:SetPoint("BOTTOMRIGHT", p, "TOPLEFT", 106, y - 16)
+    minus:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    minus:SetBackdropColor(.04, .05, .06, .95)
+    minus.text = minus:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    minus.text:SetPoint("CENTER", minus, "CENTER", 0, 0)
+    minus.text:SetText("-")
+    minus:SetScript("OnClick", function()
+      p[key] = ClampByte(p[key] - 5)
+      PaintPreview()
+    end)
+    local plus = CreateFrame("Button", nil, p)
+    plus:SetPoint("TOPLEFT", p, "TOPLEFT", 184, y + 2)
+    plus:SetPoint("BOTTOMRIGHT", p, "TOPLEFT", 204, y - 16)
+    plus:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    plus:SetBackdropColor(.04, .05, .06, .95)
+    plus.text = plus:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    plus.text:SetPoint("CENTER", plus, "CENTER", 0, 0)
+    plus.text:SetText("+")
+    plus:SetScript("OnClick", function()
+      p[key] = ClampByte(p[key] + 5)
+      PaintPreview()
+    end)
+  end
+  MakeChannel("r", -44)
+  MakeChannel("g", -68)
+  MakeChannel("b", -92)
+  local ok = CreateFrame("Button", nil, p)
+  ok:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 12, 10)
+  ok:SetPoint("TOPRIGHT", p, "BOTTOMLEFT", 100, 30)
+  ok:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
+  })
+  ok:SetBackdropColor(.08, .4, .64, .95)
+  ok.text = ok:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  ok.text:SetPoint("CENTER", ok, "CENTER", 0, 0)
+  ok.text:SetText("OK")
+  ok:SetScript("OnClick", function()
+    if p.apply then
+      p.apply({ r = p.r / 255, g = p.g / 255, b = p.b / 255 })
+    end
+    p:Hide()
+  end)
+  local cancel = CreateFrame("Button", nil, p)
+  cancel:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", 108, 10)
+  cancel:SetPoint("TOPRIGHT", p, "BOTTOMLEFT", 196, 30)
+  cancel:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 1, right = 1, top = 1, bottom = 1 },
+  })
+  cancel:SetBackdropColor(.04, .05, .06, .95)
+  cancel.text = cancel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  cancel.text:SetPoint("CENTER", cancel, "CENTER", 0, 0)
+  cancel.text:SetText("Cancel")
+  cancel:SetScript("OnClick", function() p:Hide() end)
+  p.PaintPreview = PaintPreview
+  p:Hide()
+  colorPicker = p
+  return p
+end
+
+local function OpenColorPicker(color, apply)
+  local p = EnsureColorPicker()
+  color = color or {}
+  p.r = ClampByte((tonumber(color.r) or 1) * 255)
+  p.g = ClampByte((tonumber(color.g) or 1) * 255)
+  p.b = ClampByte((tonumber(color.b) or 1) * 255)
+  p.apply = apply
+  p.PaintPreview()
+  if p.Show then pcall(p.Show, p) end
+end
+
 local function CreateColorRow(parent, y, label, getter, setter)
   local row = CreateFrame("Frame", nil, parent)
   row:SetWidth(440)
-  row:SetHeight(24)
+  row:SetHeight(20)
   row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
 
   row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -410,9 +549,9 @@ local function CreateColorRow(parent, y, label, getter, setter)
   row.caption:SetJustifyH("LEFT")
   row.caption:SetText(label)
 
-  row.preview = CreateFrame("Frame", nil, row)
-  row.preview:SetWidth(22)
-  row.preview:SetHeight(22)
+  row.preview = CreateFrame("Button", nil, row)
+  row.preview:SetWidth(18)
+  row.preview:SetHeight(16)
   row.preview:SetPoint("LEFT", row, "LEFT", 158, 0)
   row.preview:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -426,17 +565,25 @@ local function CreateColorRow(parent, y, label, getter, setter)
     row.preview:SetBackdropColor(c.r or 1, c.g or 1, c.b or 1, 1)
   end
 
+  row.preview:SetScript("OnClick", function()
+    OpenColorPicker(getter(), function(color)
+      setter(color)
+      Refresh()
+      QtUI:ApplyLayout()
+    end)
+  end)
+
   local i
   for i = 1, table.getn(COLOR_PRESETS) do
     local preset = COLOR_PRESETS[i]
     local swatch = CreateFrame("Button", nil, row)
-    swatch:SetWidth(16)
-    swatch:SetHeight(16)
-    swatch:SetPoint("LEFT", row.preview, "RIGHT", 10 + (i - 1) * 20, 0)
+    swatch:SetWidth(12)
+    swatch:SetHeight(12)
+    swatch:SetPoint("LEFT", row.preview, "RIGHT", 8 + (i - 1) * 16, 0)
     swatch:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
       edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-      tile = true, tileSize = 8, edgeSize = 8,
+      tile = true, tileSize = 8, edgeSize = 6,
       insets = { left = 1, right = 1, top = 1, bottom = 1 },
     })
     swatch:SetBackdropColor(preset[1], preset[2], preset[3], 1)
@@ -453,15 +600,15 @@ local function CreateColorRow(parent, y, label, getter, setter)
   return row
 end
 
-local function CreateToggleRow(parent, y, label, getter, setter)
+local function CreateToggleRow(parent, y, label, getter, setter, x, width)
   local row = CreateFrame("Button", nil, parent)
-  row:SetWidth(440)
-  row:SetHeight(24)
-  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+  row:SetWidth(width or 440)
+  row:SetHeight(20)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", x or 10, y)
 
   row.box = CreateFrame("Frame", nil, row)
-  row.box:SetWidth(18)
-  row.box:SetHeight(18)
+  row.box:SetWidth(14)
+  row.box:SetHeight(14)
   row.box:SetPoint("LEFT", row, "LEFT", 0, 0)
   row.box:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -492,6 +639,42 @@ local function CreateToggleRow(parent, y, label, getter, setter)
   Refresh()
   row.Refresh = Refresh
   return row
+end
+
+local function CreateSection(parent, y, height, x, width)
+  local box = CreateFrame("Frame", nil, parent)
+  x = x or 4
+  width = width or 462
+  box:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  box:SetPoint("BOTTOMRIGHT", parent, "TOPLEFT", x + width, y - height)
+  box:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 10,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+  })
+  box:SetBackdropColor(.018, .022, .026, .55)
+  box:SetBackdropBorderColor(.14, .28, .26, .75)
+  local parentLevel = parent.GetFrameLevel and parent:GetFrameLevel() or 1
+  if box.SetFrameLevel then box:SetFrameLevel(parentLevel) end
+  return box
+end
+
+local function CreateFeatureToggle(parent, y, key, x, width)
+  local spec
+  local i
+  for i = 1, table.getn(FEATURE_OPTIONS) do
+    if FEATURE_OPTIONS[i].key == key then
+      spec = FEATURE_OPTIONS[i]
+      break
+    end
+  end
+  if not spec then return end
+  return CreateToggleRow(parent, y, spec.label, function()
+    return QtUI:IsFeatureEnabled(key)
+  end, function(value)
+    QtUI:SetFeatureEnabled(key, value)
+  end, x, width)
 end
 
 local GRID_PRESETS = {
@@ -734,7 +917,7 @@ function QtUI:SetupSettingsWindow()
     return page
   end
 
-  AddNav("general", "Features")
+  AddNav("general", "General")
   AddNav("profiles", "Profiles")
   AddNav("chat", "Chat")
   AddNav("actionbars", "Action Bars")
@@ -757,68 +940,79 @@ function QtUI:SetupSettingsWindow()
   local general = AddPage("general")
   CreateHeader(general, 0, "General")
   general.note = general:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  general.note:SetPoint("TOPLEFT", general, "TOPLEFT", 12, -22)
-  general.note:SetText("Feature toggles need a relog. Bag size applies immediately.")
-  CreateStepper(general, -44, "Bag slot size", function()
+  general.note:SetPoint("TOPLEFT", general, "TOPLEFT", 12, -26)
+  general.note:SetText("Most toggles need a relog. Bag size applies immediately.")
+  CreateSection(general, -48, 122)
+  CreateHeader(general, -56, "Bags")
+  CreateFeatureToggle(general, -76, "bags")
+  CreateStepper(general, -96, "Bag slot size", function()
     return QtUI:GetLayout().bagSlotSize
   end, function(value)
     QtUI:GetLayout().bagSlotSize = value
   end, 24, 52, 2, 0)
-  CreateStepper(general, -70, "Bag columns", function()
+  CreateStepper(general, -116, "Bag columns", function()
     return QtUI:GetLayout().bagColumns
   end, function(value)
     QtUI:GetLayout().bagColumns = value
   end, 6, 16, 1, 0)
-  CreateToggleRow(general, -96, "Show keyring", function()
+  CreateToggleRow(general, -136, "Show keyring", function()
     local value = QtUI:GetLayout().bagShowKeys
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().bagShowKeys = value and true or false
     if QtUI.UpdateBags then QtUI:UpdateBags() end
   end)
-  CreateToggleRow(general, -122, "Compare equipped items", function()
+  CreateSection(general, -180, 118, 4, 226)
+  CreateHeader(general, -188, "World", 12, 210)
+  CreateFeatureToggle(general, -208, "autoLoot", 12, 210)
+  CreateFeatureToggle(general, -228, "autoSell", 12, 210)
+  CreateToggleRow(general, -248, "Compare equipped items", function()
     local value = QtUI:GetLayout().eqCompare
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().eqCompare = value and true or false
-  end)
-  CreateHeader(general, -148, "Snap")
-  CreateStepper(general, -168, "Snap range (tolerance)", function()
+  end, 12, 210)
+  CreateSection(general, -180, 118, 236, 230)
+  CreateHeader(general, -188, "Map / Extra", 244, 214)
+  CreateFeatureToggle(general, -208, "minimap", 244, 214)
+  CreateFeatureToggle(general, -228, "mapReveal", 244, 214)
+  CreateFeatureToggle(general, -248, "dataText", 244, 214)
+  CreateFeatureToggle(general, -268, "questLog", 244, 214)
+  CreateToggleRow(general, -288, "World map coordinates", function()
+    local value = QtUI:GetLayout().mapCoords
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().mapCoords = value and true or false
+  end, 244, 214)
+  CreateSection(general, -308, 104)
+  CreateHeader(general, -316, "Snap")
+  CreateStepper(general, -336, "Snap range (tolerance)", function()
     return QtUI:GetLayout().snapRange or 10
   end, function(value)
     QtUI:GetLayout().snapRange = value
   end, 2, 40, 1, 0)
-  CreateStepper(general, -194, "Inset bottom", function()
+  CreateStepper(general, -356, "Inset bottom", function()
     return QtUI:GetLayout().snapPadBottom or 0
   end, function(value)
     QtUI:GetLayout().snapPadBottom = value
   end, 0, 80, 1, 0, 10)
-  CreateStepper(general, -194, "Inset top", function()
+  CreateStepper(general, -356, "Inset top", function()
     return QtUI:GetLayout().snapPadTop or 0
   end, function(value)
     QtUI:GetLayout().snapPadTop = value
   end, 0, 80, 1, 0, 240)
-  CreateStepper(general, -220, "Inset left", function()
+  CreateStepper(general, -376, "Inset left", function()
     return QtUI:GetLayout().snapPadLeft or 0
   end, function(value)
     QtUI:GetLayout().snapPadLeft = value
   end, 0, 80, 1, 0, 10)
-  CreateStepper(general, -220, "Inset right", function()
+  CreateStepper(general, -376, "Inset right", function()
     return QtUI:GetLayout().snapPadRight or 0
   end, function(value)
     QtUI:GetLayout().snapPadRight = value
   end, 0, 80, 1, 0, 240)
 
   frame.rows = {}
-  local index, option
-  -- Two columns of 7 so a 13th toggle does not sit on top of item 7.
-  local featureRows = 7
-  for index, option in ipairs(FEATURE_OPTIONS) do
-    local column = 0
-    if index > featureRows then column = 1 end
-    local rowIndex = math.mod(index - 1, featureRows)
-    table.insert(frame.rows, CreateFeatureRow(general, option, column, rowIndex + 9))
-  end
 
   local function SizeDialog(dialog, width, height)
     dialog:ClearAllPoints()
@@ -1131,15 +1325,16 @@ function QtUI:SetupSettingsWindow()
   end
 
   local profiles = AddPage("profiles")
-  CreateHeader(profiles, 0, "Profiles")
+  CreateSection(profiles, 0, 196)
+  CreateHeader(profiles, -8, "Profiles")
   profiles.note = profiles:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  profiles.note:SetPoint("TOPLEFT", profiles, "TOPLEFT", 12, -22)
+  profiles.note:SetPoint("TOPLEFT", profiles, "TOPLEFT", 16, -34)
   profiles.note:SetWidth(450)
   profiles.note:SetJustifyH("LEFT")
   profiles.note:SetText("Save the current layout or load another profile. Share is disabled until Emberveil can copy text.")
 
   local profileOptions = { { key = "Default", label = "Default" } }
-  local profileDrop = CreateDropdown(profiles, -48, "Profile", function()
+  local profileDrop = CreateDropdown(profiles, -58, "Profile", function()
     return QtUIDB.activeProfile or "Default"
   end, function(value)
     QtUIDB.activeProfile = value
@@ -1233,12 +1428,14 @@ function QtUI:SetupSettingsWindow()
   DisableShareButton(importBtn, "Emberveil cannot paste a profile string.")
 
   local bars = AddPage("actionbars")
-  CreateHeader(bars, 0, "Action Bars")
+  CreateSection(bars, 0, 380)
+  CreateHeader(bars, -8, "Action Bars")
+  CreateFeatureToggle(bars, -28, "actionBars")
   bars.note = bars:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   bars.note:SetPoint("TOPLEFT", bars, "TOPLEFT", 12, -22)
   bars.note:SetWidth(450)
   bars.note:SetJustifyH("LEFT")
-  bars.note:SetText("Shared chrome for every bar. Open a bar on the left to set its size, spacing and layout.")
+  bars.note:SetText("")
 
   CreateToggleRow(bars, -48, "Show action-bar background", function()
     local value = QtUI:GetLayout().barShowBackground
@@ -1246,7 +1443,7 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().barShowBackground = value and 1 or 0
   end)
-  CreateColorRow(bars, -76, "Bar background", function()
+  CreateColorRow(bars, -64, "Bar background", function()
     return QtUI:GetLayout().barBackground
   end, function(color)
     local current = QtUI:GetLayout().barBackground
@@ -1312,12 +1509,14 @@ function QtUI:SetupSettingsWindow()
   end)
 
   local xp = AddPage("xpbar")
-  CreateHeader(xp, 0, "Experience Bar")
+  CreateSection(xp, 0, 140)
+  CreateHeader(xp, -8, "Experience Bar")
+  CreateFeatureToggle(xp, -28, "experienceBar")
   xp.note = xp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   xp.note:SetPoint("TOPLEFT", xp, "TOPLEFT", 12, -22)
   xp.note:SetWidth(450)
   xp.note:SetJustifyH("LEFT")
-  xp.note:SetText("Height, font and whether level / percent / current XP are shown on the bar.")
+  xp.note:SetText("")
   CreateStepper(xp, -48, "Height", function()
     return QtUI:GetLayout().xpBarHeight or 20
   end, function(value)
@@ -1335,44 +1534,84 @@ function QtUI:SetupSettingsWindow()
     QtUI:GetLayout().xpBarText = value and true or false
   end)
 
+  local LAYOUT_OPTIONS = {
+    { key = "1x12", label = "1 x 12" },
+    { key = "2x6", label = "2 x 6" },
+    { key = "3x4", label = "3 x 4" },
+    { key = "4x3", label = "4 x 3" },
+    { key = "6x2", label = "6 x 2" },
+    { key = "12x1", label = "12 x 1" },
+  }
+
+  local function LayoutKeyForBar(bar)
+    local c = bar.columns or 12
+    local r = bar.rows or 1
+    local i
+    for i = 1, table.getn(GRID_PRESETS) do
+      if GRID_PRESETS[i].columns == c and GRID_PRESETS[i].rows == r then
+        return GRID_PRESETS[i].label
+      end
+    end
+    return "12x1"
+  end
+
   local function BuildBarPage(pageKey, barKey, blurb)
     local page = AddPage(pageKey)
+    CreateSection(page, 0, 228)
     page.note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 12, 0)
-    page.note:SetWidth(450)
+    page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -12)
+    page.note:SetWidth(430)
     page.note:SetJustifyH("LEFT")
     page.note:SetText(blurb)
-    CreateToggleRow(page, -28, "Show this bar", function()
+    CreateToggleRow(page, -34, "Show this bar", function()
       return QtUI:GetBarConfig(barKey).enabled ~= false
     end, function(value)
       QtUI:GetBarConfig(barKey).enabled = value and true or false
     end)
-    CreateStepper(page, -54, "Button size", function()
+    CreateStepper(page, -56, "Button size", function()
       return QtUI:GetBarConfig(barKey).size
     end, function(value)
       QtUI:GetBarConfig(barKey).size = value
     end, 20, 52, 2, 0)
-    CreateStepper(page, -80, "Spacing", function()
+    CreateStepper(page, -78, "Spacing", function()
       return QtUI:GetBarConfig(barKey).spacing
     end, function(value)
       QtUI:GetBarConfig(barKey).spacing = value
     end, 0, 12, 1, 0)
-    CreateGridPicker(page, -114, barKey)
-    CreateAlignPicker(page, -170, "Hotkey", function()
+    CreateDropdown(page, -100, "Layout", function()
+      return LayoutKeyForBar(QtUI:GetBarConfig(barKey))
+    end, function(key)
+      local i
+      for i = 1, table.getn(GRID_PRESETS) do
+        if GRID_PRESETS[i].label == key then
+          local bar = QtUI:GetBarConfig(barKey)
+          bar.columns = GRID_PRESETS[i].columns
+          bar.rows = GRID_PRESETS[i].rows
+          break
+        end
+      end
+    end, LAYOUT_OPTIONS)
+    CreateAlignPicker(page, -122, "Hotkey", function()
       return QtUI:GetBarConfig(barKey).hotkeyAlign
     end, function(value)
       QtUI:GetBarConfig(barKey).hotkeyAlign = value
     end)
-    CreateStepper(page, -196, "Hotkey size", function()
+    CreateStepper(page, -144, "Hotkey size", function()
       return QtUI:GetBarConfig(barKey).hotkeySize
     end, function(value)
       QtUI:GetBarConfig(barKey).hotkeySize = value
     end, 7, 16, 1, 0)
-    CreateStepper(page, -222, "Hotkey shadow", function()
+    CreateStepper(page, -166, "Hotkey outline (0 off)", function()
       return QtUI:GetBarConfig(barKey).hotkeyShadow
     end, function(value)
       QtUI:GetBarConfig(barKey).hotkeyShadow = value
     end, 0, 4, 1, 0)
+    local applyAll = CreateSmallButton(page, "Apply to all", 12, function()
+      if QtUI.ApplyBarConfigToAll then QtUI:ApplyBarConfigToAll(barKey) end
+      QtUI:Print("Copied this bar's layout and hotkey settings to all bars.")
+    end, 110)
+    applyAll:ClearAllPoints()
+    applyAll:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -196)
     return page
   end
 
@@ -1384,62 +1623,73 @@ function QtUI:SetupSettingsWindow()
   BuildBarPage("bar-sideleft", "sideLeft", "Left side bar. All 12 buttons stay visible.")
 
   local units = AddPage("unitframes")
-  CreateHeader(units, 0, "Unit Frames")
+  CreateSection(units, 0, 332)
+  CreateHeader(units, -8, "Unit Frames")
+  CreateFeatureToggle(units, -28, "unitFrames")
+  CreateFeatureToggle(units, -48, "partyFrames")
+  CreateFeatureToggle(units, -68, "auras")
+  CreateFeatureToggle(units, -88, "castBar")
   units.note = units:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   units.note:SetPoint("TOPLEFT", units, "TOPLEFT", 12, -22)
   units.note:SetWidth(450)
   units.note:SetJustifyH("LEFT")
-  units.note:SetText("Shared colors and gradient. Open Player, Target, Party or Pet for size, mana height and text positions.")
+  units.note:SetText("")
 
-  CreateToggleRow(units, -48, "Gradient bars", function()
+  CreateToggleRow(units, -108, "Class on player tooltips", function()
+    local value = QtUI:GetLayout().classTooltip
+    return value ~= false and value ~= 0 and value ~= "0"
+  end, function(value)
+    QtUI:GetLayout().classTooltip = value and true or false
+  end)
+  CreateToggleRow(units, -128, "Gradient bars", function()
     local value = QtUI:GetLayout().unitGradient
     return value == true or value == 1 or value == "1"
   end, function(value)
     QtUI:GetLayout().unitGradient = value and true or false
   end)
-  CreateColorRow(units, -76, "Player health", function()
+  CreateColorRow(units, -148, "Player health", function()
     return QtUI:GetLayout().playerHealth
   end, function(color)
     QtUI:GetLayout().playerHealth = color
   end)
-  CreateColorRow(units, -104, "Enemy health", function()
+  CreateColorRow(units, -170, "Enemy health", function()
     return QtUI:GetLayout().enemyHealth
   end, function(color)
     QtUI:GetLayout().enemyHealth = color
   end)
-  CreateColorRow(units, -132, "Friend health", function()
+  CreateColorRow(units, -192, "Friend health", function()
     return QtUI:GetLayout().friendHealth
   end, function(color)
     QtUI:GetLayout().friendHealth = color
   end)
-  CreateColorRow(units, -160, "Neutral health", function()
+  CreateColorRow(units, -214, "Neutral health", function()
     return QtUI:GetLayout().neutralHealth
   end, function(color)
     QtUI:GetLayout().neutralHealth = color
   end)
-  CreateColorRow(units, -188, "Party health", function()
+  CreateColorRow(units, -236, "Party health", function()
     return QtUI:GetLayout().partyHealth
   end, function(color)
     QtUI:GetLayout().partyHealth = color
   end)
-  CreateToggleRow(units, -216, "Target of target", function()
+  CreateToggleRow(units, -258, "Target of target", function()
     local value = QtUI:GetLayout().showTargetTarget
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().showTargetTarget = value and true or false
   end)
-  CreateToggleRow(units, -244, "Energy / mana tick", function()
+  CreateToggleRow(units, -280, "Energy / mana tick", function()
     local value = QtUI:GetLayout().energyTick
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().energyTick = value and true or false
   end)
-  CreateStepper(units, -272, "Tick width", function()
+  CreateStepper(units, -302, "Tick width", function()
     return QtUI:GetLayout().energyTickWidth or 1
   end, function(value)
     QtUI:GetLayout().energyTickWidth = value
   end, 1, 8, 1, 0)
-  CreateStepper(units, -300, "Tick opacity", function()
+  CreateStepper(units, -324, "Tick opacity", function()
     return QtUI:GetLayout().energyTickAlpha or .95
   end, function(value)
     QtUI:GetLayout().energyTickAlpha = value
@@ -1447,12 +1697,13 @@ function QtUI:SetupSettingsWindow()
 
   local function BuildUnitPage(pageKey, styleKey, blurb, extras)
     local page = AddPage(pageKey)
+    CreateSection(page, 0, 360)
     page.note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 12, 0)
-    page.note:SetWidth(450)
+    page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -10)
+    page.note:SetWidth(430)
     page.note:SetJustifyH("LEFT")
     page.note:SetText(blurb)
-    local y = -24
+    local y = -32
     CreateHeader(page, y, "Size")
     y = y - 24
     CreateStepper(page, y, "Width", function()
@@ -1556,8 +1807,9 @@ function QtUI:SetupSettingsWindow()
   })
 
   local combo = AddPage("unit-combo")
+  CreateSection(combo, 0, 140)
   combo.note = combo:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  combo.note:SetPoint("TOPLEFT", combo, "TOPLEFT", 12, 0)
+  combo.note:SetPoint("TOPLEFT", combo, "TOPLEFT", 16, -10)
   combo.note:SetWidth(450)
   combo.note:SetJustifyH("LEFT")
   combo.note:SetText("Rogue and cat-form combo points. Drag the bar in Toggle Anchor.")
@@ -1586,17 +1838,25 @@ function QtUI:SetupSettingsWindow()
   end)
 
   local meter = AddPage("damagemeter")
+  CreateSection(meter, 0, 220)
+  CreateFeatureToggle(meter, -10, "damageMeter")
   meter.note = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  meter.note:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, 0)
+  meter.note:SetPoint("TOPLEFT", meter, "TOPLEFT", 16, -32)
   meter.note:SetWidth(450)
   meter.note:SetJustifyH("LEFT")
-  meter.note:SetText("Size applies to every meter window. Title cycles Current/Overall Damage, DPS and Heal. Add or close extra windows here.")
-  CreateStepper(meter, -28, "Width", function()
+  meter.note:SetText("Values persist through reload. Ask on instance is off by default.")
+  CreateToggleRow(meter, -42, "Ask to reset when entering an instance", function()
+    local value = QtUI:GetLayout().meterAskInstance
+    return value == true or value == 1 or value == "1"
+  end, function(value)
+    QtUI:GetLayout().meterAskInstance = value and true or false
+  end)
+  CreateStepper(meter, -64, "Width", function()
     return QtUI:GetLayout().meterWidth
   end, function(value)
     QtUI:GetLayout().meterWidth = value
   end, 140, 400, 10, 0)
-  CreateStepper(meter, -54, "Height", function()
+  CreateStepper(meter, -86, "Height", function()
     local layout = QtUI:GetLayout()
     local bars = tonumber(layout.meterBars) or 8
     local barH = tonumber(layout.meterBarHeight) or 16
@@ -1613,19 +1873,19 @@ function QtUI:SetupSettingsWindow()
     if bars > 16 then bars = 16 end
     layout.meterBars = bars
   end, 62, 410, 16, 0)
-  CreateStepper(meter, -80, "Bar height", function()
+  CreateStepper(meter, -108, "Bar height", function()
     return QtUI:GetLayout().meterBarHeight
   end, function(value)
     QtUI:GetLayout().meterBarHeight = value
   end, 12, 24, 1, 0)
-  CreateStepper(meter, -106, "Bar spacing", function()
+  CreateStepper(meter, -130, "Bar spacing", function()
     return QtUI:GetLayout().meterBarSpacing or 0
   end, function(value)
     QtUI:GetLayout().meterBarSpacing = value
   end, 0, 8, 1, 0)
 
   meter.count = meter:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  meter.count:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -138)
+  meter.count:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -154)
   meter.count:SetJustifyH("LEFT")
   local function RefreshMeterWindows()
     local n = 0
@@ -1635,19 +1895,24 @@ function QtUI:SetupSettingsWindow()
   frame.RefreshMeterWindows = RefreshMeterWindows
   RefreshMeterWindows()
 
-  local function DecorateMeterAction(button, icon)
-    if not button then return end
-    button.icon = button:CreateTexture(nil, "ARTWORK")
-    button.icon:SetPoint("LEFT", button, "LEFT", 8, 0)
-    button.icon:SetPoint("TOP", button, "TOP", 0, -6)
-    button.icon:SetPoint("BOTTOM", button, "BOTTOM", 0, 6)
-    button.icon:SetPoint("RIGHT", button, "LEFT", 22, 0)
-    button.icon:SetTexture("Interface\\AddOns\\QtUI\\Media\\" .. icon)
+  local function PlaceMeterAction(button, left, top, width)
+    button:ClearAllPoints()
+    button:SetPoint("TOPLEFT", meter, "TOPLEFT", left, top)
+    button:SetPoint("BOTTOMRIGHT", meter, "TOPLEFT", left + width, top - 20)
+    if button.SetWidth then
+      button:SetWidth(width + 1)
+      button:SetWidth(width)
+    end
+    if button.SetHeight then
+      button:SetHeight(21)
+      button:SetHeight(20)
+    end
     if button.text then
       button.text:ClearAllPoints()
-      button.text:SetPoint("LEFT", button, "LEFT", 26, 0)
-      button.text:SetPoint("RIGHT", button, "RIGHT", -6, 0)
-      button.text:SetJustifyH("LEFT")
+      button.text:SetPoint("TOPLEFT", button, "TOPLEFT", 4, 0)
+      button.text:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 0)
+      button.text:SetJustifyH("CENTER")
+      if button.text.SetJustifyV then button.text:SetJustifyV("MIDDLE") end
     end
   end
 
@@ -1655,53 +1920,50 @@ function QtUI:SetupSettingsWindow()
     if QtUI.AddDamageMeterWindow then QtUI:AddDamageMeterWindow() end
     RefreshMeterWindows()
   end, 128)
-  addBtn:ClearAllPoints()
-  addBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 12, -160)
-  DecorateMeterAction(addBtn, "plus")
+  PlaceMeterAction(addBtn, 16, -176, 128)
 
   local closeBtn = CreateSmallButton(meter, "Close window", 150, function()
     if QtUI.CloseLastDamageMeterWindow then QtUI:CloseLastDamageMeterWindow() end
     RefreshMeterWindows()
   end, 128)
-  closeBtn:ClearAllPoints()
-  closeBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 148, -160)
-  DecorateMeterAction(closeBtn, "minus")
+  PlaceMeterAction(closeBtn, 152, -176, 128)
 
   local demoBtn = CreateSmallButton(meter, "Demo values", 12, function()
     if QtUI.FillMeterDemo then QtUI:FillMeterDemo() end
   end, 128)
-  demoBtn:ClearAllPoints()
-  demoBtn:SetPoint("TOPLEFT", meter, "TOPLEFT", 284, -160)
+  PlaceMeterAction(demoBtn, 288, -176, 128)
 
   local chat = AddPage("chat")
-  CreateHeader(chat, 0, "Chat")
+  CreateSection(chat, 0, 188)
+  CreateHeader(chat, -8, "Chat")
+  CreateFeatureToggle(chat, -28, "dataText")
   chat.note = chat:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  chat.note:SetPoint("TOPLEFT", chat, "TOPLEFT", 12, -22)
-  chat.note:SetWidth(450)
+  chat.note:SetPoint("TOPLEFT", chat, "TOPLEFT", 16, -50)
+  chat.note:SetWidth(430)
   chat.note:SetJustifyH("LEFT")
-  chat.note:SetText("Size applies to both chat windows. Time stamps use local time, like pfUI. The info bar clock is under Gold / Time / FPS.")
-  CreateStepper(chat, -48, "Width", function()
+  chat.note:SetText("Both windows share size and font.")
+  CreateStepper(chat, -70, "Width", function()
     return QtUI:GetLayout().chatWidth
   end, function(value)
     QtUI:GetLayout().chatWidth = value
   end, 180, 700, 10, 0)
-  CreateStepper(chat, -74, "Height", function()
+  CreateStepper(chat, -92, "Height", function()
     return QtUI:GetLayout().chatHeight
   end, function(value)
     QtUI:GetLayout().chatHeight = value
   end, 80, 500, 10, 0)
-  CreateStepper(chat, -100, "Font size", function()
+  CreateStepper(chat, -114, "Font size", function()
     return QtUI:GetLayout().chatFontSize
   end, function(value)
     QtUI:GetLayout().chatFontSize = value
   end, 8, 20, 1, 0)
-  CreateToggleRow(chat, -130, "Show time on messages", function()
+  CreateToggleRow(chat, -136, "Show time on messages", function()
     local value = QtUI:GetLayout().chatTime
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().chatTime = value and true or false
   end)
-  CreateToggleRow(chat, -156, "Use local clock on the info bar", function()
+  CreateToggleRow(chat, -158, "Use local clock on the info bar", function()
     local value = QtUI:GetLayout().clockLocal
     return value == true or value == 1 or value == "1"
   end, function(value)
@@ -1717,10 +1979,12 @@ function QtUI:SetupSettingsWindow()
     QtUI:ApplyLayout()
   end)
   CreateSmallButton(frame, "Toggle Anchor", 242, function()
-    QtUI.moveFromSettings = true
-    if QtUI.settingsFrame then QtUI.settingsFrame:Hide() end
-    if QtUI.SetMoveMode then QtUI:SetMoveMode(true) end
-    QtUI:Print("Anchors unlocked. Drag the green fields. Press Escape to lock and return here.")
+    if QtUI.UnlockAnchorsFromSettings then
+      QtUI:UnlockAnchorsFromSettings()
+    else
+      QtUI.moveFromSettings = true
+      if QtUI.SetMoveMode then QtUI:SetMoveMode(true) end
+    end
   end, 118)
 
   ShowPage(frame, "general")

@@ -126,25 +126,15 @@ QtUI.classColors = classColors
 QtUI.ShortNumber = ShortNumber
 QtUI.SetPowerColor = SetPowerColor
 
-local TEXT_ALIGN = {
-  left = { "LEFT", "LEFT", 6, 0, "LEFT", "MIDDLE" },
-  right = { "RIGHT", "RIGHT", -6, 0, "RIGHT", "MIDDLE" },
-  top = { "TOP", "TOP", 0, -2, "CENTER", "TOP" },
-  bottom = { "BOTTOM", "BOTTOM", 0, 2, "CENTER", "BOTTOM" },
-  center = { "CENTER", "CENTER", 0, 0, "CENTER", "MIDDLE" },
-  topleft = { "TOPLEFT", "TOPLEFT", 6, -2, "LEFT", "TOP" },
-  topright = { "TOPRIGHT", "TOPRIGHT", -6, -2, "RIGHT", "TOP" },
-  bottomleft = { "BOTTOMLEFT", "BOTTOMLEFT", 6, 2, "LEFT", "BOTTOM" },
-  bottomright = { "BOTTOMRIGHT", "BOTTOMRIGHT", -6, 2, "RIGHT", "BOTTOM" },
-}
-
 function QtUI:PlaceUnitText(fontString, parent, align)
   if not fontString or not parent then return end
-  local spec = TEXT_ALIGN[align] or TEXT_ALIGN.left
+  if self.PlaceAlignedText then
+    self:PlaceAlignedText(fontString, parent, align or "left", 2)
+    return
+  end
   fontString:ClearAllPoints()
-  fontString:SetPoint(spec[1], parent, spec[2], spec[3], spec[4])
-  if fontString.SetJustifyH then fontString:SetJustifyH(spec[5]) end
-  if fontString.SetJustifyV then fontString:SetJustifyV(spec[6]) end
+  fontString:SetPoint("LEFT", parent, "LEFT", 6, 0)
+  if fontString.SetJustifyH then fontString:SetJustifyH("LEFT") end
 end
 
 function QtUI:ApplyUnitTexts(frame, style)
@@ -728,12 +718,17 @@ end
 local function PlaceEnergyTick(tick, pos)
   local line = tick.line
   if not line then return end
+  pos = tonumber(pos) or 0
+  local width = tick.lineWidth or EnergyTickWidth()
+  local px = math.floor(pos + .5)
+  if tick.lastPlace == px and tick.lastPlaceW == width then return end
+  tick.lastPlace = px
+  tick.lastPlaceW = width
   -- Emberveil ignores SetWidth(1) and keeps WHITE8X8 at 8x8. Stretch the
   -- column with corner anchors, same as the move-mode grid.
-  local width = tick.lineWidth or EnergyTickWidth()
   line:ClearAllPoints()
-  line:SetPoint("TOPLEFT", tick, "TOPLEFT", pos, 0)
-  line:SetPoint("BOTTOMRIGHT", tick, "BOTTOMLEFT", pos + width, 0)
+  line:SetPoint("TOPLEFT", tick, "TOPLEFT", px, 0)
+  line:SetPoint("BOTTOMRIGHT", tick, "BOTTOMLEFT", px + width, 0)
 end
 
 function QtUI:SetupEnergyTick()
@@ -786,7 +781,7 @@ function QtUI:SetupEnergyTick()
       this.lastPower = current
     end
   end)
-  tick:SetScript("OnUpdate", function()
+  local function EnergyTickOnUpdate()
     if not this.mode then return end
     if this.target then
       this.start = GetTime()
@@ -804,7 +799,9 @@ function QtUI:SetupEnergyTick()
     if width < 1 then return end
     this.lastPos = width * (current / this.max)
     PlaceEnergyTick(this, this.lastPos)
-  end)
+  end
+  tick.qtOnUpdate = EnergyTickOnUpdate
+  tick:SetScript("OnUpdate", EnergyTickOnUpdate)
 
   self.energyTick = tick
   self:RefreshEnergyTick()
@@ -832,8 +829,12 @@ function QtUI:RefreshEnergyTick()
     if tick.Show then pcall(tick.Show, tick) end
     if tick.line and tick.line.Show then pcall(tick.line.Show, tick.line) end
     PaintEnergyTick(tick, EnergyTickAlpha())
+    if not tick:GetScript("OnUpdate") then
+      tick:SetScript("OnUpdate", tick.qtOnUpdate)
+    end
   else
     PaintEnergyTick(tick, 0)
+    tick:SetScript("OnUpdate", nil)
   end
 end
 
@@ -862,23 +863,20 @@ function QtUI:SetupTargetTarget()
     local watch = CreateFrame("Frame", "QtUITargetTargetWatch")
     watch.elapsed = 0
     watch:SetScript("OnUpdate", function()
-      if not QtUI.targetTargetFrame then return end
-      local layout = QtUI:GetLayout()
-      if layout.showTargetTarget == false or layout.showTargetTarget == 0 or layout.showTargetTarget == "0" then
-        QtUI.targetTargetFrame:Hide()
-        return
-      end
       this.elapsed = this.elapsed + (arg1 or 0)
-      if not UnitName("target") then
-        QtUI.targetTargetFrame:Hide()
-        this.hadTarget = nil
+      if this.elapsed < .2 then return end
+      this.elapsed = 0
+      if not QtUI.targetTargetFrame then return end
+      local layout = QtUI.GetLayout and QtUI:GetLayout()
+      if layout and (layout.showTargetTarget == false or layout.showTargetTarget == 0 or layout.showTargetTarget == "0") then
+        if QtUI.targetTargetFrame.Hide then pcall(QtUI.targetTargetFrame.Hide, QtUI.targetTargetFrame) end
         return
       end
-      this.hadTarget = true
-      if this.elapsed >= .2 then
-        this.elapsed = 0
-        UpdateUnitFrame(QtUI.targetTargetFrame, true)
+      if not UnitName("target") then
+        if QtUI.targetTargetFrame.Hide then pcall(QtUI.targetTargetFrame.Hide, QtUI.targetTargetFrame) end
+        return
       end
+      UpdateUnitFrame(QtUI.targetTargetFrame, true)
     end)
     self.targetTargetWatch = watch
   end
@@ -892,19 +890,8 @@ function QtUI:SetupUnitFrames()
   self:SetupEnergyTick()
   if self.playerFrame then self:HideFrame(PlayerFrame) end
   if self.targetFrame then self:HideFrame(TargetFrame) end
-  if self:IsFeatureEnabled("auras") then
-    local buffFrame = BuffFrame
-    if buffFrame then
-      if buffFrame.EnableMouse then pcall(buffFrame.EnableMouse, buffFrame, false) end
-      if buffFrame.SetAlpha then pcall(buffFrame.SetAlpha, buffFrame, 0) end
-      if buffFrame.ClearAllPoints and buffFrame.SetPoint then
-        pcall(function()
-          buffFrame:ClearAllPoints()
-          buffFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-        end)
-      end
-    end
-  end
+  -- Native BuffFrame stays visible (left of the minimap) so it can be
+  -- positioned in anchor mode. QtUI player-frame auras are separate.
   if self.PositionAuxiliaryBars then self:PositionAuxiliaryBars() end
   self:ApplyUnitFrameLayout()
 

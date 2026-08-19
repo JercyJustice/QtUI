@@ -91,6 +91,75 @@ function QtUI:ApplyFont(widget, size)
   end
 end
 
+-- Single-point TOPLEFT/TOPRIGHT on FontStrings is unreliable here: Emberveil
+-- ignores SetWidth, so a hotkey keeps its XML width and LEFT/RIGHT looks swapped.
+-- Pin a pixel box from the parent's BOTTOMLEFT, same as the rest of the UI.
+function QtUI:PlaceAlignedText(fontString, parent, align, pad, width, height, ox, oy)
+  if not fontString or not parent then return end
+  pad = tonumber(pad)
+  if not pad then pad = 2 end
+  width = tonumber(width)
+  height = tonumber(height)
+  if not width and parent.GetWidth then width = parent:GetWidth() end
+  if not height and parent.GetHeight then height = parent:GetHeight() end
+  width = tonumber(width) or 40
+  height = tonumber(height) or 20
+  if width < 8 then width = 8 end
+  if height < 8 then height = 8 end
+  if not align then align = "center" end
+  ox = tonumber(ox) or 0
+  oy = tonumber(oy) or 0
+
+  local left = pad
+  local bottom = pad
+  local right = width - pad
+  local top = height - pad
+  local colW = math.floor((width - pad * 2) * .58)
+  local rowH = math.floor((height - pad * 2) * .5)
+  if colW < 10 then colW = 10 end
+  if rowH < 8 then rowH = 8 end
+
+  if align == "left" or align == "topleft" or align == "bottomleft" then
+    right = left + colW
+  elseif align == "right" or align == "topright" or align == "bottomright" then
+    left = right - colW
+  end
+  if align == "top" or align == "topleft" or align == "topright" then
+    bottom = top - rowH
+  elseif align == "bottom" or align == "bottomleft" or align == "bottomright" then
+    top = bottom + rowH
+  end
+
+  fontString:ClearAllPoints()
+  fontString:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left + ox, bottom + oy)
+  fontString:SetPoint("TOPRIGHT", parent, "BOTTOMLEFT", right + ox, top + oy)
+  local boxW = right - left
+  local boxH = top - bottom
+  if fontString.SetWidth then
+    fontString:SetWidth(boxW + 1)
+    fontString:SetWidth(boxW)
+  end
+  if fontString.SetHeight then
+    fontString:SetHeight(boxH + 1)
+    fontString:SetHeight(boxH)
+  end
+
+  local justifyH = "CENTER"
+  if align == "left" or align == "topleft" or align == "bottomleft" then
+    justifyH = "LEFT"
+  elseif align == "right" or align == "topright" or align == "bottomright" then
+    justifyH = "RIGHT"
+  end
+  if fontString.SetJustifyH then fontString:SetJustifyH(justifyH) end
+  local justifyV = "CENTER"
+  if align == "top" or align == "topleft" or align == "topright" then
+    justifyV = "TOP"
+  elseif align == "bottom" or align == "bottomleft" or align == "bottomright" then
+    justifyV = "BOTTOM"
+  end
+  if fontString.SetJustifyV then fontString:SetJustifyV(justifyV) end
+end
+
 local function UrlEncode(str)
   str = tostring(str or "")
   str = string.gsub(str, "\r\n", "\n")
@@ -303,6 +372,8 @@ function QtUI:EnsureLayoutDefaults()
   if layout.energyTickAlpha < .1 then layout.energyTickAlpha = .1 end
   if layout.energyTickAlpha > 1 then layout.energyTickAlpha = 1 end
   if layout.eqCompare == nil then layout.eqCompare = true end
+  if layout.classTooltip == nil then layout.classTooltip = true end
+  if layout.mapCoords == nil then layout.mapCoords = true end
   if layout.clockLocal == nil then layout.clockLocal = false end
   layout.chatWidth = tonumber(layout.chatWidth) or 380
   if layout.chatWidth < 180 then layout.chatWidth = 180 end
@@ -351,6 +422,7 @@ function QtUI:EnsureLayoutDefaults()
   if layout.meterBarSpacing == nil then layout.meterBarSpacing = 0 end
   if layout.meterBarSpacing < 0 then layout.meterBarSpacing = 0 end
   if layout.meterBarSpacing > 8 then layout.meterBarSpacing = 8 end
+  if layout.meterAskInstance == nil then layout.meterAskInstance = false end
   layout.barBackground = EnsureColor(layout.barBackground, .025, .035, .045, .85)
   layout.barBorder = EnsureColor(layout.barBorder, .18, .24, .28, 1)
   if layout.slotShowBackground == nil then layout.slotShowBackground = true end
@@ -402,6 +474,27 @@ end
 function QtUI:GetBarConfig(name)
   local layout = self:GetLayout()
   return layout.bars[name] or layout.bars.main
+end
+
+local BAR_COPY_KEYS = { "main", "extra", "utility", "aux", "sideRight", "sideLeft" }
+
+function QtUI:ApplyBarConfigToAll(sourceKey)
+  local src = self:GetBarConfig(sourceKey)
+  if not src then return end
+  local i
+  for i = 1, table.getn(BAR_COPY_KEYS) do
+    local dst = self:GetBarConfig(BAR_COPY_KEYS[i])
+    if dst and dst ~= src then
+      dst.columns = src.columns
+      dst.rows = src.rows
+      dst.size = src.size
+      dst.spacing = src.spacing
+      dst.hotkeyAlign = src.hotkeyAlign
+      dst.hotkeySize = src.hotkeySize
+      dst.hotkeyShadow = src.hotkeyShadow
+    end
+  end
+  if self.ApplyLayout then self:ApplyLayout() end
 end
 
 function QtUI:GetUnitStyle(name)
@@ -814,7 +907,7 @@ function QtUI:ApplyLayout()
   if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
   if self.LayoutChat then self:LayoutChat() end
   if self.ApplySavedPositions then self:ApplySavedPositions() end
-  if self.moveMode and self.SetMoveMode then self:SetMoveMode(true) end
+  -- Never turn anchor mode on from layout. Login and Apply must stay locked.
   if not self.pulsingBarBackground and self.ScheduleBarChromeRefresh then
     self:ScheduleBarChromeRefresh()
   end
@@ -900,6 +993,8 @@ function QtUI:Initialize()
   SafeSetup("questLog", self.SetupQuestLog)
   SafeSetup("cooldowns", self.SetupCooldowns)
   SafeSetup("eqCompare", self.SetupEqCompare)
+  SafeSetup("classTooltip", self.SetupClassTooltip)
+  if self.SetupMapCoords then SafeSetup("mapCoords", self.SetupMapCoords) end
   SafeSetup("settingsButton", self.SetupSettingsButton)
   SafeSetup("moveMode", self.SetupMoveMode)
   SafeSetup("applyLayout", self.ApplyLayout)

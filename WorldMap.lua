@@ -367,8 +367,103 @@ local function HookMapReveal()
   end
 end
 
+local function MapCoordsOn()
+  if not QtUI.GetLayout then return true end
+  local layout = QtUI:GetLayout()
+  local value = layout and layout.mapCoords
+  return value ~= false and value ~= 0 and value ~= "0"
+end
+
+function QtUI:SetupMapCoords()
+  if self.mapCoordsReady then return end
+  if not WorldMapFrame then return end
+  self.mapCoordsReady = true
+  local player = WorldMapFrame:CreateFontString("QtUIMapPlayerCoords", "OVERLAY", "GameFontNormal")
+  player:SetJustifyH("LEFT")
+  if player.SetTextColor then player:SetTextColor(1, 1, 1) end
+  if self.ApplyFont then self:ApplyFont(player, 13) end
+  local mouse = WorldMapFrame:CreateFontString("QtUIMapMouseCoords", "OVERLAY", "GameFontNormal")
+  mouse:SetJustifyH("LEFT")
+  if mouse.SetTextColor then mouse:SetTextColor(.85, .9, .95) end
+  if self.ApplyFont then self:ApplyFont(mouse, 13) end
+  self.mapPlayerCoords = player
+  self.mapMouseCoords = mouse
+
+  local ticker = CreateFrame("Frame", "QtUIMapCoordTicker", WorldMapFrame)
+  ticker.elapsed = 0
+  ticker:SetScript("OnUpdate", function()
+    this.elapsed = this.elapsed + (arg1 or 0)
+    if this.elapsed < .15 then return end
+    this.elapsed = 0
+    local shown
+    if WorldMapFrame.IsVisible then
+      local ok, vis = pcall(WorldMapFrame.IsVisible, WorldMapFrame)
+      shown = ok and (vis == true or vis == 1 or vis == "1")
+    end
+    if not shown and WorldMapFrame.IsShown then
+      local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
+      shown = ok and (vis == true or vis == 1 or vis == "1")
+    end
+    if not shown or not MapCoordsOn() then
+      if this.wasShown then
+        if player.SetText then player:SetText("") end
+        if mouse.SetText then mouse:SetText("") end
+        this.wasShown = nil
+      end
+      return
+    end
+    if not this.placed then
+      local height = 768
+      if WorldMapFrame.GetHeight then height = tonumber(WorldMapFrame:GetHeight()) or height end
+      if height < 200 then height = 768 end
+      player:ClearAllPoints()
+      player:SetPoint("BOTTOMLEFT", WorldMapFrame, "BOTTOMLEFT", 16, height - 36)
+      player:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMLEFT", 280, height - 16)
+      mouse:ClearAllPoints()
+      mouse:SetPoint("BOTTOMLEFT", WorldMapFrame, "BOTTOMLEFT", 16, height - 56)
+      mouse:SetPoint("TOPRIGHT", WorldMapFrame, "BOTTOMLEFT", 280, height - 36)
+      this.placed = true
+    end
+    this.wasShown = true
+    local px, py = 0, 0
+    if type(GetPlayerMapPosition) == "function" then
+      local ok, x, y = pcall(GetPlayerMapPosition, "player")
+      if ok then
+        px = tonumber(x) or 0
+        py = tonumber(y) or 0
+      end
+    end
+    if px == 0 and py == 0 then
+      player:SetText("Player: --, --")
+    else
+      player:SetText(string.format("Player: %.1f, %.1f", px * 100, py * 100))
+    end
+    local mx, my
+    if type(GetCursorPosition) == "function" and WorldMapButton then
+      local cx, cy = GetCursorPosition()
+      local scale = 1
+      if WorldMapButton.GetEffectiveScale then scale = WorldMapButton:GetEffectiveScale() or 1 end
+      if scale < .01 then scale = 1 end
+      local left = WorldMapButton.GetLeft and WorldMapButton:GetLeft()
+      local top = WorldMapButton.GetTop and WorldMapButton:GetTop()
+      local width = WorldMapButton.GetWidth and WorldMapButton:GetWidth()
+      local bh = WorldMapButton.GetHeight and WorldMapButton:GetHeight()
+      if left and top and width and bh and width > 1 and bh > 1 then
+        mx = ((cx or 0) / scale - left) / width
+        my = (top - (cy or 0) / scale) / bh
+      end
+    end
+    if mx and my and mx >= 0 and mx <= 1 and my >= 0 and my <= 1 then
+      mouse:SetText(string.format("Mouse: %.1f, %.1f", mx * 100, my * 100))
+    else
+      mouse:SetText("Mouse: --")
+    end
+  end)
+end
+
 function QtUI:SetupWorldMap()
   -- Emberveil's visible map is native UE, so only hook its shared texture
   -- update. Do not resize, skin, show or intercept the Lua compatibility frame.
   HookMapReveal()
+  self:SetupMapCoords()
 end

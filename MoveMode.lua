@@ -38,63 +38,97 @@ local function ColorForKind(kind)
   return 1, 1, 1, .14
 end
 
-local function AddGridLine(grid, vertical, offset, width, height)
-  local tex = grid:CreateTexture(nil, "ARTWORK")
-  tex:SetTexture("Interface\\Buttons\\WHITE8X8")
-  local r, g, b, a = ColorForKind(KindForOffset(offset))
-  tex:SetVertexColor(r, g, b, a)
-  -- Corner anchors so Emberveil actually stretches both axes. A 1px
-  -- SetWidth line is often discarded and never shows vertically.
-  if vertical then
-    tex:SetPoint("TOPLEFT", grid, "CENTER", offset, height / 2)
-    tex:SetPoint("BOTTOMRIGHT", grid, "CENTER", offset + GRID_LINE, -(height / 2))
-  else
-    tex:SetPoint("TOPLEFT", grid, "CENTER", -(width / 2), offset + GRID_LINE)
-    tex:SetPoint("BOTTOMRIGHT", grid, "CENTER", width / 2, offset)
-  end
-end
-
-local function BuildMoveGrid(grid)
+local function ScreenWH()
   local width = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
   local height = (UIParent.GetHeight and UIParent:GetHeight()) or 768
   if width < 200 then width = 1024 end
   if height < 200 then height = 768 end
+  if width > 1920 then width = 1920 end
+  if height > 1080 then height = 1080 end
+  return width, height
+end
 
-  local x = 0
+local function AddGridLine(grid, vertical, pos, width, height, kind)
+  local tex = grid:CreateTexture(nil, "ARTWORK")
+  tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+  local r, g, b, a = ColorForKind(kind or "major")
+  tex:SetVertexColor(r, g, b, a)
+  local thick = GRID_LINE
+  if kind == "axis" then thick = 3 end
+  if vertical then
+    tex:SetPoint("BOTTOMLEFT", grid, "BOTTOMLEFT", pos, 0)
+    tex:SetPoint("TOPRIGHT", grid, "BOTTOMLEFT", pos + thick, height)
+  else
+    tex:SetPoint("BOTTOMLEFT", grid, "BOTTOMLEFT", 0, pos)
+    tex:SetPoint("TOPRIGHT", grid, "BOTTOMLEFT", width, pos + thick)
+  end
+end
+
+local function BuildMoveGrid(grid, width, height)
+  -- Sparse majors + bright center axes. Shift-snap still uses screen
+  -- center/edges even if a line is skipped.
+  local step = GRID_STEP * GRID_MAJOR
+  local cx = math.floor(width / 2)
+  local cy = math.floor(height / 2)
+  AddGridLine(grid, true, cx, width, height, "axis")
+  AddGridLine(grid, false, cy, width, height, "axis")
+  local x = step
   local count = 0
-  while x <= (width / 2) + 1 and count < 160 do
-    AddGridLine(grid, true, x, width, height)
-    if x > 0 then AddGridLine(grid, true, -x, width, height) end
-    x = x + GRID_STEP
+  while x < cx - 2 and count < 16 do
+    AddGridLine(grid, true, cx - x, width, height, "major")
+    AddGridLine(grid, true, cx + x, width, height, "major")
+    x = x + step
     count = count + 1
   end
-
-  local y = 0
+  local y = step
   count = 0
-  while y <= (height / 2) + 1 and count < 160 do
-    AddGridLine(grid, false, y, width, height)
-    if y > 0 then AddGridLine(grid, false, -y, width, height) end
-    y = y + GRID_STEP
+  while y < cy - 2 and count < 12 do
+    AddGridLine(grid, false, cy - y, width, height, "major")
+    AddGridLine(grid, false, cy + y, width, height, "major")
+    y = y + step
     count = count + 1
+  end
+end
+
+local function PlaceMoveGrid(show)
+  local grid = QtUI.moveGrid
+  if not grid then return end
+  local width = grid.qtW
+  local height = grid.qtH
+  if not width or not height then
+    width, height = ScreenWH()
+    grid.qtW = width
+    grid.qtH = height
+  end
+  grid:ClearAllPoints()
+  if show then
+    grid:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
+    grid:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", width, height)
+  else
+    grid:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -4000, -4000)
+    grid:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -4000 + width, -4000 + height)
   end
 end
 
 local function EnsureMoveGrid()
   if QtUI.moveGrid then return QtUI.moveGrid end
+  local width, height = ScreenWH()
   local grid = CreateFrame("Frame", "QtUIMoveGrid", UIParent)
-  grid:SetAllPoints(UIParent)
   grid:SetFrameStrata("LOW")
   grid:SetFrameLevel(0)
   if grid.EnableMouse then grid:EnableMouse(false) end
-
+  grid.qtW = width
+  grid.qtH = height
+  grid:ClearAllPoints()
+  grid:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
+  grid:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", width, height)
   grid.dim = grid:CreateTexture(nil, "BACKGROUND")
   grid.dim:SetAllPoints()
   grid.dim:SetTexture("Interface\\Buttons\\WHITE8X8")
   grid.dim:SetVertexColor(0, 0, 0, .18)
-
-  BuildMoveGrid(grid)
-  grid:Hide()
+  BuildMoveGrid(grid, width, height)
   QtUI.moveGrid = grid
+  PlaceMoveGrid(nil)
   return grid
 end
 
@@ -104,13 +138,15 @@ local function EnsureMoveCatcher()
   catcher:SetWidth(1)
   catcher:SetHeight(1)
   catcher:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-  catcher:Hide()
+  -- Do not Hide() here: Emberveil Hide re-enters OnHide and stacks until hang.
+  catcher:ClearAllPoints()
+  catcher:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   catcher:SetScript("OnHide", function()
+    if QtUI.settingMoveMode or QtUI.endingMoveMode then return end
     if QtUI.moveMode then
       QtUI:EndMoveMode(QtUI.moveFromSettings)
     end
   end)
-  if UISpecialFrames then table.insert(UISpecialFrames, "QtUIMoveCatcher") end
   QtUI.moveCatcher = catcher
   return catcher
 end
@@ -120,6 +156,7 @@ local function HookEscapeToEndMove()
   QtUI.hookedToggleGameMenu = true
   local original = ToggleGameMenu
   ToggleGameMenu = function()
+    if QtUI.settingMoveMode or QtUI.endingMoveMode then return end
     if QtUI.moveMode then
       QtUI:EndMoveMode(QtUI.moveFromSettings)
       return
@@ -133,6 +170,7 @@ local function HookEscapeToEndMove()
   if type(CloseSpecialWindows) == "function" then
     local originalClose = CloseSpecialWindows
     CloseSpecialWindows = function()
+      if QtUI.settingMoveMode or QtUI.endingMoveMode then return nil end
       if QtUI.moveMode then
         QtUI:EndMoveMode(QtUI.moveFromSettings)
         return 1
@@ -142,7 +180,25 @@ local function HookEscapeToEndMove()
   end
 end
 
+local function ParkOverlay(overlay)
+  if not overlay then return end
+  if overlay.EnableMouse then pcall(overlay.EnableMouse, overlay, false) end
+  overlay:ClearAllPoints()
+  overlay:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  overlay:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -3999, 3999)
+  if overlay.SetWidth then
+    overlay:SetWidth(2)
+    if overlay.SetHeight then overlay:SetHeight(2) end
+  end
+  if overlay.Hide then pcall(overlay.Hide, overlay) end
+end
+
 local function ReanchorOverlay(overlay)
+  if not overlay or not overlay.entry or not overlay.entry.frame then return end
+  if not QtUI.moveMode then
+    ParkOverlay(overlay)
+    return
+  end
   local target = overlay.entry.frame
   overlay:ClearAllPoints()
   overlay:SetPoint("TOPLEFT", target, "TOPLEFT", 0, 0)
@@ -580,13 +636,68 @@ local function PaintOverlay(overlay)
   end
 end
 
-local function PlaceMoveInfo(info)
-  info:ClearAllPoints()
-  info:SetPoint("TOPLEFT", UIParent, "TOP", -150, -16)
-  info:SetPoint("BOTTOMRIGHT", UIParent, "TOP", 150, -294)
+local INFO_W = 192
+local INFO_H = 156
+
+local function SaveMoveInfoPos(info)
+  if not info then return end
+  local left = info.lastLeft
+  local bottom = info.lastBottom
+  if (not left or not bottom) and info.GetLeft then left = info:GetLeft() end
+  if (not bottom) and info.GetBottom then bottom = info:GetBottom() end
+  if not left or not bottom then return end
+  local sw, sh = ScreenSize()
+  if bottom > sh * .55 and info.GetTop then
+    local top = info:GetTop()
+    if top and top < bottom then bottom = sh - bottom - INFO_H end
+  end
+  if left < 0 then left = 0 end
+  if bottom < 0 then bottom = 0 end
+  if left > sw - 40 then left = sw - 40 end
+  if bottom > sh - 40 then bottom = sh - 40 end
+  info.lastLeft = left
+  info.lastBottom = bottom
+  if not QtUIDB.positions then QtUIDB.positions = {} end
+  QtUIDB.positions.moveInfo = { x = left, y = bottom, w = INFO_W, h = INFO_H }
+  if PlaceSized then
+    PlaceSized(info, left, bottom, INFO_W, INFO_H)
+  else
+    info:ClearAllPoints()
+    info:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    info:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + INFO_W, bottom + INFO_H)
+  end
+  info.qtPlaced = true
+  if info.listOpen and info.listPanel then
+    info.listPanel:ClearAllPoints()
+    info.listPanel:SetPoint("TOPLEFT", info, "TOPRIGHT", 4, 0)
+    info.listPanel:SetPoint("BOTTOMRIGHT", info, "TOPRIGHT", 292, -240)
+  end
 end
 
-local PlaceSized, RefreshMoveInfo, MouseLeftHeld
+local function PlaceMoveInfo(info)
+  if not info or info.qtDragging then return end
+  local sw, sh = ScreenSize()
+  local width, height = INFO_W, INFO_H
+  local left = math.floor((sw - width) / 2)
+  local bottom = sh - height - 12
+  local saved = QtUIDB and QtUIDB.positions and QtUIDB.positions.moveInfo
+  if saved and saved.x and saved.y then
+    left = saved.x
+    bottom = saved.y
+  end
+  if left < 8 then left = 8 end
+  if bottom < 8 then bottom = 8 end
+  if left > sw - 40 then left = sw - 40 end
+  if bottom > sh - 40 then bottom = sh - 40 end
+  info.lastLeft = left
+  info.lastBottom = bottom
+  info:ClearAllPoints()
+  info:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+  info:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
+  info.qtPlaced = true
+end
+
+local PlaceSized, RefreshMoveInfo, MouseLeftHeld, RefreshMoveList
 
 local function NudgeStep()
   if ShiftDown() then return 10 end
@@ -595,19 +706,100 @@ end
 
 local function StopNudgeHold()
   nudgeHold = nil
-  if QtUI.moveInfo then QtUI.moveInfo:SetScript("OnUpdate", nil) end
+  if QtUI.moveInfo and not QtUI.moveInfo.qtDragging then
+    QtUI.moveInfo:SetScript("OnUpdate", nil)
+  end
+end
+
+local function IsAuraKey(key)
+  return key == "playerBuffs" or key == "playerDebuffs"
+    or key == "targetBuffs" or key == "targetDebuffs"
+    or key == "minimapBuffs" or key == "minimapEnchants"
+end
+
+local function EnsureOverlayHitbox(overlay)
+  if not overlay or not overlay.entry or not overlay.entry.frame then return end
+  local frame = overlay.entry.frame
+  local width, height = FrameSize(frame)
+  local saved = QtUIDB.positions and QtUIDB.positions[overlay.entry.key]
+  if width < 8 and saved and saved.w then width = saved.w end
+  if height < 8 and saved and saved.h then height = saved.h end
+  if width < 8 then width = 160 end
+  if height < 8 then height = 22 end
+  if width > 700 then width = 700 end
+  if height > 320 then height = 320 end
+  local left = frame.GetLeft and frame:GetLeft()
+  local bottom = frame.GetBottom and frame:GetBottom()
+  if saved then
+    if (not left or left < -100 or left > 3000) and saved.x then left = saved.x end
+    if (not bottom or bottom < -100 or bottom > 3000) and saved.y then bottom = saved.y end
+  end
+  if not left or left < -100 or left > 3000 then left = 80 end
+  if not bottom or bottom < -100 or bottom > 3000 then bottom = 80 end
+  overlay.lastLeft = left
+  overlay.lastBottom = bottom
+  PlaceSized(overlay, left, bottom, width, height)
 end
 
 local function SelectOverlay(overlay)
   local prev = selectedOverlay
   selectedOverlay = overlay
-  if prev and prev ~= overlay then PaintOverlay(prev) end
+  if prev and prev ~= overlay then
+    if prev.SetFrameLevel then prev:SetFrameLevel(100) end
+    PaintOverlay(prev)
+  end
   if overlay then
     local left, bottom = OverlayPixels(overlay)
     if left ~= nil then overlay.lastLeft = left end
     if bottom ~= nil then overlay.lastBottom = bottom end
+    if overlay.SetFrameLevel then overlay:SetFrameLevel(140) end
     PaintOverlay(overlay)
   end
+  if RefreshMoveList then RefreshMoveList() end
+end
+
+local function SelectMovableEntry(entry)
+  if not entry or not entry.overlay then return end
+  if entry.frame and entry.frame.Show then pcall(entry.frame.Show, entry.frame) end
+  ReanchorOverlay(entry.overlay)
+  if entry.overlay.Show then pcall(entry.overlay.Show, entry.overlay) end
+  EnsureOverlayHitbox(entry.overlay)
+  SelectOverlay(entry.overlay)
+  RefreshMoveInfo(entry.overlay)
+end
+
+local function CenterSelected()
+  local overlay = selectedOverlay
+  if not overlay or not overlay.entry or overlay.dragging then return end
+  local width, height = FrameSize(overlay)
+  if (width < 8 or height < 8) and overlay.entry.frame then
+    local fw, fh = FrameSize(overlay.entry.frame)
+    if width < 8 then width = fw end
+    if height < 8 then height = fh end
+  end
+  local saved = QtUIDB.positions and QtUIDB.positions[overlay.entry.key]
+  if saved then
+    if width < 8 and saved.w then width = saved.w end
+    if height < 8 and saved.h then height = saved.h end
+  end
+  if width < 8 then width = 160 end
+  if height < 8 then height = 24 end
+  local sw, sh = ScreenSize()
+  local left = (sw - width) / 2
+  local bottom = (sh - height) / 2
+  left, bottom = ClampToScreen(left, bottom, width, height)
+  overlay.lastLeft = left
+  overlay.lastBottom = bottom
+  overlay.snap = nil
+  PlaceSized(overlay, left, bottom, width, height)
+  if overlay.entry.frame then
+    overlay.entry.frame:ClearAllPoints()
+    overlay.entry.frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    overlay.entry.frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
+  end
+  if not QtUIDB.positions then QtUIDB.positions = {} end
+  QtUIDB.positions[overlay.entry.key] = BuildSaved(left, bottom, width, height, nil)
+  RefreshMoveInfo(overlay)
 end
 
 local function NudgeSelected(dx, dy)
@@ -704,54 +896,258 @@ local function MakeNudgeButton(info, name, label, dx, dy)
   return btn
 end
 
+local function ParkListPanel(info)
+  if not info or not info.listPanel then return end
+  info.listPanel:ClearAllPoints()
+  info.listPanel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  if info.listPanel.EnableMouse then info.listPanel:EnableMouse(false) end
+end
+
+local function PlaceListPanel(info)
+  if not info or not info.listPanel then return end
+  if not info.listOpen then
+    ParkListPanel(info)
+    return
+  end
+  info.listPanel:ClearAllPoints()
+  info.listPanel:SetPoint("TOPLEFT", info, "TOPRIGHT", 4, 0)
+  info.listPanel:SetPoint("BOTTOMRIGHT", info, "TOPRIGHT", 292, -240)
+  if info.listPanel.EnableMouse then info.listPanel:EnableMouse(true) end
+  if info.listPanel.Show then pcall(info.listPanel.Show, info.listPanel) end
+end
+
 local function EnsureNudgePad(info)
   if info.SetFrameStrata then info:SetFrameStrata("TOOLTIP") end
   if info.SetFrameLevel then info:SetFrameLevel(250) end
   if info.EnableMouse then info:EnableMouse(true) end
+  if info.hint then
+    info.hint:ClearAllPoints()
+    info.hint:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  end
   if info.body then
     info.body:ClearAllPoints()
-    info.body:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -48)
-    info.body:SetPoint("BOTTOMRIGHT", info, "BOTTOMRIGHT", -10, 112)
+    info.body:SetPoint("TOPLEFT", info, "TOPLEFT", 8, -22)
+    info.body:SetPoint("BOTTOMRIGHT", info, "BOTTOMLEFT", 184, 90)
   end
-  if info.hint then
-    info.hint:SetText("Click a frame to select. Escape locks.")
+  if info.nudgeLabel then
+    info.nudgeLabel:ClearAllPoints()
+    info.nudgeLabel:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   end
-  if not info.nudgeLabel then
-    info.nudgeLabel = info:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    info.nudgeLabel:SetJustifyH("CENTER")
-  end
-  info.nudgeLabel:ClearAllPoints()
-  info.nudgeLabel:SetPoint("BOTTOMLEFT", info, "BOTTOMLEFT", 10, 100)
-  info.nudgeLabel:SetPoint("BOTTOMRIGHT", info, "BOTTOMLEFT", 290, 114)
-  info.nudgeLabel:SetText("Nudge selected  (Shift = 10px)")
   if not info.nudgeUp then
     info.nudgeUp = MakeNudgeButton(info, "QtUIMoveNudgeUp", "^", 0, 1)
     info.nudgeDown = MakeNudgeButton(info, "QtUIMoveNudgeDown", "v", 0, -1)
     info.nudgeLeft = MakeNudgeButton(info, "QtUIMoveNudgeLeft", "<", -1, 0)
     info.nudgeRight = MakeNudgeButton(info, "QtUIMoveNudgeRight", ">", 1, 0)
   end
-  PlaceBtn(info.nudgeDown, info, 130, 10, 40, 26)
-  PlaceBtn(info.nudgeLeft, info, 86, 40, 40, 26)
-  PlaceBtn(info.nudgeRight, info, 174, 40, 40, 26)
-  PlaceBtn(info.nudgeUp, info, 130, 70, 40, 26)
+  PlaceBtn(info.nudgeDown, info, 38, 6, 22, 18)
+  PlaceBtn(info.nudgeLeft, info, 14, 26, 22, 18)
+  PlaceBtn(info.nudgeRight, info, 62, 26, 22, 18)
+  PlaceBtn(info.nudgeUp, info, 38, 46, 22, 18)
+  if not info.nudgeCenter then
+    info.nudgeCenter = MakeNudgeButton(info, "QtUIMoveNudgeCenter", "Center", 0, 0)
+    info.nudgeCenter:SetScript("OnMouseDown", function()
+      if arg1 == "LeftButton" then CenterSelected() end
+    end)
+    info.nudgeCenter:SetScript("OnMouseUp", function() end)
+    info.nudgeCenter:SetScript("OnEnter", function()
+      this:SetBackdropColor(.08, .4, .64, .95)
+      if GameTooltip then
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:SetText("Center")
+        GameTooltip:AddLine("Move the selected frame to the screen center.", .8, .9, .85)
+        GameTooltip:Show()
+      end
+    end)
+  end
+  PlaceBtn(info.nudgeCenter, info, 92, 26, 86, 18)
+  if not info.listToggle then
+    info.listToggle = MakeNudgeButton(info, "QtUIMoveListToggle", "List", 0, 0)
+    info.listToggle:SetScript("OnMouseDown", function()
+      if arg1 ~= "LeftButton" then return end
+      info.listOpen = not info.listOpen
+      if this.text then this.text:SetText(info.listOpen and "Hide" or "List") end
+      if RefreshMoveList then RefreshMoveList() end
+    end)
+    info.listToggle:SetScript("OnMouseUp", function() end)
+    info.listToggle:SetScript("OnEnter", function()
+      this:SetBackdropColor(.08, .4, .64, .95)
+      if GameTooltip then
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:SetText("Frames")
+        GameTooltip:AddLine("Show or hide the list of movable frames.", .8, .9, .85)
+        GameTooltip:Show()
+      end
+    end)
+  end
+  PlaceBtn(info.listToggle, info, 92, 46, 86, 18)
+  if info.listToggle.text then
+    info.listToggle.text:SetText(info.listOpen and "Hide" or "List")
+  end
+
+  if not info.listPanel then
+    local panel = CreateFrame("Frame", "QtUIMoveListPanel", UIParent)
+    panel:SetFrameStrata("TOOLTIP")
+    panel:SetFrameLevel(260)
+    panel:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 10,
+      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    panel:SetBackdropColor(.015, .018, .022, .96)
+    panel:SetBackdropBorderColor(.2, .7, .62, 1)
+    panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -6)
+    panel.title:SetText("|cff33ffccFrames|r")
+    info.listPanel = panel
+  end
+
+  RefreshMoveList = function()
+    local panel = info.listPanel
+    if not info.listOpen then
+      ParkListPanel(info)
+      if info.listBtns then
+        local n
+        for n = 1, table.getn(info.listBtns) do
+          local btn = info.listBtns[n]
+          btn.entry = nil
+          btn:ClearAllPoints()
+          btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+        end
+      end
+      return
+    end
+    if not info.listBtns then
+      info.listBtns = {}
+      local i
+      for i = 1, 28 do
+        local btn = CreateFrame("Button", "QtUIMoveList" .. i, panel)
+        btn:EnableMouse(true)
+        btn:RegisterForClicks("LeftButtonUp")
+        btn:SetBackdrop({
+          bgFile = "Interface\\Buttons\\WHITE8X8",
+          edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+          tile = true, tileSize = 8, edgeSize = 6,
+          insets = { left = 1, right = 1, top = 1, bottom = 1 },
+        })
+        btn.text = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        btn.text:SetPoint("TOPLEFT", btn, "TOPLEFT", 5, 0)
+        btn.text:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -4, 0)
+        btn.text:SetJustifyH("LEFT")
+        btn:SetScript("OnClick", function()
+          if this.entry then SelectMovableEntry(this.entry) end
+        end)
+        info.listBtns[i] = btn
+      end
+    end
+    PlaceListPanel(info)
+    local entries = QtUI.movableEntries or {}
+    local n
+    for n = 1, table.getn(info.listBtns) do
+      local btn = info.listBtns[n]
+      if btn.SetParent then btn:SetParent(panel) end
+      local entry = entries[n]
+      if entry then
+        btn.entry = entry
+        if btn.text then btn.text:SetText(entry.label) end
+        local selected = selectedOverlay and selectedOverlay.entry == entry
+        if selected then
+          btn:SetBackdropColor(.28, .2, .04, .96)
+          btn:SetBackdropBorderColor(1, .82, .18, 1)
+          if btn.text then btn.text:SetTextColor(1, .9, .48) end
+        else
+          btn:SetBackdropColor(.04, .05, .06, .9)
+          btn:SetBackdropBorderColor(.18, .36, .34, 1)
+          if btn.text then btn.text:SetTextColor(.82, .84, .86) end
+        end
+        local col = 0
+        local row = n - 1
+        if row >= 14 then
+          col = 1
+          row = row - 14
+        end
+        PlaceBtn(btn, panel, 6 + col * 140, 6 + (13 - row) * 15, 136, 14)
+        if btn.Show then pcall(btn.Show, btn) end
+      else
+        btn.entry = nil
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      end
+    end
+  end
+  RefreshMoveList()
+
   if not info.nudgeHooked then
     info.nudgeHooked = true
     info:SetScript("OnMouseUp", function()
       StopNudgeHold()
+      if this.qtDragging then
+        this.qtDragging = nil
+        this:SetScript("OnUpdate", nil)
+        if this.StopMovingOrSizing then pcall(this.StopMovingOrSizing, this) end
+        SaveMoveInfoPos(this)
+      end
       if QtUI.StopOverlayDrag then QtUI.StopOverlayDrag() end
     end)
   end
 end
 
+local function DragMoveInfo()
+  if not this or not this.qtDragging then return end
+  if MouseLeftHeld() == false then
+    this.qtDragging = nil
+    this:SetScript("OnUpdate", nil)
+    if this.StopMovingOrSizing then pcall(this.StopMovingOrSizing, this) end
+    SaveMoveInfoPos(this)
+    return
+  end
+  local scale = UIScale()
+  local cx, cy = GetCursorPosition()
+  cx = (cx or 0) / scale
+  cy = (cy or 0) / scale
+  local left = cx - (this.dragX or 0)
+  local bottom = cy - (this.dragY or 0)
+  this.lastLeft = left
+  this.lastBottom = bottom
+  if PlaceSized then
+    PlaceSized(this, left, bottom, INFO_W, INFO_H)
+  end
+  if this.listOpen then PlaceListPanel(this) end
+end
+
 local function EnsureMoveInfo()
   if QtUI.moveInfo then
-    PlaceMoveInfo(QtUI.moveInfo)
+    if not QtUI.moveInfo.qtPlaced then PlaceMoveInfo(QtUI.moveInfo) end
     EnsureNudgePad(QtUI.moveInfo)
     return QtUI.moveInfo
   end
   local info = CreateFrame("Frame", "QtUIMoveInfo", UIParent)
   info:SetFrameStrata("TOOLTIP")
   info:SetFrameLevel(250)
+  if info.SetMovable then info:SetMovable(true) end
+  if info.SetClampedToScreen then info:SetClampedToScreen(false) end
+  info:RegisterForDrag("LeftButton")
+  info:SetScript("OnDragStart", function()
+    local scale = UIScale()
+    local cx, cy = GetCursorPosition()
+    cx = (cx or 0) / scale
+    cy = (cy or 0) / scale
+    local left = this.lastLeft
+    local bottom = this.lastBottom
+    if not left and this.GetLeft then left = this:GetLeft() end
+    if not bottom and this.GetBottom then bottom = this:GetBottom() end
+    this.dragX = cx - (left or 0)
+    this.dragY = cy - (bottom or 0)
+    this.qtDragging = true
+    if this.StartMoving then pcall(this.StartMoving, this) end
+    this:SetScript("OnUpdate", DragMoveInfo)
+  end)
+  info:SetScript("OnDragStop", function()
+    this.qtDragging = nil
+    this:SetScript("OnUpdate", nil)
+    if this.StopMovingOrSizing then pcall(this.StopMovingOrSizing, this) end
+    SaveMoveInfoPos(this)
+  end)
   PlaceMoveInfo(info)
   info:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -766,42 +1162,33 @@ local function EnsureMoveInfo()
   info.title:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -10)
   info.title:SetText("|cff33ffccINFO|r")
   info.hint = info:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  info.hint:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -28)
-  info.hint:SetPoint("TOPRIGHT", info, "TOPRIGHT", -10, -28)
+  info.hint:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   info.hint:SetJustifyH("LEFT")
-  info.hint:SetText("Click a frame to select. Escape locks.")
   info.body = info:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  info.body:SetPoint("TOPLEFT", info, "TOPLEFT", 10, -48)
-  info.body:SetPoint("BOTTOMRIGHT", info, "BOTTOMRIGHT", -10, 112)
+  info.body:SetPoint("TOPLEFT", info, "TOPLEFT", 8, -22)
+  info.body:SetPoint("BOTTOMRIGHT", info, "BOTTOMLEFT", 184, 90)
   info.body:SetJustifyH("LEFT")
   if info.body.SetJustifyV then info.body:SetJustifyV("TOP") end
   EnsureNudgePad(info)
-  info:Hide()
   QtUI.moveInfo = info
   return info
 end
 
 function RefreshMoveInfo(dragOverlay)
+  if not QtUI.moveMode then return end
   local info = EnsureMoveInfo()
-  if not QtUI.moveMode then
-    if info.Hide then pcall(info.Hide, info) end
-    return
-  end
+  if not info.qtPlaced then PlaceMoveInfo(info) end
+  if info.EnableMouse then pcall(info.EnableMouse, info, true) end
   if info.Show then pcall(info.Show, info) end
   local shown = dragOverlay or selectedOverlay
-  local lines = "Click a frame, then use the arrows."
+  local lines = "Click a frame. Esc locks."
   if shown and shown.entry then
     local left, bottom = OverlayPixels(shown)
     left = left or 0
     bottom = bottom or 0
-    local snap = shown.snap
     lines = "|cffffd24d" .. shown.entry.label .. "|r"
       .. "\n" .. math.floor(left + .5) .. ", " .. math.floor(bottom + .5)
-      .. "\nSnap: " .. SnapLabel(snap)
-      .. "\nArrows move 1px. Shift+arrow = 10px."
-    if shown.dragging and not ShiftDown() then
-      lines = lines .. "\n(Shift not held)"
-    end
+      .. "\n" .. SnapLabel(shown.snap)
   elseif QtUI.movableEntries then
     local _, entry
     local n = 0
@@ -827,6 +1214,7 @@ function RefreshMoveInfo(dragOverlay)
     end
   end
   info.body:SetText(lines)
+  if RefreshMoveList then RefreshMoveList() end
 end
 
 -- Emberveil often drops SetWidth after ClearAllPoints. Keep a hit box with
@@ -839,12 +1227,6 @@ function PlaceSized(frame, left, bottom, width, height)
   frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
   if width > 1 and height > 1 then
     frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
-    if frame.SetWidth then
-      frame:SetWidth(width + 1)
-      if frame.SetHeight then frame:SetHeight(height + 1) end
-      frame:SetWidth(width)
-      if frame.SetHeight then frame:SetHeight(height) end
-    end
   end
 end
 
@@ -1034,7 +1416,7 @@ local function CreateMoveOverlay(entry, index)
   overlay:SetMovable(true)
   -- Emberveil's clamp keeps a fat inset, so bars never sit on the screen edge.
   if overlay.SetClampedToScreen then overlay:SetClampedToScreen(false) end
-  overlay:EnableMouse(true)
+  overlay:EnableMouse(false)
   overlay:RegisterForDrag("LeftButton")
   overlay:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -1081,8 +1463,7 @@ local function CreateMoveOverlay(entry, index)
     GameTooltip:Show()
   end)
   overlay:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  ReanchorOverlay(overlay)
-  overlay:Hide()
+  ParkOverlay(overlay)
   return overlay
 end
 
@@ -1183,70 +1564,163 @@ function QtUI:ResetMovable(key)
   end
 end
 
-function QtUI:SetMoveMode(enabled)
-  self.moveMode = enabled and true or nil
-  EnsureMoveCatcher()
-  EnsureMoveGrid()
-  HookEscapeToEndMove()
-
-  if self.movableEntries then
-    local _, entry
-    for _, entry in ipairs(self.movableEntries) do
-      if entry.overlay then StopOverlayDrag(entry.overlay) end
-      local shown = self.moveMode and entry.frame
-      if shown and not entry.alwaysShow then
-        local ok, isShown = pcall(entry.frame.IsShown, entry.frame)
-        shown = ok and (isShown == true or isShown == 1 or isShown == "1")
-      end
-      if shown then
-        if entry.alwaysShow and entry.frame.Show then pcall(entry.frame.Show, entry.frame) end
-        ReanchorOverlay(entry.overlay)
-        entry.overlay:Show()
-      else
-        entry.overlay:Hide()
-        if entry.key == "cast" and entry.frame and not entry.frame.casting and not entry.frame.channeling then
-          if entry.frame.Hide then pcall(entry.frame.Hide, entry.frame) end
-        end
-      end
-    end
-  end
-
-  if self.moveMode then
-    if self.moveGrid then self.moveGrid:Show() end
-    if self.moveCatcher then self.moveCatcher:Show() end
-    EnsureMoveInfo()
-    if selectedOverlay then PaintOverlay(selectedOverlay) end
-    RefreshMoveInfo(selectedOverlay)
-  else
-    StopNudgeHold()
-    if selectedOverlay then
-      local prev = selectedOverlay
-      selectedOverlay = nil
-      PaintOverlay(prev)
-    end
-    if self.moveGrid then self.moveGrid:Hide() end
-    if self.moveCatcher then self.moveCatcher:Hide() end
-    HideSnapLines()
-    if self.moveDropCatch then
-      self.moveDropCatch:SetScript("OnUpdate", nil)
-      if self.moveDropCatch.Hide then pcall(self.moveDropCatch.Hide, self.moveDropCatch) end
-    end
-    if self.moveInfo and self.moveInfo.Hide then pcall(self.moveInfo.Hide, self.moveInfo) end
+local function ParkFrameOffscreen(frame)
+  if not frame then return end
+  if frame.EnableMouse then pcall(frame.EnableMouse, frame, false) end
+  if frame.ClearAllPoints then
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   end
 end
 
+local function ParkSettingsWindow()
+  local frame = QtUI.settingsFrame
+  if not frame then return end
+  -- Clamp pulls the dialog back onto the screen. Turn it off first.
+  if frame.SetClampedToScreen then pcall(frame.SetClampedToScreen, frame, false) end
+  if frame.EnableMouse then pcall(frame.EnableMouse, frame, false) end
+  if frame.dragHandle and frame.dragHandle.EnableMouse then
+    pcall(frame.dragHandle.EnableMouse, frame.dragHandle, false)
+  end
+  if frame.close and frame.close.EnableMouse then
+    pcall(frame.close.EnableMouse, frame.close, false)
+  end
+  if frame.SetFrameStrata then pcall(frame.SetFrameStrata, frame, "BACKGROUND") end
+  -- Emberveil ignores SetAlpha. Do not Hide() (hangs).
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -4000, -4000)
+  frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", -3360, -3460)
+end
+
+local function RestoreSettingsWindow()
+  local frame = QtUI.settingsFrame
+  if not frame then return end
+  local sw = (UIParent.GetWidth and UIParent:GetWidth()) or 1024
+  local sh = (UIParent.GetHeight and UIParent:GetHeight()) or 768
+  if sw < 200 then sw = 1024 end
+  if sh < 200 then sh = 768 end
+  local width, height = 640, 540
+  local x = QtUIDB and QtUIDB.settingsX
+  local y = QtUIDB and QtUIDB.settingsY
+  if not x or not y then
+    x = math.floor((sw - width) / 2)
+    y = math.floor((sh - height) / 2) + 20
+  end
+  if frame.SetFrameStrata then pcall(frame.SetFrameStrata, frame, "DIALOG") end
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
+  frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x + width, y + height)
+  if frame.SetClampedToScreen then pcall(frame.SetClampedToScreen, frame, true) end
+  if frame.EnableMouse then pcall(frame.EnableMouse, frame, true) end
+  if frame.dragHandle and frame.dragHandle.EnableMouse then
+    pcall(frame.dragHandle.EnableMouse, frame.dragHandle, true)
+  end
+  if frame.close and frame.close.EnableMouse then
+    pcall(frame.close.EnableMouse, frame.close, true)
+  end
+end
+
+local function ShowOneOverlay(entry)
+  if not entry or not entry.overlay or not entry.frame then return end
+  if entry.overlay.dragging then StopOverlayDrag(entry.overlay) end
+  local shown = true
+  if not entry.alwaysShow then
+    local left = entry.frame.GetLeft and entry.frame:GetLeft()
+    if left and left < -500 then shown = nil end
+    if shown then
+      local ok, isShown = pcall(entry.frame.IsShown, entry.frame)
+      if ok and (isShown == false or isShown == 0 or isShown == "0") then shown = nil end
+    end
+  end
+  if shown then
+    pcall(EnsureOverlayHitbox, entry.overlay)
+    if entry.overlay.EnableMouse then pcall(entry.overlay.EnableMouse, entry.overlay, true) end
+    if entry.overlay.Show then pcall(entry.overlay.Show, entry.overlay) end
+  else
+    ParkOverlay(entry.overlay)
+  end
+end
+
+local function HideMoveChrome()
+  StopNudgeHold()
+  if selectedOverlay then
+    local prev = selectedOverlay
+    selectedOverlay = nil
+    PaintOverlay(prev)
+  end
+  HideSnapLines()
+  PlaceMoveGrid(nil)
+  if QtUI.moveDropCatch then
+    QtUI.moveDropCatch:SetScript("OnUpdate", nil)
+    ParkFrameOffscreen(QtUI.moveDropCatch)
+  end
+  if QtUI.moveInfo then
+    QtUI.moveInfo.listOpen = nil
+    ParkListPanel(QtUI.moveInfo)
+    if QtUI.moveInfo.listToggle and QtUI.moveInfo.listToggle.text then
+      QtUI.moveInfo.listToggle.text:SetText("List")
+    end
+    QtUI.moveInfo.qtPlaced = nil
+    ParkFrameOffscreen(QtUI.moveInfo)
+  end
+  if QtUI.movableEntries then
+    local i
+    for i = 1, table.getn(QtUI.movableEntries) do
+      local entry = QtUI.movableEntries[i]
+      if entry then ParkOverlay(entry.overlay) end
+    end
+  end
+end
+
+function QtUI:SetMoveMode(enabled)
+  if self.settingMoveMode then return end
+  self.settingMoveMode = true
+  self.moveMode = enabled and true or nil
+  HookEscapeToEndMove()
+
+  if self.moveMode then
+    ParkSettingsWindow()
+    EnsureMoveGrid()
+    PlaceMoveGrid(true)
+    local entries = self.movableEntries or {}
+    local i
+    for i = 1, table.getn(entries) do
+      pcall(ShowOneOverlay, entries[i])
+    end
+    EnsureMoveInfo()
+    RefreshMoveInfo(selectedOverlay)
+  else
+    if self.moveChromeWait then self.moveChromeWait:SetScript("OnUpdate", nil) end
+    HideMoveChrome()
+  end
+  self.settingMoveMode = nil
+end
+
 function QtUI:EndMoveMode(reopenSettings)
-  if not self.moveMode then return end
+  if self.endingMoveMode or not self.moveMode then return end
+  self.endingMoveMode = true
   local reopen = reopenSettings
   self.moveFromSettings = nil
   self.justEndedMove = true
   self:SetMoveMode(false)
   self:Print("Move mode locked. Positions saved.")
-  if reopen and self.ToggleSettings then
-    if not self.settingsFrame or not self.settingsFrame:IsShown() then
-      self:ToggleSettings()
-    end
+  self.endingMoveMode = nil
+  if reopen then RestoreSettingsWindow() end
+end
+
+function QtUI:UnlockAnchorsFromSettings()
+  self.moveFromSettings = true
+  if not self.anchorUnlockWait then
+    self.anchorUnlockWait = CreateFrame("Frame", "QtUIAnchorUnlockWait")
   end
+  -- Next frame: park settings (no Hide) then unlock. Hiding the parent
+  -- while its button OnClick is running hangs Emberveil.
+  self.anchorUnlockWait:SetScript("OnUpdate", function()
+    this:SetScript("OnUpdate", nil)
+    ParkSettingsWindow()
+    if QtUI.SetMoveMode then QtUI:SetMoveMode(true) end
+    QtUI:Print("Anchors unlocked. Drag the green fields. Press Escape to lock and return here.")
+  end)
 end
 
 function QtUI:ToggleMoveMode()
@@ -1261,6 +1735,9 @@ end
 function QtUI:SetupMoveMode()
   if self.moveModeReady then return end
   self.moveModeReady = true
+  self.moveMode = nil
+  self.settingMoveMode = nil
+  self.endingMoveMode = nil
   if not QtUIDB.positions then QtUIDB.positions = {} end
   HookEscapeToEndMove()
 
@@ -1292,22 +1769,28 @@ function QtUI:SetupMoveMode()
   self:RegisterMovable("playerPet", "Player Pet", self.playerPetFrame)
   self:RegisterMovable("minimap", "Minimap", MinimapCluster or Minimap)
   self:RegisterMovable("minimapIcon", "Minimap Icon", self.settingsButton)
+  if BuffFrame then
+    self:RegisterMovable("minimapBuffs", "Buffs (Minimap)", BuffFrame, true)
+  end
+  if TemporaryEnchantFrame then
+    self:RegisterMovable("minimapEnchants", "Weapon Enchants", TemporaryEnchantFrame, true)
+  end
   self:RegisterMovable("bags", "Bags", self.bagFrame)
   self:RegisterMovable("data", "Gold / Time / FPS", self.dataBar)
   if self.playerFrame then
     if self.playerFrame.buffs then
-      self:RegisterMovable("playerBuffs", "Player Buffs", self.playerFrame.buffs)
+      self:RegisterMovable("playerBuffs", "Player Buffs", self.playerFrame.buffs, true)
     end
     if self.playerFrame.debuffs then
-      self:RegisterMovable("playerDebuffs", "Player Debuffs", self.playerFrame.debuffs)
+      self:RegisterMovable("playerDebuffs", "Player Debuffs", self.playerFrame.debuffs, true)
     end
   end
   if self.targetFrame then
     if self.targetFrame.buffs then
-      self:RegisterMovable("targetBuffs", "Target Buffs", self.targetFrame.buffs)
+      self:RegisterMovable("targetBuffs", "Target Buffs", self.targetFrame.buffs, true)
     end
     if self.targetFrame.debuffs then
-      self:RegisterMovable("targetDebuffs", "Target Debuffs", self.targetFrame.debuffs)
+      self:RegisterMovable("targetDebuffs", "Target Debuffs", self.targetFrame.debuffs, true)
     end
   end
   if self.leftChatPanel then
@@ -1321,6 +1804,17 @@ function QtUI:SetupMoveMode()
     self:RegisterMovable("chatSocial", "Chat (Social)", ChatFrame2)
   end
   self:SetupQuestTimerMove()
+  if self.anchorUnlockWait then
+    self.anchorUnlockWait:SetScript("OnUpdate", nil)
+  end
+  local n
+  for n = 1, table.getn(self.movableEntries or {}) do
+    local entry = self.movableEntries[n]
+    if entry then ParkOverlay(entry.overlay) end
+  end
+  EnsureMoveInfo()
+  if self.moveInfo then ParkFrameOffscreen(self.moveInfo) end
+  EnsureMoveGrid()
 end
 
 function QtUI:RestoreQuestTimerPosition()
@@ -1343,7 +1837,14 @@ function QtUI:SetupQuestTimerMove()
       if getglobal("QuestTimerFrame") then
         this:SetScript("OnUpdate", nil)
         QtUI:SetupQuestTimerMove()
-        if QtUI.moveMode then QtUI:SetMoveMode(true) end
+        if QtUI.moveMode then
+          local entry = FindEntry("questTimers")
+          if entry and entry.overlay then
+            pcall(EnsureOverlayHitbox, entry.overlay)
+            if entry.overlay.EnableMouse then pcall(entry.overlay.EnableMouse, entry.overlay, true) end
+            if entry.overlay.Show then pcall(entry.overlay.Show, entry.overlay) end
+          end
+        end
       elseif this.elapsed > 8 then
         this:SetScript("OnUpdate", nil)
       end

@@ -157,7 +157,6 @@ local function UpdatePartyMember(frame, skipAuras)
   if not UnitIsPresent(unit) then
     frame:Hide()
     if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
-    if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
     return
   end
   frame:Show()
@@ -209,7 +208,6 @@ local function UpdatePartyMember(frame, skipAuras)
     QtUI:UpdateAuraRow(frame.buffs)
   end
   if QtUI.UpdateRaidIcon then QtUI:UpdateRaidIcon(frame) end
-  if QtUI.UpdatePortrait then QtUI:UpdatePortrait(frame) end
 end
 
 local function UpdatePetFrame(frame)

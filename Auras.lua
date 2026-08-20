@@ -442,19 +442,18 @@ local function CreateAuraIcon(row, index, size)
   icon:SetHeight(size)
   icon:SetPoint("LEFT", row, "LEFT", (index - 1) * (size + 2), 0)
   icon:SetFrameLevel(row:GetFrameLevel() + 1)
-  icon:SetBackdrop({
-    bgFile = "Interface\\Buttons\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true,
-    tileSize = 8,
-    edgeSize = 8,
-    insets = { left = 1, right = 1, top = 1, bottom = 1 },
-  })
-  icon:SetBackdropColor(.015, .02, .025, .92)
+  icon.well = icon:CreateTexture(nil, "BACKGROUND")
+  icon.well:SetAllPoints(icon)
+  icon.well:SetTexture("Interface\\Buttons\\WHITE8X8")
+  icon.well:SetVertexColor(.015, .02, .025, 1)
+  icon.ring = icon:CreateTexture(nil, "BORDER")
+  icon.ring:SetAllPoints(icon)
+  icon.ring:SetTexture("Interface\\Buttons\\WHITE8X8")
+  icon.ring:SetVertexColor(.16, .62, .82, 1)
 
   icon.texture = icon:CreateTexture(nil, "ARTWORK")
-  icon.texture:SetPoint("TOPLEFT", icon, "TOPLEFT", 2, -2)
-  icon.texture:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -2, 2)
+  icon.texture:SetPoint("TOPLEFT", icon, "TOPLEFT", 1, -1)
+  icon.texture:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
 
   icon.count = icon:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
   icon.count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
@@ -531,10 +530,12 @@ function QtUI:UpdateAuraRow(row)
 
       applications = tonumber(applications) or 0
       icon.count:SetText(applications > 1 and applications or "")
-      if row.auraType == "DEBUFF" then
-        icon:SetBackdropBorderColor(.85, .16, .16, 1)
-      else
-        icon:SetBackdropBorderColor(.16, .62, .82, 1)
+      if icon.ring then
+        if row.auraType == "DEBUFF" then
+          icon.ring:SetVertexColor(.85, .16, .16, 1)
+        else
+          icon.ring:SetVertexColor(.16, .62, .82, 1)
+        end
       end
       icon:Show()
       hasAura = true

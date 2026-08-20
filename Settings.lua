@@ -11,7 +11,7 @@ local FEATURE_OPTIONS = {
   { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling and controls." },
   { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
   { key = "dataText", label = "Gold / Time / Performance", description = "Show money, clock, FPS and latency. Click the clock to switch server and local time." },
-  { key = "questLog", label = "Dragonflight Quest Log", description = "Replace the quest log parchment with the Dragonflight artwork. Open the log to preview; other features still need a relog.", default = false },
+  { key = "questLog", label = "Custom Quest Log", description = "Replace the native quest log. Full quest text on the left, quest list on the right.", default = true },
   { key = "damageMeter", label = "Damage Meter", description = "Combat meter. Title cycles Current/Overall Damage, DPS and Heal. R resets that window. Add or close extra windows in Settings." },
 }
 
@@ -1749,14 +1749,6 @@ function QtUI:SetupSettingsWindow()
       end)
       y = y - 26
     end
-    if extras.portrait then
-      CreateToggleRow(page, y, "Show portrait", function()
-        return QtUI:GetUnitStyle(styleKey).portrait == true
-      end, function(value)
-        QtUI:GetUnitStyle(styleKey).portrait = value and true or false
-      end)
-      y = y - 26
-    end
     CreateHeader(page, y, "Labels")
     y = y - 24
     CreateAlignPicker(page, y, "Name", function()
@@ -1799,12 +1791,12 @@ function QtUI:SetupSettingsWindow()
   end
 
   BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors.", {
-    height = true, powerHeight = true, powerText = true, portrait = true,
+    height = true, powerHeight = true, powerText = true,
     classColor = "Health uses class color", classColorKey = "playerClassColor",
     minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors.", {
-    height = true, powerHeight = true, powerText = true, classText = true, portrait = true,
+    height = true, powerHeight = true, powerText = true, classText = true,
     healthDb = true, minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-tot", "targettarget", "Target-of-target size, mana bar and text anchors.", {
@@ -1812,7 +1804,7 @@ function QtUI:SetupSettingsWindow()
     minWidth = 80, widthStep = 5, minHeight = 24, maxHeight = 80,
   })
   BuildUnitPage("unit-party", "party", "Party frames. Text anchors apply to every member.", {
-    height = true, powerHeight = true, powerText = true, spacing = true, portrait = true,
+    height = true, powerHeight = true, powerText = true, spacing = true,
     classColor = "Health uses class color", classColorKey = "partyClassColor",
     minHeight = 32, maxHeight = 80,
   })
@@ -2089,26 +2081,22 @@ function QtUI:SetupSettingsButton()
   button.overlay:SetPoint("BOTTOMRIGHT", button, "TOPLEFT", 53, -53)
   button.overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 
-  button:SetScript("OnMouseDown", function()
-    if arg1 ~= "LeftButton" then return end
-    this.dragx, this.dragy = GetCursorPosition()
-    this.dragging = true
-    this.moved = nil
-  end)
-  button:SetScript("OnMouseUp", function()
+  local function StopIconDrag()
     if not this.dragging then return end
     this:StopMovingOrSizing()
     this.dragging = nil
+    this:SetScript("OnUpdate", nil)
     if this.moved then SaveMinimapIconPosition(this) end
-  end)
-  button:SetScript("OnUpdate", function()
-    if not this.dragging then return end
+  end
+  local function DragIconUpdate()
+    if not this.dragging then
+      this:SetScript("OnUpdate", nil)
+      return
+    end
     if type(IsMouseButtonDown) == "function" then
       local ok, held = pcall(IsMouseButtonDown, "LeftButton")
       if ok and held ~= true and held ~= 1 and held ~= "1" then
-        this:StopMovingOrSizing()
-        this.dragging = nil
-        if this.moved then SaveMinimapIconPosition(this) end
+        StopIconDrag()
         return
       end
     end
@@ -2120,17 +2108,21 @@ function QtUI:SetupSettingsButton()
       this.moved = true
       this:StartMoving()
     end
+  end
+  button:SetScript("OnMouseDown", function()
+    if arg1 ~= "LeftButton" then return end
+    this.dragx, this.dragy = GetCursorPosition()
+    this.dragging = true
+    this.moved = nil
+    this:SetScript("OnUpdate", DragIconUpdate)
   end)
+  button:SetScript("OnMouseUp", StopIconDrag)
   button:SetScript("OnDragStart", function()
     this.moved = true
     this.dragging = true
     this:StartMoving()
   end)
-  button:SetScript("OnDragStop", function()
-    this:StopMovingOrSizing()
-    this.dragging = nil
-    if this.moved then SaveMinimapIconPosition(this) end
-  end)
+  button:SetScript("OnDragStop", StopIconDrag)
   button:SetScript("OnClick", function()
     if this.moved then
       this.moved = nil

@@ -135,16 +135,19 @@ function QtUI:SetCooldownText(parent, start, duration, enable, size)
   if not parent then return end
   start = tonumber(start) or 0
   duration = tonumber(duration) or 0
-  local overlay = self:EnsureCooldownOverlay(parent, size)
-  if not overlay then return end
   if not FeatureOn() or start <= 0 or duration <= GCD or enable == 0 then
     parent.QtUICDStart = nil
     parent.QtUICDDuration = nil
-    overlay.text:SetText("")
-    if overlay.shadow then overlay.shadow:SetText("") end
-    overlay:SetScript("OnUpdate", nil)
+    local overlay = parent.QtUICDOverlay
+    if overlay then
+      overlay.text:SetText("")
+      if overlay.shadow then overlay.shadow:SetText("") end
+      overlay:SetScript("OnUpdate", nil)
+    end
     return
   end
+  local overlay = self:EnsureCooldownOverlay(parent, size)
+  if not overlay then return end
   parent.QtUICDStart = start
   parent.QtUICDDuration = duration
   PaintCD(overlay)
@@ -206,56 +209,16 @@ local function CooldownValues(button)
   return 0, 0, 0
 end
 
-function QtUI:EnsureCooldownSweep(button)
-  if not button then return nil end
-  local cd = button.QtUICooldown
-  if not cd then
-    local name = button.GetName and button:GetName()
-    if name then cd = getglobal(name .. "Cooldown") end
-    if not cd and type(CreateFrame) == "function" then
-      local cdName = name and (name .. "Cooldown") or nil
-      local ok, created = pcall(CreateFrame, "Cooldown", cdName, button)
-      if ok then cd = created end
-    end
-    if not cd then return nil end
-    button.QtUICooldown = cd
-  end
-  if cd.SetParent then pcall(cd.SetParent, cd, button) end
-  local size = button.QtUISize
-  if not size or size < 8 then
-    size = (button.GetWidth and button:GetWidth()) or 34
-  end
-  if size < 8 then size = 34 end
-  local inset = 1
-  cd:ClearAllPoints()
-  -- Emberveil ignores SetWidth on MultiBar buttons; two corners from the
-  -- button origin is what actually gives the sweep a box.
-  cd:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", inset, inset)
-  cd:SetPoint("TOPRIGHT", button, "BOTTOMLEFT", size - inset, size - inset)
-  if cd.SetWidth then
-    local inner = size - inset * 2
-    cd:SetWidth(inner + 1)
-    if cd.SetHeight then cd:SetHeight(inner + 1) end
-    cd:SetWidth(inner)
-    if cd.SetHeight then cd:SetHeight(inner) end
-  end
-  if cd.SetFrameLevel and button.GetFrameLevel then
-    cd:SetFrameLevel((button:GetFrameLevel() or 4) + 2)
-  end
-  if cd.EnableMouse then pcall(cd.EnableMouse, cd, false) end
-  return cd
-end
-
 function QtUI:ApplyButtonCooldown(button)
   if not button then return end
-  local cd = self:EnsureCooldownSweep(button)
-  if not cd or type(CooldownFrame_SetTimer) ~= "function" then return end
   local start, duration, enable = CooldownValues(button)
-  start = tonumber(start) or 0
-  duration = tonumber(duration) or 0
-  enable = tonumber(enable)
-  if enable == nil then enable = 1 end
-  pcall(CooldownFrame_SetTimer, cd, start, duration, enable)
+  local size = 13
+  if button.QtUISize then
+    size = math.floor(button.QtUISize * 0.42)
+  elseif button.GetWidth then
+    size = math.floor((button:GetWidth() or 34) * 0.42)
+  end
+  self:SetCooldownText(button, start, duration, enable, size)
 end
 
 function QtUI:RefreshBarCooldowns()
@@ -274,32 +237,6 @@ end
 function QtUI:SetupCooldowns()
   if self.cooldownsReady then return end
   self.cooldownsReady = true
-  if type(CooldownFrame_SetTimer) == "function" then
-    local original = CooldownFrame_SetTimer
-    CooldownFrame_SetTimer = function(cooldown, start, duration, enable)
-      original(cooldown, start, duration, enable)
-      if not cooldown then return end
-      local parent = cooldown.GetParent and cooldown:GetParent()
-      if parent then
-        local size = 13
-        if parent.QtUISize then
-          size = math.floor(parent.QtUISize * 0.42)
-        elseif parent.GetWidth then
-          size = math.floor((parent:GetWidth() or 34) * 0.42)
-        end
-        QtUI:SetCooldownText(parent, start, duration, enable, size)
-      end
-    end
-  end
-
-  if type(ActionButton_UpdateCooldown) == "function" then
-    local originalUpdate = ActionButton_UpdateCooldown
-    ActionButton_UpdateCooldown = function()
-      originalUpdate()
-      if this then QtUI:ApplyButtonCooldown(this) end
-    end
-  end
-
   if self.cooldownEvents then return end
   local events = CreateFrame("Frame", "QtUICooldownEvents")
   pcall(events.RegisterEvent, events, "ACTIONBAR_UPDATE_COOLDOWN")
@@ -312,7 +249,7 @@ function QtUI:SetupCooldowns()
     this.elapsed = 0
     this:SetScript("OnUpdate", function()
       this.elapsed = this.elapsed + (arg1 or 0)
-      if this.elapsed < .03 then return end
+      if this.elapsed < .1 then return end
       this:SetScript("OnUpdate", nil)
       this.pending = nil
       QtUI:RefreshBarCooldowns()

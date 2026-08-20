@@ -29,6 +29,25 @@ local function HideChatChrome(index)
   end
 end
 
+local function PaintChatFont(frame, fontSize)
+  fontSize = tonumber(fontSize) or 12
+  local path = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+  -- CreateFont defaults black; Emberveil paints |Hplayer names with that
+  -- default. Prefer ChatFontNormal (cream/white) and force white on it.
+  local stock = getglobal("ChatFontNormal")
+  if stock and stock.SetFont then
+    pcall(stock.SetFont, stock, path, fontSize)
+    if stock.SetTextColor then pcall(stock.SetTextColor, stock, 1, 1, 1) end
+    if frame.SetFontObject then pcall(frame.SetFontObject, frame, stock) end
+  elseif frame.SetFont then
+    pcall(frame.SetFont, frame, path, fontSize)
+  end
+  if frame.SetTextColor then pcall(frame.SetTextColor, frame, 1, 1, 1) end
+  if frame.qtFontObject and frame.qtFontObject.SetTextColor then
+    pcall(frame.qtFontObject.SetTextColor, frame.qtFontObject, 1, 1, 1)
+  end
+end
+
 local function ConfigureChat(frame, panel, index, fontSize)
   if not frame then return end
   if panel then
@@ -38,24 +57,13 @@ local function ConfigureChat(frame, panel, index, fontSize)
     frame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, index == 2 and 29 or -8)
   end
   if frame.SetFading then frame:SetFading(false) end
-  fontSize = tonumber(fontSize) or 12
-  if QtUI.ApplyFont then
-    QtUI:ApplyFont(frame, fontSize)
-  elseif frame.SetFont then
-    frame:SetFont("Fonts\\FRIZQT__.TTF", fontSize)
-  end
-  -- CreateFont defaults to black on Emberveil. Chat must stay readable.
-  if frame.SetTextColor then pcall(frame.SetTextColor, frame, 1, 1, 1) end
-  if frame.qtFontObject and frame.qtFontObject.SetTextColor then
-    pcall(frame.qtFontObject.SetTextColor, frame.qtFontObject, 1, 1, 1)
-  end
-  if frame.SetMaxLines then frame:SetMaxLines(500) end
+  PaintChatFont(frame, fontSize)
+  if frame.SetMaxLines then frame:SetMaxLines(128) end
   if frame.Show then pcall(frame.Show, frame) end
   HideChatChrome(index)
   local edit = getglobal("ChatFrame" .. tostring(index) .. "EditBox")
   if edit then
-    if QtUI.ApplyFont then QtUI:ApplyFont(edit, fontSize) end
-    if edit.SetTextColor then pcall(edit.SetTextColor, edit, 1, 1, 1) end
+    PaintChatFont(edit, fontSize)
     if edit.SetTextInsets then pcall(edit.SetTextInsets, edit, 6, 6, 2, 2) end
   end
 end
@@ -123,7 +131,32 @@ local CLASS_HEX = {
   PRIEST = "ffffff", WARLOCK = "9482c9", PALADIN = "f58cba",
 }
 
+local CLASS_FROM_LABEL = {
+  warrior = "WARRIOR", krieger = "WARRIOR",
+  mage = "MAGE", magier = "MAGE",
+  rogue = "ROGUE", schurke = "ROGUE",
+  druid = "DRUID", druide = "DRUID",
+  hunter = "HUNTER", ["jäger"] = "HUNTER", jager = "HUNTER",
+  shaman = "SHAMAN", schamane = "SHAMAN",
+  priest = "PRIEST", priester = "PRIEST",
+  warlock = "WARLOCK", hexenmeister = "WARLOCK",
+  paladin = "PALADIN",
+}
+
 local classCache = {}
+
+local function RememberClass(name, token)
+  if type(name) ~= "string" or name == "" then return end
+  if type(token) == "string" and token ~= "" then
+    token = string.upper(token)
+    if not CLASS_HEX[token] then
+      token = CLASS_FROM_LABEL[string.lower(token)]
+    end
+  end
+  if token and CLASS_HEX[token] then
+    classCache[string.lower(name)] = token
+  end
+end
 
 local function RememberUnit(unit)
   if type(UnitName) ~= "function" or type(UnitClass) ~= "function" then return end
@@ -133,17 +166,49 @@ local function RememberUnit(unit)
   end
   local name = UnitName(unit)
   local ok, _, token = pcall(UnitClass, unit)
-  if ok and name and token and CLASS_HEX[token] then
-    classCache[string.lower(name)] = token
+  if ok then RememberClass(name, token) end
+end
+
+local function ScanNearbyUnits()
+  RememberUnit("player")
+  RememberUnit("target")
+  RememberUnit("mouseover")
+  RememberUnit("pet")
+  local i
+  local party = tonumber(GetNumPartyMembers and GetNumPartyMembers()) or 0
+  for i = 1, party do
+    RememberUnit("party" .. i)
+    RememberUnit("partypet" .. i)
+  end
+  local raid = tonumber(GetNumRaidMembers and GetNumRaidMembers()) or 0
+  for i = 1, raid do
+    RememberUnit("raid" .. i)
+    RememberUnit("raidpet" .. i)
+    if type(GetRaidRosterInfo) == "function" then
+      local ok, name, _, _, _, _, fileName = pcall(GetRaidRosterInfo, i)
+      if ok then RememberClass(name, fileName) end
+    end
+  end
+end
+
+local function ScanGuildRoster()
+  if type(GetNumGuildMembers) ~= "function" or type(GetGuildRosterInfo) ~= "function" then return end
+  local n = tonumber(GetNumGuildMembers()) or 0
+  local i
+  for i = 1, n do
+    local ok, name, _, _, _, class = pcall(GetGuildRosterInfo, i)
+    if ok then RememberClass(name, class) end
   end
 end
 
 local function HexForName(name)
   if type(name) ~= "string" or name == "" then return "ffffff" end
-  RememberUnit("player")
-  RememberUnit("target")
-  RememberUnit("mouseover")
-  local token = classCache[string.lower(name)]
+  local key = string.lower(name)
+  local token = classCache[key]
+  if not token then
+    ScanNearbyUnits()
+    token = classCache[key]
+  end
   if token and CLASS_HEX[token] then return CLASS_HEX[token] end
   return "ffffff"
 end
@@ -168,12 +233,16 @@ local function ColorPlayerNames(text, byClass)
     local display = string.sub(text, payloadEnd + 1, close - 1)
     display = string.gsub(display, "|c%x%x%x%x%x%x%x%x", "")
     display = string.gsub(display, "|r", "")
+    if display == "" then display = payload end
     local name = payload
     local colon = string.find(name, ":", 1, true)
     if colon then name = string.sub(name, 1, colon - 1) end
     local hex = "ffffff"
     if byClass then hex = HexForName(name) end
-    out = out .. string.sub(text, pos, startAt - 1) .. "|Hplayer:" .. payload .. "|h|cff" .. hex .. display .. "|r|h"
+    -- Emberveil ignores |c outside |h and uses Font color for the link.
+    -- Color must sit in the visible text, with a full 8-digit code.
+    out = out .. string.sub(text, pos, startAt - 1)
+      .. "|cff" .. hex .. "|Hplayer:" .. payload .. "|h|cff" .. hex .. display .. "|r|h|r"
     pos = close + 2
   end
   return out
@@ -301,4 +370,24 @@ function QtUI:SetupChat()
   end
 
   self:LayoutChat()
+
+  if not self.chatClassEvents then
+    local events = CreateFrame("Frame", "QtUIChatClassEvents")
+    self.chatClassEvents = events
+    pcall(events.RegisterEvent, events, "PLAYER_TARGET_CHANGED")
+    pcall(events.RegisterEvent, events, "UPDATE_MOUSEOVER_UNIT")
+    pcall(events.RegisterEvent, events, "PARTY_MEMBERS_CHANGED")
+    pcall(events.RegisterEvent, events, "RAID_ROSTER_UPDATE")
+    pcall(events.RegisterEvent, events, "PLAYER_ENTERING_WORLD")
+    pcall(events.RegisterEvent, events, "GUILD_ROSTER_UPDATE")
+    events:SetScript("OnEvent", function()
+      ScanNearbyUnits()
+      if event == "GUILD_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        ScanGuildRoster()
+      end
+    end)
+    ScanNearbyUnits()
+    if type(GuildRoster) == "function" then pcall(GuildRoster) end
+    ScanGuildRoster()
+  end
 end

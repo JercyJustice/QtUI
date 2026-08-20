@@ -244,6 +244,12 @@ local function InstallActionResolvers()
     return nil
   end
 
+  local function PaintTint(button, icon, r, g, b)
+    if button.qtTintR == r and button.qtTintG == g and button.qtTintB == b then return end
+    icon:SetVertexColor(r, g, b)
+    button.qtTintR, button.qtTintG, button.qtTintB = r, g, b
+  end
+
   local function TintActionIcon(button)
     if not button then return end
     local name = button.GetName and button:GetName()
@@ -252,7 +258,7 @@ local function InstallActionResolvers()
     if not icon or not icon.SetVertexColor then return end
     -- Native usable/range tint on stance buttons can leave them unusable.
     if IsShapeshiftButton(button) then
-      icon:SetVertexColor(1, 1, 1)
+      PaintTint(button, icon, 1, 1, 1)
       return
     end
     if not RangeColorOn() then return end
@@ -261,7 +267,7 @@ local function InstallActionResolvers()
     if type(HasAction) == "function" then
       local ok, has = pcall(HasAction, slot)
       if not ok or not (has == true or has == 1 or has == "1") then
-        icon:SetVertexColor(1, 1, 1)
+        PaintTint(button, icon, 1, 1, 1)
         return
       end
     end
@@ -269,11 +275,11 @@ local function InstallActionResolvers()
       local ok, usable, nomana = pcall(IsUsableAction, slot)
       if ok then
         if nomana == true or nomana == 1 or nomana == "1" then
-          icon:SetVertexColor(.28, .48, 1)
+          PaintTint(button, icon, .28, .48, 1)
           return
         end
         if not (usable == true or usable == 1 or usable == "1") then
-          icon:SetVertexColor(.45, .45, .45)
+          PaintTint(button, icon, .45, .45, .45)
           return
         end
       end
@@ -283,23 +289,22 @@ local function InstallActionResolvers()
       if ok and inRange == 0 then
         -- Invalid or out-of-reach targets report 0 for every spell. Gray,
         -- not red, so it reads as "can't use" rather than "too far".
-        icon:SetVertexColor(.45, .45, .45)
+        PaintTint(button, icon, .45, .45, .45)
         return
       end
     end
-    icon:SetVertexColor(1, 1, 1)
+    PaintTint(button, icon, 1, 1, 1)
   end
 
   local function RestyleAfterNativeUpdate()
     local button = this
     if not button then return end
-    -- Only restore the rim if Emberveil wiped it. Hotkey layout is handled
-    -- by ActionButton_UpdateHotkeys and by bar layout, not every slot tick.
-    if QtUI.EnsureButtonRim then
+    -- Only rebuild the rim if Emberveil wiped it. Calling Show/SetPoint
+    -- here every ActionButton_Update tanks idle FPS on Emberveil.
+    if QtUI.EnsureButtonRim and (not button.QtUIRimFrame or button.QtUIRimFrame.qtParked or button.QtUIRingOn ~= 1) then
       QtUI:EnsureButtonRim(button, button.GetWidth and button:GetWidth())
     end
     TintActionIcon(button)
-    if StyleActionButtonText then StyleActionButtonText(button, button.QtUISize) end
   end
 
   if type(ActionButton_UpdateUsable) == "function" then
@@ -723,29 +728,54 @@ local function AbbreviateHotkey(text)
   return text
 end
 
--- Native OUTLINE is ignored, and SetShadowOffset does not enable a shadow on
--- CreateFont objects. Fake a 8-direction outline with extra FontStrings.
-local HOTKEY_OUTLINE_DIRS = {
-  { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
-  { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 },
-}
+-- Emberveil ignores native OUTLINE. One offset copy is enough for contrast.
+-- The old 8-direction outline created ~640 FontStrings and wrecked idle FPS.
+local function ParkFontString(fs)
+  if not fs then return end
+  if fs.SetText then fs:SetText("") end
+  if fs.ClearAllPoints then
+    fs:ClearAllPoints()
+    fs:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  end
+  if fs.Hide then pcall(fs.Hide, fs) end
+end
 
-local function PaintHotkeyOutline(button, text)
-  local copies = button and button.QtUIHotOutline
-  if not copies then return end
-  local on = button.QtUIHotOutlineOn
-  if not on or not text or text == "" then text = "" end
+local function ParkOrphanHotkeyCopies(button)
+  if not button or not button.GetRegions then return end
+  local keep = {}
+  if button.QtUIHot then keep[button.QtUIHot] = true end
+  if button.QtUICount then keep[button.QtUICount] = true end
+  if button.QtUIHotShadow then keep[button.QtUIHotShadow] = true end
+  local name = button.GetName and button:GetName()
+  if name then
+    keep[getglobal(name .. "HotKey") or false] = true
+    keep[getglobal(name .. "Name") or false] = true
+    keep[getglobal(name .. "Count") or false] = true
+  end
+  local regs = { button:GetRegions() }
   local i
-  for i = 1, table.getn(copies) do
-    local fs = copies[i]
-    if fs then
-      if text ~= "" then
-        fs:SetText("|cff010101" .. text)
-      else
-        fs:SetText("")
-      end
+  for i = 1, table.getn(regs) do
+    local r = regs[i]
+    if r and not keep[r] and r.GetObjectType then
+      local ok, typ = pcall(r.GetObjectType, r)
+      if ok and typ == "FontString" then ParkFontString(r) end
     end
   end
+  local copies = button.QtUIHotOutline
+  if copies then
+    for i = 1, table.getn(copies) do ParkFontString(copies[i]) end
+    button.QtUIHotOutline = nil
+  end
+end
+
+local function PaintHotkeyOutline(button, text)
+  local fs = button and button.QtUIHotShadow
+  if not fs then return end
+  if not button.QtUIHotOutlineOn or not text or text == "" then
+    fs:SetText("")
+    return
+  end
+  fs:SetText("|cff010101" .. text)
 end
 
 local function ParkNativeHotkey(button)
@@ -761,39 +791,25 @@ end
 local function EnsureHotkeyOutline(button, thickness, hotSize, align, size)
   if not button then return end
   thickness = tonumber(thickness) or 0
-  if thickness < 0 then thickness = 0 end
-  if thickness > 4 then thickness = 4 end
-  button.QtUIHotOutlineOn = thickness >= 1
-  local copies = button.QtUIHotOutline
-  if not copies then
-    copies = {}
-    button.QtUIHotOutline = copies
+  if thickness < 1 then
+    button.QtUIHotOutlineOn = nil
+    ParkFontString(button.QtUIHotShadow)
+    return
   end
-  local need = 0
-  if thickness >= 1 then need = thickness * 8 end
-  local i
-  for i = 1, need do
-    local fs = copies[i]
-    if not fs then
-      fs = button:CreateFontString(nil, "ARTWORK")
-      copies[i] = fs
-    end
-    if fs.SetDrawLayer then fs:SetDrawLayer("ARTWORK") end
-    local ring = math.floor((i - 1) / 8) + 1
-    local dir = HOTKEY_OUTLINE_DIRS[math.mod(i - 1, 8) + 1]
-    local dx = dir[1] * ring
-    local dy = dir[2] * ring
-    if QtUI.PlaceAlignedText then
-      QtUI:PlaceAlignedText(fs, button, align, 1, size, size, dx, dy)
-    end
-    if QtUI.ApplyFont then QtUI:ApplyFont(fs, hotSize) end
-    if fs.SetNonSpaceWrap then fs:SetNonSpaceWrap(false) end
-    if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
-    if fs.Show then pcall(fs.Show, fs) end
+  button.QtUIHotOutlineOn = true
+  local fs = button.QtUIHotShadow
+  if not fs then
+    fs = button:CreateFontString(nil, "ARTWORK")
+    button.QtUIHotShadow = fs
   end
-  for i = need + 1, table.getn(copies) do
-    if copies[i] then copies[i]:SetText("") end
+  if fs.SetDrawLayer then fs:SetDrawLayer("ARTWORK") end
+  if QtUI.PlaceAlignedText then
+    QtUI:PlaceAlignedText(fs, button, align, 1, size, size, 1, -1)
   end
+  if QtUI.ApplyFont then QtUI:ApplyFont(fs, hotSize) end
+  if fs.SetNonSpaceWrap then fs:SetNonSpaceWrap(false) end
+  if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
+  if fs.Show then pcall(fs.Show, fs) end
 end
 
 local function ApplyHotkeyVisibility(button)
@@ -898,8 +914,10 @@ StyleActionButtonText = function(button, size)
   if cfg and cfg.hotkeyShadow ~= nil then shadow = cfg.hotkeyShadow end
   local align = (cfg and cfg.hotkeyAlign) or "center"
   local stamp = tostring(size) .. ":" .. hotSize .. ":" .. shadow .. ":" .. align .. ":own"
-  if button.QtUITextStamp ~= stamp then
+  if button.QtUITextStamp ~= stamp or button.QtUIHotClean ~= 2 then
     button.QtUITextStamp = stamp
+    button.QtUIHotClean = 2
+    ParkOrphanHotkeyCopies(button)
     ParkNativeHotkey(button)
     local hotkey = button.QtUIHot
     if not hotkey then
@@ -1020,7 +1038,6 @@ PlaceInGrid = function(button, panel, index, columns, size, spacing, pad)
   end
   StyleActionButton(button, size)
   if QtUI.EnsureSlotCell then QtUI:EnsureSlotCell(button, panel) end
-  if QtUI.EnsureCooldownSweep then QtUI:EnsureCooldownSweep(button) end
   if QtUI.ApplyButtonCooldown then QtUI:ApplyButtonCooldown(button) end
   if button.EnableMouse then pcall(button.EnableMouse, button, true) end
   button:Show()

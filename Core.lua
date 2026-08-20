@@ -80,6 +80,9 @@ function QtUI:ApplyFont(widget, size)
   if font and font.SetFont and widget.qtFontSize ~= size then
     pcall(font.SetFont, font, path, size)
   end
+  if font and font.SetTextColor then
+    pcall(font.SetTextColor, font, 1, 1, 1)
+  end
   if font and widget.SetFontObject then
     pcall(widget.SetFontObject, widget, font)
     widget.qtFontSize = size
@@ -328,28 +331,22 @@ function QtUI:EnsureLayoutDefaults()
     style.healthAlign = EnsureAlign(style.healthAlign, defaults.healthAlign)
     style.powerAlign = EnsureAlign(style.powerAlign, defaults.powerAlign)
     style.classAlign = EnsureAlign(style.classAlign, defaults.classAlign)
-    if style.portrait == nil then
-      if defaults.portrait == true then style.portrait = true else style.portrait = false end
-    end
     return style
   end
   EnsureUnitStyle("player", {
     width = layout.unitWidth or 260, height = layout.unitHeight or 54,
     powerHeight = layout.unitPowerHeight or 13,
     nameAlign = "left", healthAlign = "right", powerAlign = "right",
-    portrait = false,
   })
   EnsureUnitStyle("target", {
     width = layout.unitWidth or 260, height = layout.unitHeight or 54,
     powerHeight = layout.unitPowerHeight or 13,
     nameAlign = "left", healthAlign = "right", powerAlign = "right", classAlign = "top",
-    portrait = false,
   })
   EnsureUnitStyle("party", {
     width = layout.partyWidth or 220, height = layout.partyHeight or 44,
     powerHeight = 9, spacing = layout.partySpacing or 29,
     nameAlign = "left", healthAlign = "right", powerAlign = "right",
-    portrait = false,
   })
   EnsureUnitStyle("pet", {
     width = layout.petWidth or 180, height = 27,
@@ -386,7 +383,7 @@ function QtUI:EnsureLayoutDefaults()
   if layout.chatFontSize < 8 then layout.chatFontSize = 8 end
   if layout.chatFontSize > 20 then layout.chatFontSize = 20 end
   if layout.chatTime == nil then layout.chatTime = true end
-  if layout.chatClassNames == nil then layout.chatClassNames = false end
+  if layout.chatClassNames == nil then layout.chatClassNames = true end
   if layout.chatSocial == nil then layout.chatSocial = true end
   layout.xpBarWidth = tonumber(layout.xpBarWidth) or 442
   if layout.xpBarWidth < 80 then layout.xpBarWidth = 80 end
@@ -777,7 +774,6 @@ function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
   if show == 1 and not self.forceButtonRim and button.QtUIRimFrame
       and button.QtUIRingSize == size and button.QtUIRingKeep == keep
       and button.QtUIRingOn == 1 and not button.QtUIRimFrame.qtParked then
-    if button.QtUIRimFrame.Show then pcall(button.QtUIRimFrame.Show, button.QtUIRimFrame) end
     return
   end
   if show == 0 then
@@ -973,6 +969,82 @@ function QtUI:EnsureDB()
   if self.EnsureProfiles then self:EnsureProfiles() end
 end
 
+local PANEL_NAMES = {
+  "CharacterFrame", "PaperDollFrame", "ReputationFrame", "SkillFrame", "HonorFrame",
+  "PetPaperDollFrame", "TradeFrame", "MailFrame", "SendMailFrame", "OpenMailFrame",
+  "AuctionFrame", "CraftFrame", "TradeSkillFrame", "ClassTrainerFrame",
+  "BankFrame", "MerchantFrame", "GossipFrame", "QuestFrame", "QuestLogFrame",
+  "TaxiFrame", "InspectFrame", "TalentFrame", "SpellBookFrame", "FriendsFrame",
+  "GuildFrame", "WhoFrame", "PetitionFrame", "TabardFrame", "PetStableFrame",
+  "DressUpFrame", "ItemTextFrame", "LootFrame", "BattlefieldFrame",
+  "MacroFrame", "KeyBindingFrame", "GameMenuFrame", "OptionsFrame",
+  "SoundOptionsFrame", "UIOptionsFrame", "HelpFrame", "ColorPickerFrame",
+  "StaticPopup1", "StaticPopup2", "StaticPopup3", "StaticPopup4",
+  "GroupLootFrame1", "GroupLootFrame2", "GroupLootFrame3", "GroupLootFrame4",
+}
+
+local function IsBagPanel(frame)
+  if not frame or not frame.GetName then return nil end
+  local name = frame:GetName()
+  if not name then return nil end
+  if name == "QtUIBagFrame" or name == "QtUIStackSplit" then return true end
+  if string.find(name, "ContainerFrame", 1, true) then return true end
+  if string.find(name, "Backpack", 1, true) then return true end
+  return nil
+end
+
+local function RaiseGamePanel(frame)
+  if not frame or IsBagPanel(frame) then return end
+  if frame.SetFrameStrata then pcall(frame.SetFrameStrata, frame, "DIALOG") end
+  if frame.SetToplevel then pcall(frame.SetToplevel, frame, true) end
+  if frame.Raise then pcall(frame.Raise, frame) end
+end
+
+local function HookGamePanel(frame)
+  if not frame or frame.qtPanelRaised or IsBagPanel(frame) then return end
+  frame.qtPanelRaised = true
+  local prev
+  if type(frame.GetScript) == "function" then
+    prev = frame:GetScript("OnShow")
+  end
+  frame:SetScript("OnShow", function()
+    if prev then pcall(prev) end
+    RaiseGamePanel(this)
+  end)
+  if frame.IsShown then
+    local ok, shown = pcall(frame.IsShown, frame)
+    if ok and (shown == true or shown == 1 or shown == "1") then
+      RaiseGamePanel(frame)
+    end
+  end
+end
+
+function QtUI:SetupPanelStrata()
+  if self.panelStrataReady then return end
+  self.panelStrataReady = true
+  local i
+  for i = 1, table.getn(PANEL_NAMES) do
+    HookGamePanel(getglobal(PANEL_NAMES[i]))
+  end
+  if type(ShowUIPanel) == "function" then
+    local original = ShowUIPanel
+    ShowUIPanel = function(frame, force)
+      original(frame, force)
+      RaiseGamePanel(frame)
+      HookGamePanel(frame)
+    end
+  end
+  local watch = CreateFrame("Frame", "QtUIPanelStrata")
+  pcall(watch.RegisterEvent, watch, "ADDON_LOADED")
+  pcall(watch.RegisterEvent, watch, "PLAYER_ENTERING_WORLD")
+  watch:SetScript("OnEvent", function()
+    local n
+    for n = 1, table.getn(PANEL_NAMES) do
+      HookGamePanel(getglobal(PANEL_NAMES[n]))
+    end
+  end)
+end
+
 function QtUI:Initialize()
   if self.initialized then return end
   self.initialized = true
@@ -1007,6 +1079,7 @@ function QtUI:Initialize()
   if self.SetupMapCoords then SafeSetup("mapCoords", self.SetupMapCoords) end
   SafeSetup("settingsButton", self.SetupSettingsButton)
   SafeSetup("moveMode", self.SetupMoveMode)
+  SafeSetup("panelStrata", self.SetupPanelStrata)
   SafeSetup("applyLayout", self.ApplyLayout)
   if self.ScheduleBackgroundPulse then self:ScheduleBackgroundPulse() end
 

@@ -22,6 +22,7 @@ local TEXT_H = TEXT_TOP - TEXT_BOTTOM
 local SCROLL_W = 12
 local VIEW_LINES = math.floor((TEXT_H - 8) / (TEXT_SIZE + 3))
 if VIEW_LINES < 4 then VIEW_LINES = 4 end
+local REWARD_VIEW = 4
 
 local nativeOnShow
 local nativeToggle
@@ -292,6 +293,40 @@ function QtUI:RestoreQuestLogArt()
   RestoreNativeQuestLog()
 end
 
+local function PlaceThumb(thumb, track, off, maxOff, view, total, trackH)
+  if not thumb or not track then return end
+  if maxOff < 1 or total < 1 then
+    PlaceBox(thumb, track, 2, 2, SCROLL_W - 2, trackH - 2)
+    if thumb.SetBackdropColor then thumb:SetBackdropColor(.16, .2, .22, .5) end
+    return
+  end
+  if thumb.SetBackdropColor then thumb:SetBackdropColor(.38, .55, .62, 1) end
+  local th = math.floor(trackH * view / total)
+  if th < 16 then th = 16 end
+  if th > trackH - 4 then th = trackH - 4 end
+  local travel = trackH - th - 4
+  if travel < 0 then travel = 0 end
+  local y = math.floor(travel - (off / maxOff) * travel)
+  PlaceBox(thumb, track, 2, y, SCROLL_W - 2, y + th)
+end
+
+local function JumpScroll(track, total, view)
+  if not track then return 0 end
+  local top = track:GetTop()
+  local bottom = track:GetBottom()
+  if not top or not bottom or top <= bottom then return 0 end
+  local scale = 1
+  if track.GetEffectiveScale then scale = track:GetEffectiveScale() or 1 end
+  local _, cy = GetCursorPosition()
+  cy = (cy or 0) / scale
+  local frac = (top - cy) / (top - bottom)
+  if frac < 0 then frac = 0 end
+  if frac > 1 then frac = 1 end
+  local maxOff = (tonumber(total) or 0) - (tonumber(view) or 1)
+  if maxOff < 0 then maxOff = 0 end
+  return math.floor(frac * maxOff + 0.5)
+end
+
 local function ApplyTextScroll(frame)
   if not frame or not frame.bodyText then return end
   local lines = frame.textLines or {}
@@ -314,22 +349,7 @@ local function ApplyTextScroll(frame)
   end
   frame.bodyText:SetText(slice)
   PaintWrap(frame.bodyText, TEXT_SIZE, .92, .9, .82)
-
-  local track = frame.scrollTrack
-  local thumb = frame.scrollThumb
-  if not track or not thumb then return end
-  if maxOff < 1 then
-    PlaceBox(thumb, track, 2, 2, SCROLL_W - 2, TEXT_H - 2)
-    if thumb.SetBackdropColor then thumb:SetBackdropColor(.16, .2, .22, .5) end
-    return
-  end
-  if thumb.SetBackdropColor then thumb:SetBackdropColor(.38, .55, .62, 1) end
-  local th = math.floor(TEXT_H * view / total)
-  if th < 18 then th = 18 end
-  if th > TEXT_H - 4 then th = TEXT_H - 4 end
-  local travel = TEXT_H - th - 4
-  local y = math.floor(travel - (off / maxOff) * travel)
-  PlaceBox(thumb, track, 2, y, SCROLL_W - 2, y + th)
+  PlaceThumb(frame.scrollThumb, frame.scrollTrack, off, maxOff, view, total, TEXT_H)
 end
 
 local function ScrollText(frame, delta)
@@ -350,12 +370,13 @@ local function ScrollList(frame, delta)
   if QtUI.RefreshQuestLog then QtUI:RefreshQuestLog() end
 end
 
-local function LayoutRewards(frame)
+local function ApplyRewardScroll(frame)
   local panel = frame.rewardPanel
   if not panel then return end
-  local w = WIN_W - LIST_W - PAD * 3
+  local w = WIN_W - LIST_W - PAD * 3 - SCROLL_W
   PlaceBox(frame.rewardHeader, panel, 6, REWARD_H - 20, w - 6, REWARD_H - 4)
   PlaceBox(frame.rewardMoney, panel, 6, REWARD_H - 38, w - 6, REWARD_H - 22)
+
   local items = 0
   local i
   for i = 1, MAX_ITEMS do
@@ -363,16 +384,41 @@ local function LayoutRewards(frame)
       items = items + 1
     end
   end
+  frame.rewardCount = items
+  local view = REWARD_VIEW
+  local maxOff = items - view
+  if maxOff < 0 then maxOff = 0 end
+  local off = tonumber(frame.rewardScroll) or 0
+  if off < 0 then off = 0 end
+  if off > maxOff then off = maxOff end
+  frame.rewardScroll = off
+
   for i = 1, MAX_ITEMS do
     local btn = frame.itemBtns[i]
-    if i <= items then
-      local col = math.mod(i - 1, 4)
-      local left = 6 + col * 36
+    local vis = i - off
+    if i <= items and vis >= 1 and vis <= view then
+      local left = 6 + (vis - 1) * 36
       PlaceBox(btn, panel, left, 4, left + 34, 38)
+      if btn.Show then pcall(btn.Show, btn) end
     else
       PlaceBox(btn, panel, 4, REWARD_H + 20, 38, REWARD_H + 54)
+      if btn.Hide then pcall(btn.Hide, btn) end
     end
   end
+  PlaceThumb(frame.rewardThumb, frame.rewardTrack, off, maxOff, view, items, REWARD_H)
+end
+
+local function ScrollRewards(frame, delta)
+  if not frame then return end
+  delta = tonumber(delta) or 0
+  if delta == 0 then return end
+  if delta > 0 then delta = 1 else delta = -1 end
+  frame.rewardScroll = (tonumber(frame.rewardScroll) or 0) - delta
+  ApplyRewardScroll(frame)
+end
+
+local function LayoutRewards(frame)
+  ApplyRewardScroll(frame)
 end
 
 local function PaintItems(frame)
@@ -428,6 +474,7 @@ local function PaintDetail(frame)
   if frame.paintSel ~= sel then
     frame.paintSel = sel
     frame.textScroll = 0
+    frame.rewardScroll = 0
   end
   if sel < 1 then
     frame.detailTitle:SetText("Select a quest")
@@ -626,6 +673,14 @@ local function MakeItemButton(parent, i)
   local btn = CreateFrame("Button", "QtUIQuestItem" .. i, parent)
   if btn.EnableMouse then btn:EnableMouse(true) end
   if btn.RegisterForClicks then btn:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+  if btn.SetFrameLevel and parent and parent.GetFrameLevel then
+    btn:SetFrameLevel((parent:GetFrameLevel() or 4) + 4)
+  end
+  if btn.EnableMouseWheel then btn:EnableMouseWheel(1) end
+  btn:SetScript("OnMouseWheel", function(a, b)
+    local parent = QtUI.questLogFrame
+    ScrollRewards(parent, WheelDelta(a, b))
+  end)
   btn.icon = btn:CreateTexture(nil, "ARTWORK")
   btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 2, -2)
   btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
@@ -816,20 +871,7 @@ local function BuildFrame()
     ScrollText(frame, WheelDelta(a, b))
   end)
   frame.scrollTrack:SetScript("OnMouseUp", function()
-    local top = this:GetTop()
-    local bottom = this:GetBottom()
-    if not top or not bottom or top <= bottom then return end
-    local scale = 1
-    if this.GetEffectiveScale then scale = this:GetEffectiveScale() or 1 end
-    local _, cy = GetCursorPosition()
-    cy = (cy or 0) / scale
-    local frac = (top - cy) / (top - bottom)
-    if frac < 0 then frac = 0 end
-    if frac > 1 then frac = 1 end
-    local total = table.getn(frame.textLines or {})
-    local maxOff = total - VIEW_LINES
-    if maxOff < 0 then maxOff = 0 end
-    frame.textScroll = math.floor(frac * maxOff + 0.5)
+    frame.textScroll = JumpScroll(this, table.getn(frame.textLines or {}), VIEW_LINES)
     ApplyTextScroll(frame)
   end)
 
@@ -841,9 +883,13 @@ local function BuildFrame()
   frame.scrollThumb:SetBackdropColor(.38, .55, .62, 1)
   PlaceBox(frame.scrollThumb, frame.scrollTrack, 2, TEXT_H - 40, SCROLL_W - 2, TEXT_H - 4)
 
-  frame.rewardPanel = CreateFrame("Frame", "QtUIQuestRewardPanel", frame)
-  PlaceBox(frame.rewardPanel, frame, PAD, REWARD_BOTTOM, listLeft - 6, REWARD_TOP)
-  if frame.rewardPanel.EnableMouse then frame.rewardPanel:EnableMouse(false) end
+  frame.rewardPanel = CreateFrame("Button", "QtUIQuestRewardPanel", frame)
+  PlaceBox(frame.rewardPanel, frame, PAD, REWARD_BOTTOM, listLeft - SCROLL_W - 10, REWARD_TOP)
+  frame.rewardPanel:EnableMouse(true)
+  if frame.rewardPanel.EnableMouseWheel then frame.rewardPanel:EnableMouseWheel(1) end
+  if frame.rewardPanel.SetFrameLevel and frame.GetFrameLevel then
+    frame.rewardPanel:SetFrameLevel(frame:GetFrameLevel() + 4)
+  end
   frame.rewardPanel:SetBackdrop({
     bgFile = "Interface\\Buttons\\WHITE8X8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -852,6 +898,37 @@ local function BuildFrame()
   })
   frame.rewardPanel:SetBackdropColor(.035, .045, .05, .92)
   frame.rewardPanel:SetBackdropBorderColor(.22, .3, .34, 1)
+  frame.rewardPanel:SetScript("OnMouseWheel", function(a, b)
+    ScrollRewards(frame, WheelDelta(a, b))
+  end)
+
+  frame.rewardTrack = CreateFrame("Button", "QtUIQuestRewardScroll", frame)
+  PlaceBox(frame.rewardTrack, frame, listLeft - SCROLL_W - 8, REWARD_BOTTOM, listLeft - 8, REWARD_TOP)
+  frame.rewardTrack:EnableMouse(true)
+  if frame.rewardTrack.EnableMouseWheel then frame.rewardTrack:EnableMouseWheel(1) end
+  if frame.rewardTrack.SetFrameLevel and frame.GetFrameLevel then
+    frame.rewardTrack:SetFrameLevel(frame:GetFrameLevel() + 6)
+  end
+  frame.rewardTrack:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.rewardTrack:SetBackdropColor(.08, .1, .12, .95)
+  frame.rewardTrack:SetScript("OnMouseWheel", function(a, b)
+    ScrollRewards(frame, WheelDelta(a, b))
+  end)
+  frame.rewardTrack:SetScript("OnMouseUp", function()
+    frame.rewardScroll = JumpScroll(this, frame.rewardCount or 0, REWARD_VIEW)
+    ApplyRewardScroll(frame)
+  end)
+
+  frame.rewardThumb = CreateFrame("Frame", "QtUIQuestRewardThumb", frame.rewardTrack)
+  frame.rewardThumb:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.rewardThumb:SetBackdropColor(.38, .55, .62, 1)
+  PlaceBox(frame.rewardThumb, frame.rewardTrack, 2, 2, SCROLL_W - 2, REWARD_H - 2)
 
   frame.rewardHeader = frame.rewardPanel:CreateFontString(nil, "OVERLAY")
   frame.rewardMoney = frame.rewardPanel:CreateFontString(nil, "OVERLAY")
@@ -865,6 +942,7 @@ local function BuildFrame()
   end
   frame.textLines = {}
   frame.textScroll = 0
+  frame.rewardScroll = 0
   frame.listScroll = 0
 
   local function ClickAbandon()

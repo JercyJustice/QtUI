@@ -13,9 +13,15 @@ local BTN_W = 78
 local BTN_H = 22
 local BTN_Y = 8
 local TITLE_H = 26
-local DETAIL_BOTTOM = 36
-local DETAIL_TOP = WIN_H - 32
-local DETAIL_H = DETAIL_TOP - DETAIL_BOTTOM
+local REWARD_H = 78
+local REWARD_BOTTOM = 36
+local REWARD_TOP = REWARD_BOTTOM + REWARD_H
+local TEXT_BOTTOM = REWARD_TOP + 6
+local TEXT_TOP = WIN_H - 52
+local TEXT_H = TEXT_TOP - TEXT_BOTTOM
+local SCROLL_W = 12
+local VIEW_LINES = math.floor((TEXT_H - 8) / (TEXT_SIZE + 3))
+if VIEW_LINES < 4 then VIEW_LINES = 4 end
 
 local nativeOnShow
 local nativeToggle
@@ -57,8 +63,9 @@ end
 
 local function PaintWrap(fs, size, r, g, b)
   Paint(fs, size, r, g, b, "LEFT", "TOP")
-  if fs.SetNonSpaceWrap then pcall(fs.SetNonSpaceWrap, fs, true) end
-  if fs.SetWordWrap then pcall(fs.SetWordWrap, fs, true) end
+  -- Manual newlines already wrap. Extra engine wrap overflows the next block.
+  if fs.SetNonSpaceWrap then pcall(fs.SetNonSpaceWrap, fs, false) end
+  if fs.SetWordWrap then pcall(fs.SetWordWrap, fs, false) end
 end
 
 local function ShiftDown()
@@ -88,16 +95,8 @@ local function VisibleLen(s)
   return string.len(s)
 end
 
-local function WidthOf(fs, s, charW)
-  if fs and fs.SetText and fs.GetStringWidth then
-    fs:SetText(s)
-    local w = tonumber(fs:GetStringWidth())
-    if w and w > 1 then return w end
-  end
-  return VisibleLen(s) * charW
-end
-
--- Emberveil FontStrings often ignore SetWidth, so wrap by inserting newlines.
+-- GetStringWidth on Emberveil often returns the region width, not the string.
+-- Wrap by visible character count so height matches what is actually drawn.
 local function WrapText(fs, text, wrapW, size)
   if not text or text == "" then return "" end
   text = string.gsub(text, "|n", "\n")
@@ -105,12 +104,14 @@ local function WrapText(fs, text, wrapW, size)
   text = string.gsub(text, "\r", "\n")
   wrapW = wrapW or 200
   size = size or TEXT_SIZE
-  local charW = size * 0.52
-  if charW < 4 then charW = 4 end
+  local charW = size * 0.55
+  if charW < 5 then charW = 5 end
+  local maxChars = math.floor(wrapW / charW)
+  if maxChars < 12 then maxChars = 12 end
 
   local function WrapPara(para)
     if para == "" then return "" end
-    if WidthOf(fs, para, charW) <= wrapW then return para end
+    if VisibleLen(para) <= maxChars then return para end
     local out = ""
     local line = ""
     local pos = 1
@@ -132,16 +133,15 @@ local function WrapText(fs, text, wrapW, size)
       if word ~= "" then
         local test
         if line == "" then test = word else test = line .. " " .. word end
-        if WidthOf(fs, test, charW) > wrapW and line ~= "" then
+        if VisibleLen(test) > maxChars and line ~= "" then
           if out ~= "" then out = out .. "\n" end
           out = out .. line
           line = word
-          while WidthOf(fs, line, charW) > wrapW and string.len(line) > 1 do
-            local cut = math.floor(wrapW / charW)
-            if cut < 1 then cut = 1 end
+          while VisibleLen(line) > maxChars and string.len(line) > 1 do
+            local cut = maxChars
             if cut >= string.len(line) then cut = string.len(line) - 1 end
             local piece = string.sub(line, 1, cut)
-            while WidthOf(fs, piece, charW) > wrapW and cut > 1 do
+            while VisibleLen(piece) > maxChars and cut > 1 do
               cut = cut - 1
               piece = string.sub(line, 1, cut)
             end
@@ -180,21 +180,29 @@ local function WrapText(fs, text, wrapW, size)
   return result
 end
 
-local function CountLines(text)
-  local n = 1
-  if text and text ~= "" then
-    string.gsub(text, "\n", function()
-      n = n + 1
-    end)
+local function SplitLines(text)
+  local t = {}
+  local n = 0
+  if not text or text == "" then return t end
+  local start = 1
+  while true do
+    local nl = string.find(text, "\n", start, 1)
+    n = n + 1
+    if not nl then
+      t[n] = string.sub(text, start)
+      break
+    end
+    t[n] = string.sub(text, start, nl - 1)
+    start = nl + 1
   end
-  return n
+  return t
 end
 
-local function TextHeight(text, size, minH, maxH)
-  local h = CountLines(text) * (size + 3) + 2
-  if minH and h < minH then h = minH end
-  if maxH and h > maxH then h = maxH end
-  return h
+local function WheelDelta(a, b)
+  local delta = tonumber(arg1)
+  if (not delta or delta == 0) and type(b) == "number" then delta = b end
+  if (not delta or delta == 0) and type(a) == "number" then delta = a end
+  return tonumber(delta) or 0
 end
 
 local function QuestLevelColor(level, complete)
@@ -284,43 +292,86 @@ function QtUI:RestoreQuestLogArt()
   RestoreNativeQuestLog()
 end
 
-local function LayoutDetail(frame)
-  local panel = frame.detailPanel
-  if not panel then return end
-  local wrapW = WIN_W - LIST_W - PAD * 3 - 8
-  local y = 4
-  local function PlaceFS(fs, h)
-    local top = DETAIL_H - y
-    local bottom = top - h
-    if bottom < 0 then bottom = 0 end
-    PlaceBox(fs, panel, 4, bottom, 4 + wrapW, top)
-    y = y + h + 4
+local function ApplyTextScroll(frame)
+  if not frame or not frame.bodyText then return end
+  local lines = frame.textLines or {}
+  local total = table.getn(lines)
+  local view = VIEW_LINES
+  local maxOff = total - view
+  if maxOff < 0 then maxOff = 0 end
+  local off = tonumber(frame.textScroll) or 0
+  if off < 0 then off = 0 end
+  if off > maxOff then off = maxOff end
+  frame.textScroll = off
+
+  local slice = ""
+  local i
+  for i = 1, view do
+    local line = lines[off + i]
+    if not line then break end
+    if slice ~= "" then slice = slice .. "\n" end
+    slice = slice .. line
   end
+  frame.bodyText:SetText(slice)
+  PaintWrap(frame.bodyText, TEXT_SIZE, .92, .9, .82)
 
-  PlaceFS(frame.detailTitle, TITLE_SIZE + 6)
+  local track = frame.scrollTrack
+  local thumb = frame.scrollThumb
+  if not track or not thumb then return end
+  if maxOff < 1 then
+    PlaceBox(thumb, track, 2, 2, SCROLL_W - 2, TEXT_H - 2)
+    if thumb.SetBackdropColor then thumb:SetBackdropColor(.16, .2, .22, .5) end
+    return
+  end
+  if thumb.SetBackdropColor then thumb:SetBackdropColor(.38, .55, .62, 1) end
+  local th = math.floor(TEXT_H * view / total)
+  if th < 18 then th = 18 end
+  if th > TEXT_H - 4 then th = TEXT_H - 4 end
+  local travel = TEXT_H - th - 4
+  local y = math.floor(travel - (off / maxOff) * travel)
+  PlaceBox(thumb, track, 2, y, SCROLL_W - 2, y + th)
+end
 
-  local descH = TextHeight(frame.detailDesc and frame.detailDesc:GetText(), TEXT_SIZE, 28, 100)
-  PlaceFS(frame.detailDesc, descH)
+local function ScrollText(frame, delta)
+  if not frame then return end
+  delta = tonumber(delta) or 0
+  if delta == 0 then return end
+  if delta > 0 then delta = 1 else delta = -1 end
+  frame.textScroll = (tonumber(frame.textScroll) or 0) - delta
+  ApplyTextScroll(frame)
+end
 
-  PlaceFS(frame.objHeader, TEXT_SIZE + 4)
-  local objH = TextHeight(frame.objText and frame.objText:GetText(), TEXT_SIZE, 16, 56)
-  PlaceFS(frame.objText, objH)
+local function ScrollList(frame, delta)
+  if not frame then return end
+  delta = tonumber(delta) or 0
+  if delta == 0 then return end
+  if delta > 0 then delta = 1 else delta = -1 end
+  frame.listScroll = (tonumber(frame.listScroll) or 0) - delta
+  if QtUI.RefreshQuestLog then QtUI:RefreshQuestLog() end
+end
 
-  PlaceFS(frame.rewardHeader, TEXT_SIZE + 4)
-  PlaceFS(frame.rewardMoney, TEXT_SIZE + 4)
-
+local function LayoutRewards(frame)
+  local panel = frame.rewardPanel
+  if not panel then return end
+  local w = WIN_W - LIST_W - PAD * 3
+  PlaceBox(frame.rewardHeader, panel, 6, REWARD_H - 20, w - 6, REWARD_H - 4)
+  PlaceBox(frame.rewardMoney, panel, 6, REWARD_H - 38, w - 6, REWARD_H - 22)
+  local items = 0
   local i
   for i = 1, MAX_ITEMS do
+    if frame.itemBtns[i] and frame.itemBtns[i].kind then
+      items = items + 1
+    end
+  end
+  for i = 1, MAX_ITEMS do
     local btn = frame.itemBtns[i]
-    local col = math.mod(i - 1, 4)
-    local row = math.floor((i - 1) / 4)
-    local left = 4 + col * 36
-    local top = y + row * 36
-    local boxTop = DETAIL_H - top
-    local boxBot = boxTop - 34
-    if boxBot < 0 then boxBot = 0 end
-    btn:ClearAllPoints()
-    PlaceBox(btn, panel, left, boxBot, left + 34, boxTop)
+    if i <= items then
+      local col = math.mod(i - 1, 4)
+      local left = 6 + col * 36
+      PlaceBox(btn, panel, left, 4, left + 34, 38)
+    else
+      PlaceBox(btn, panel, 4, REWARD_H + 20, 38, REWARD_H + 54)
+    end
   end
 end
 
@@ -363,34 +414,43 @@ local function PaintItems(frame)
   end
 end
 
+local function SetBody(frame, text)
+  frame.textLines = SplitLines(text or "")
+  ApplyTextScroll(frame)
+end
+
 local function PaintDetail(frame)
-  local wrapW = WIN_W - LIST_W - PAD * 3 - 8
+  local wrapW = WIN_W - LIST_W - PAD * 3 - SCROLL_W - 16
   local sel = 0
   if type(GetQuestLogSelection) == "function" then
     sel = tonumber(GetQuestLogSelection()) or 0
   end
+  if frame.paintSel ~= sel then
+    frame.paintSel = sel
+    frame.textScroll = 0
+  end
   if sel < 1 then
     frame.detailTitle:SetText("Select a quest")
-    frame.detailDesc:SetText("")
-    frame.objHeader:SetText("")
-    frame.objText:SetText("")
-    frame.rewardHeader:SetText("")
+    Paint(frame.detailTitle, TITLE_SIZE, 1, .9, .45)
+    SetBody(frame, "")
+    frame.rewardHeader:SetText("Rewards")
     frame.rewardMoney:SetText("")
+    Paint(frame.rewardHeader, TEXT_SIZE, 1, .82, .2)
     PaintItems(frame)
-    LayoutDetail(frame)
+    LayoutRewards(frame)
     return
   end
 
   local title, level, tag, isHeader, _, complete = GetQuestLogTitle(sel)
   if True(isHeader) or not title then
     frame.detailTitle:SetText(title or "")
-    frame.detailDesc:SetText("")
-    frame.objHeader:SetText("")
-    frame.objText:SetText("")
-    frame.rewardHeader:SetText("")
+    Paint(frame.detailTitle, TITLE_SIZE, 1, .82, .25)
+    SetBody(frame, "")
+    frame.rewardHeader:SetText("Rewards")
     frame.rewardMoney:SetText("")
+    Paint(frame.rewardHeader, TEXT_SIZE, 1, .82, .2)
     PaintItems(frame)
-    LayoutDetail(frame)
+    LayoutRewards(frame)
     return
   end
 
@@ -410,14 +470,9 @@ local function PaintDetail(frame)
       objectives = o or ""
     end
   end
-  desc = WrapText(frame.detailDesc, desc, wrapW, TEXT_SIZE)
-  frame.detailDesc:SetText(desc)
-  PaintWrap(frame.detailDesc, TEXT_SIZE, .92, .9, .82)
+  desc = WrapText(frame.bodyText, desc, wrapW, TEXT_SIZE)
 
-  frame.objHeader:SetText("Objectives")
-  Paint(frame.objHeader, TEXT_SIZE, 1, .82, .2)
-
-  local lines = objectives or ""
+  local obj = objectives or ""
   if type(GetNumQuestLeaderBoards) == "function" and type(GetQuestLogLeaderBoard) == "function" then
     local n = tonumber(GetNumQuestLeaderBoards()) or 0
     local i
@@ -434,12 +489,17 @@ local function PaintDetail(frame)
       end
     end
     if extra ~= "" then
-      if lines ~= "" then lines = lines .. "\n\n" .. extra else lines = extra end
+      if obj ~= "" then obj = obj .. "\n\n" .. extra else obj = extra end
     end
   end
-  lines = WrapText(frame.objText, lines, wrapW, TEXT_SIZE)
-  frame.objText:SetText(lines)
-  PaintWrap(frame.objText, TEXT_SIZE, .9, .9, .9)
+  obj = WrapText(frame.bodyText, obj, wrapW, TEXT_SIZE)
+
+  local body = desc
+  if obj ~= "" then
+    if body ~= "" then body = body .. "\n\n" end
+    body = body .. "|cffffd133Objectives|r\n" .. obj
+  end
+  SetBody(frame, body)
 
   frame.rewardHeader:SetText("Rewards")
   Paint(frame.rewardHeader, TEXT_SIZE, 1, .82, .2)
@@ -466,7 +526,7 @@ local function PaintDetail(frame)
   end
 
   PaintItems(frame)
-  LayoutDetail(frame)
+  LayoutRewards(frame)
 end
 
 local function PaintList(frame)
@@ -492,17 +552,25 @@ local function PaintList(frame)
     Paint(frame.detailTitle, TITLE_SIZE, 1, .9, .45)
   end
 
+  local maxList = entries - MAX_ROWS
+  if maxList < 0 then maxList = 0 end
+  local listOff = tonumber(frame.listScroll) or 0
+  if listOff < 0 then listOff = 0 end
+  if listOff > maxList then listOff = maxList end
+  frame.listScroll = listOff
+
   local i
   for i = 1, MAX_ROWS do
     local btn = frame.rows[i]
-    if i > entries then
+    local idx = listOff + i
+    if idx > entries then
       btn.index = nil
       btn.isHeader = nil
       if btn.label then btn.label:SetText("") end
       if btn.SetBackdropColor then btn:SetBackdropColor(0, 0, 0, 0) end
     else
-      local title, level, tag, isHeader, isCollapsed, complete = GetQuestLogTitle(i)
-      btn.index = i
+      local title, level, tag, isHeader, isCollapsed, complete = GetQuestLogTitle(idx)
+      btn.index = idx
       btn.isHeader = True(isHeader)
       if True(isHeader) then
         local mark = True(isCollapsed) and "+" or "-"
@@ -514,7 +582,7 @@ local function PaintList(frame)
         if complete == 1 then label = label .. " *" end
         local watched
         if type(IsQuestWatched) == "function" then
-          local ok, v = pcall(IsQuestWatched, i)
+          local ok, v = pcall(IsQuestWatched, idx)
           watched = ok and True(v)
         end
         if watched then label = label .. " +" end
@@ -522,7 +590,7 @@ local function PaintList(frame)
         local r, g, b = QuestLevelColor(level, complete)
         Paint(btn.label, 11, r, g, b)
       end
-      if i == sel and not True(isHeader) then
+      if idx == sel and not True(isHeader) then
         if btn.SetBackdropColor then btn:SetBackdropColor(.08, .35, .55, .85) end
       else
         if btn.SetBackdropColor then btn:SetBackdropColor(.04, .05, .06, .4) end
@@ -701,30 +769,103 @@ local function BuildFrame()
     btn:SetScript("OnMouseUp", function()
       if arg1 == "LeftButton" or arg1 == nil then ClickRow() end
     end)
+    if btn.EnableMouseWheel then btn:EnableMouseWheel(1) end
+    btn:SetScript("OnMouseWheel", function(a, b)
+      ScrollList(frame, WheelDelta(a, b))
+    end)
     frame.rows[i] = btn
   end
 
-  frame.detailPanel = CreateFrame("Frame", "QtUIQuestDetailPanel", frame)
-  PlaceBox(frame.detailPanel, frame, PAD, DETAIL_BOTTOM, listLeft - 6, DETAIL_TOP)
-  if frame.detailPanel.EnableMouse then frame.detailPanel:EnableMouse(false) end
+  frame.detailTitle = frame:CreateFontString(nil, "OVERLAY")
+  PlaceBox(frame.detailTitle, frame, PAD, TEXT_TOP, listLeft - 6, WIN_H - 32)
+  Paint(frame.detailTitle, TITLE_SIZE, 1, .9, .45, "LEFT", "MIDDLE")
 
-  frame.detailTitle = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  frame.detailDesc = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  frame.objHeader = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  frame.objText = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  frame.rewardHeader = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  frame.rewardMoney = frame.detailPanel:CreateFontString(nil, "OVERLAY")
-  PaintWrap(frame.detailDesc, TEXT_SIZE, .92, .9, .82)
-  PaintWrap(frame.objText, TEXT_SIZE, .9, .9, .9)
-  Paint(frame.detailTitle, TITLE_SIZE, 1, .9, .45)
-  Paint(frame.objHeader, TEXT_SIZE, 1, .82, .2)
+  frame.textPanel = CreateFrame("Button", "QtUIQuestTextPanel", frame)
+  PlaceBox(frame.textPanel, frame, PAD, TEXT_BOTTOM, listLeft - SCROLL_W - 10, TEXT_TOP - 2)
+  frame.textPanel:EnableMouse(true)
+  if frame.textPanel.EnableMouseWheel then frame.textPanel:EnableMouseWheel(1) end
+  if frame.textPanel.SetFrameLevel and frame.GetFrameLevel then
+    frame.textPanel:SetFrameLevel(frame:GetFrameLevel() + 4)
+  end
+  frame.textPanel:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.textPanel:SetBackdropColor(.03, .04, .05, .55)
+  frame.textPanel:SetScript("OnMouseWheel", function(a, b)
+    ScrollText(frame, WheelDelta(a, b))
+  end)
+
+  frame.bodyText = frame.textPanel:CreateFontString(nil, "OVERLAY")
+  PlaceBox(frame.bodyText, frame.textPanel, 4, 4, (listLeft - SCROLL_W - 10) - PAD - 4, TEXT_H - 6)
+  PaintWrap(frame.bodyText, TEXT_SIZE, .92, .9, .82)
+
+  frame.scrollTrack = CreateFrame("Button", "QtUIQuestTextScroll", frame)
+  PlaceBox(frame.scrollTrack, frame, listLeft - SCROLL_W - 8, TEXT_BOTTOM, listLeft - 8, TEXT_TOP - 2)
+  frame.scrollTrack:EnableMouse(true)
+  if frame.scrollTrack.EnableMouseWheel then frame.scrollTrack:EnableMouseWheel(1) end
+  if frame.scrollTrack.SetFrameLevel and frame.GetFrameLevel then
+    frame.scrollTrack:SetFrameLevel(frame:GetFrameLevel() + 6)
+  end
+  frame.scrollTrack:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.scrollTrack:SetBackdropColor(.08, .1, .12, .95)
+  frame.scrollTrack:SetScript("OnMouseWheel", function(a, b)
+    ScrollText(frame, WheelDelta(a, b))
+  end)
+  frame.scrollTrack:SetScript("OnMouseUp", function()
+    local top = this:GetTop()
+    local bottom = this:GetBottom()
+    if not top or not bottom or top <= bottom then return end
+    local scale = 1
+    if this.GetEffectiveScale then scale = this:GetEffectiveScale() or 1 end
+    local _, cy = GetCursorPosition()
+    cy = (cy or 0) / scale
+    local frac = (top - cy) / (top - bottom)
+    if frac < 0 then frac = 0 end
+    if frac > 1 then frac = 1 end
+    local total = table.getn(frame.textLines or {})
+    local maxOff = total - VIEW_LINES
+    if maxOff < 0 then maxOff = 0 end
+    frame.textScroll = math.floor(frac * maxOff + 0.5)
+    ApplyTextScroll(frame)
+  end)
+
+  frame.scrollThumb = CreateFrame("Frame", "QtUIQuestTextThumb", frame.scrollTrack)
+  frame.scrollThumb:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.scrollThumb:SetBackdropColor(.38, .55, .62, 1)
+  PlaceBox(frame.scrollThumb, frame.scrollTrack, 2, TEXT_H - 40, SCROLL_W - 2, TEXT_H - 4)
+
+  frame.rewardPanel = CreateFrame("Frame", "QtUIQuestRewardPanel", frame)
+  PlaceBox(frame.rewardPanel, frame, PAD, REWARD_BOTTOM, listLeft - 6, REWARD_TOP)
+  if frame.rewardPanel.EnableMouse then frame.rewardPanel:EnableMouse(false) end
+  frame.rewardPanel:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  frame.rewardPanel:SetBackdropColor(.035, .045, .05, .92)
+  frame.rewardPanel:SetBackdropBorderColor(.22, .3, .34, 1)
+
+  frame.rewardHeader = frame.rewardPanel:CreateFontString(nil, "OVERLAY")
+  frame.rewardMoney = frame.rewardPanel:CreateFontString(nil, "OVERLAY")
   Paint(frame.rewardHeader, TEXT_SIZE, 1, .82, .2)
   Paint(frame.rewardMoney, TEXT_SIZE, 1, 1, 1)
+  frame.rewardHeader:SetText("Rewards")
 
   frame.itemBtns = {}
   for i = 1, MAX_ITEMS do
-    frame.itemBtns[i] = MakeItemButton(frame.detailPanel, i)
+    frame.itemBtns[i] = MakeItemButton(frame.rewardPanel, i)
   end
+  frame.textLines = {}
+  frame.textScroll = 0
+  frame.listScroll = 0
 
   local function ClickAbandon()
     if type(SetAbandonQuest) == "function" then pcall(SetAbandonQuest) end

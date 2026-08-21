@@ -209,101 +209,49 @@ local function CooldownValues(button)
   return 0, 0, 0
 end
 
-local function NativeCooldownFrame(button)
-  local name = button and button.GetName and button:GetName()
-  if not name then return nil end
+function QtUI:LayerActionCooldown(button)
+  if not button or not button.GetName then return end
+  local name = button:GetName()
+  if not name then return end
+  local icon = getglobal(name .. "Icon")
+  if icon and icon.SetDrawLayer then
+    pcall(icon.SetDrawLayer, icon, "BACKGROUND")
+  end
   local cd = getglobal(name .. "Cooldown")
-  if not cd then return nil end
-  if not cd.GetObjectType then return nil end
+  if not cd then return end
+  local buttonLevel = 1
+  if button.GetFrameLevel then buttonLevel = button:GetFrameLevel() or 1 end
+  local want = buttonLevel + 5
+  if cd.GetFrameLevel and cd:GetFrameLevel() == want then return end
+  if cd.SetFrameLevel then pcall(cd.SetFrameLevel, cd, want) end
+end
+
+local function DriveNativeCooldown(button, start, duration, enable)
+  local name = button and button.GetName and button:GetName()
+  if not name then return end
+  local cd = getglobal(name .. "Cooldown")
+  if not cd then return end
+  if not cd.GetObjectType then return end
   local ok, kind = pcall(cd.GetObjectType, cd)
-  if not ok or kind ~= "Cooldown" then return nil end
-  return cd
-end
-
-local function SweepOnUpdate()
-  local button = this:GetParent()
-  if not button then
-    this:SetScript("OnUpdate", nil)
-    return
-  end
-  local start = button.QtUISweepStart
-  local duration = button.QtUISweepDuration
-  if not start or not duration or duration <= 0 then
-    this:Hide()
-    this:SetScript("OnUpdate", nil)
-    return
-  end
-  local remaining = RemainingFor(start, duration)
-  if remaining <= 0 then
-    button.QtUISweepStart = nil
-    button.QtUISweepDuration = nil
-    this:SetValue(0)
-    this:Hide()
-    this:SetScript("OnUpdate", nil)
-    return
-  end
-  this:SetMinMaxValues(0, duration)
-  this:SetValue(remaining)
-  this:Show()
-end
-
-local function ApplyCooldownSweep(button, start, duration, enable)
+  if not ok or kind ~= "Cooldown" then return end
   start = tonumber(start) or 0
   duration = tonumber(duration) or 0
-  local native = NativeCooldownFrame(button)
-  if native then
-    if type(CooldownFrame_SetTimer) == "function" then
-      pcall(CooldownFrame_SetTimer, native, start, duration, enable)
-    elseif native.SetCooldown then
-      pcall(native.SetCooldown, native, start, duration)
-    end
-    if duration > 0 and enable ~= 0 then
-      if native.Show then pcall(native.Show, native) end
-    end
-    if button.QtUISweep then
-      button.QtUISweep:Hide()
-      button.QtUISweep:SetScript("OnUpdate", nil)
-    end
-    return
+  enable = tonumber(enable) or 0
+  local stamp = start .. ":" .. duration .. ":" .. enable
+  if button.qtCdStamp == stamp then return end
+  button.qtCdStamp = stamp
+  QtUI:LayerActionCooldown(button)
+  if type(CooldownFrame_SetTimer) == "function" then
+    pcall(CooldownFrame_SetTimer, cd, start, duration, enable)
+  elseif cd.SetCooldown then
+    pcall(cd.SetCooldown, cd, start, duration)
   end
-  if duration <= 0 or enable == 0 or start <= 0 then
-    if button.QtUISweep then
-      button.QtUISweep:Hide()
-      button.QtUISweep:SetScript("OnUpdate", nil)
-    end
-    button.QtUISweepStart = nil
-    button.QtUISweepDuration = nil
-    return
-  end
-  local sweep = button.QtUISweep
-  if not sweep then
-    sweep = CreateFrame("StatusBar", nil, button)
-    sweep:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
-    sweep:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-    sweep:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    sweep:SetStatusBarColor(0, 0, 0, .55)
-    sweep:SetMinMaxValues(0, 1)
-    sweep:SetValue(0)
-    if sweep.EnableMouse then sweep:EnableMouse(false) end
-    local level = 1
-    if button.GetFrameLevel then level = button:GetFrameLevel() or 1 end
-    sweep:SetFrameLevel(level + 6)
-    button.QtUISweep = sweep
-  end
-  button.QtUISweepStart = start
-  button.QtUISweepDuration = duration
-  sweep:SetMinMaxValues(0, duration)
-  local remaining = RemainingFor(start, duration)
-  if remaining < 0 then remaining = 0 end
-  sweep:SetValue(remaining)
-  sweep:Show()
-  sweep:SetScript("OnUpdate", SweepOnUpdate)
 end
 
 function QtUI:ApplyButtonCooldown(button)
   if not button then return end
   local start, duration, enable = CooldownValues(button)
-  ApplyCooldownSweep(button, start, duration, enable)
+  DriveNativeCooldown(button, start, duration, enable)
   local size = 13
   if button.QtUISize then
     size = math.floor(button.QtUISize * 0.42)

@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.17.0"
+QtUI.version = "0.18.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -871,6 +871,7 @@ function QtUI:EnsureButtonRim(button, size, keepNormalIcon)
   button.QtUIRingSize = size
   button.QtUIRingKeep = keep
   button.QtUIRingOn = 1
+  if self.LayerActionCooldown then self:LayerActionCooldown(button) end
 end
 
 function QtUI:ApplySlotBackgrounds()

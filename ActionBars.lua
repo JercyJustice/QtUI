@@ -980,6 +980,7 @@ StyleActionButton = function(button, size)
   end
   RestoreRoundSlot(button, size)
   StyleActionButtonText(button, size)
+  if QtUI.LayerActionCooldown then QtUI:LayerActionCooldown(button) end
   button.QtUIStyled = true
 end
 
@@ -1051,52 +1052,6 @@ local function RevealEmptyButton(button)
   button.qtEmptyHidden = nil
   if button.EnableMouse then pcall(button.EnableMouse, button, true) end
   if button.Show then pcall(button.Show, button) end
-end
-
-local function PulseButton(button)
-  if not button then return end
-  local flash = button.QtUIUseFlash
-  if not flash then
-    flash = button:CreateTexture(nil, "OVERLAY")
-    flash:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
-    flash:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-    flash:SetTexture("Interface\\Buttons\\WHITE8X8")
-    flash:SetVertexColor(1, 1, 1)
-    button.QtUIUseFlash = flash
-  end
-  flash:Show()
-  button.qtFlashUntil = GetTime() + .22
-  local watcher = button.QtUIFlashWatch
-  if not watcher then
-    watcher = CreateFrame("Frame", nil, button)
-    button.QtUIFlashWatch = watcher
-  end
-  watcher:SetScript("OnUpdate", function()
-    local parent = this:GetParent()
-    if not parent or not parent.qtFlashUntil or GetTime() >= parent.qtFlashUntil then
-      if parent and parent.QtUIUseFlash then parent.QtUIUseFlash:Hide() end
-      this:SetScript("OnUpdate", nil)
-    end
-  end)
-end
-
-function QtUI:PulseActionSlot(slot)
-  slot = tonumber(slot)
-  if not slot then return end
-  local prefixes = {
-    "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
-    "MultiBarRightButton", "MultiBarLeftButton", "BonusActionButton",
-  }
-  local n
-  for n = 1, table.getn(prefixes) do
-    local i
-    for i = 1, 12 do
-      local button = getglobal(prefixes[n] .. i)
-      if button and SlotForButton(button) == slot then
-        PulseButton(button)
-      end
-    end
-  end
 end
 
 function QtUI:ApplyEmptySlotVisibility()
@@ -1730,17 +1685,7 @@ local function InstallAutoUnshift()
         lastSpell = nil
         lastUseTime = GetTime()
       end
-      local result = originalUseAction(slot, checkCursor, onSelf)
-      if not QtUI.usePulseWait then
-        QtUI.usePulseWait = CreateFrame("Frame", "QtUIUsePulseWait")
-      end
-      QtUI.usePulseWait.slot = slot
-      QtUI.usePulseWait:SetScript("OnUpdate", function()
-        this:SetScript("OnUpdate", nil)
-        if QtUI.PulseActionSlot then QtUI:PulseActionSlot(this.slot) end
-        if QtUI.RefreshBarCooldowns then QtUI:RefreshBarCooldowns() end
-      end)
-      return result
+      return originalUseAction(slot, checkCursor, onSelf)
     end
   end
 

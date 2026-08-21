@@ -1489,7 +1489,7 @@ function QtUI:SetupSettingsWindow()
   DisableShareButton(importBtn, "Emberveil cannot paste a profile string.")
 
   local bars = AddPage("actionbars")
-  CreateSection(bars, 0, 380)
+  CreateSection(bars, 0, 400)
   CreateHeader(bars, -8, "Action Bars")
   CreateFeatureToggle(bars, -28, "actionBars")
   bars.note = bars:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1533,36 +1533,43 @@ function QtUI:SetupSettingsWindow()
   end, function(value)
     QtUI:GetLayout().slotShowRim = value and 1 or 0
   end)
-  CreateColorRow(bars, -216, "Slot background", function()
+  CreateToggleRow(bars, -208, "Hide empty slots", function()
+    local value = QtUI:GetLayout().hideEmptySlots
+    return value == true or value == 1 or value == "1"
+  end, function(value)
+    QtUI:GetLayout().hideEmptySlots = value and true or false
+    if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
+  end)
+  CreateColorRow(bars, -236, "Slot background", function()
     return QtUI:GetLayout().slotBackground
   end, function(color)
     local current = QtUI:GetLayout().slotBackground
     color.a = current.a or .96
     QtUI:GetLayout().slotBackground = color
   end)
-  CreateStepper(bars, -244, "Slot opacity", function()
+  CreateStepper(bars, -264, "Slot opacity", function()
     return QtUI:GetLayout().slotBackground.a or .96
   end, function(value)
     QtUI:GetLayout().slotBackground.a = value
   end, 0.1, 1, 0.05, 2)
-  CreateColorRow(bars, -272, "Slot border", function()
+  CreateColorRow(bars, -292, "Slot border", function()
     return QtUI:GetLayout().slotBorder
   end, function(color)
     QtUI:GetLayout().slotBorder = color
   end)
-  CreateToggleRow(bars, -300, "Leave shapeshift to cast", function()
+  CreateToggleRow(bars, -320, "Leave shapeshift to cast", function()
     local value = QtUI:GetLayout().unshiftToCast
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().unshiftToCast = value and true or false
   end)
-  CreateToggleRow(bars, -328, "Cooldown numbers", function()
+  CreateToggleRow(bars, -348, "Cooldown numbers", function()
     local value = QtUI:GetLayout().cooldownText
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)
     QtUI:GetLayout().cooldownText = value and true or false
   end)
-  CreateToggleRow(bars, -356, "Color out of range / OOM", function()
+  CreateToggleRow(bars, -376, "Color out of range / OOM", function()
     local value = QtUI:GetLayout().barRangeColor
     return value ~= false and value ~= 0 and value ~= "0"
   end, function(value)

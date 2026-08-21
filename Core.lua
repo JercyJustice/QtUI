@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.16.0"
+QtUI.version = "0.17.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -432,6 +432,7 @@ function QtUI:EnsureLayoutDefaults()
   layout.barBorder = EnsureColor(layout.barBorder, .18, .24, .28, 1)
   if layout.slotShowBackground == nil then layout.slotShowBackground = true end
   if layout.slotShowRim == nil then layout.slotShowRim = true end
+  if layout.hideEmptySlots == nil then layout.hideEmptySlots = true end
   layout.slotBackground = EnsureColor(layout.slotBackground, .02, .025, .03, .96)
   layout.slotBorder = EnsureColor(layout.slotBorder, .14, .18, .2, 1)
   if not layout.bagSlotSize then layout.bagSlotSize = 36 end
@@ -887,18 +888,24 @@ function QtUI:ApplySlotBackgrounds()
     for i = 1, last do
       local button = getglobal(names[n] .. i)
       if button then
-        local shown = ButtonIsOnQtBar(button)
-        local cell = self:EnsureSlotCell(button, button:GetParent())
-        if cell then
-          if shown and LayoutFlagOn(layout.slotShowBackground) and not SlotHasSpell(button, names[n], i) then
-            PlaceSlotCell(cell, button, SLOT_EXTRA)
-          else
-            ParkSlotCell(cell)
+        if button.qtEmptyHidden then
+          local cell = button.QtUICell
+          if cell then ParkSlotCell(cell) end
+          self:HideButtonRim(button)
+        else
+          local shown = ButtonIsOnQtBar(button)
+          local cell = self:EnsureSlotCell(button, button:GetParent())
+          if cell then
+            if shown and LayoutFlagOn(layout.slotShowBackground) and not SlotHasSpell(button, names[n], i) then
+              PlaceSlotCell(cell, button, SLOT_EXTRA)
+            else
+              ParkSlotCell(cell)
+            end
           end
+          local filled = SlotHasSpell(button, names[n], i)
+          local keepIcon = names[n] == "ShapeshiftButton" and filled
+          self:EnsureButtonRim(button, button.QtUISize, keepIcon)
         end
-        local filled = SlotHasSpell(button, names[n], i)
-        local keepIcon = names[n] == "ShapeshiftButton" and filled
-        self:EnsureButtonRim(button, button.QtUISize, keepIcon)
       end
     end
   end

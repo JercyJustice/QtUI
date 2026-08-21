@@ -394,6 +394,7 @@ local function InstallActionResolvers()
       restamping = true
       if QtUI.LayoutSideBars then QtUI:LayoutSideBars() end
       if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
+      if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
       restamping = nil
     end
   end
@@ -491,6 +492,7 @@ local function RefreshActionButtons()
   this = previousThis
   SuppressPagingChrome()
   if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
+  if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
 end
 
 function QtUI:PositionAuxiliaryBars()
@@ -636,6 +638,9 @@ local function SetupActionPageEvents()
   pcall(events.RegisterEvent, events, "PLAYER_ENTER_COMBAT")
   pcall(events.RegisterEvent, events, "PLAYER_LEAVE_COMBAT")
   pcall(events.RegisterEvent, events, "ACTIONBAR_SLOT_CHANGED")
+  pcall(events.RegisterEvent, events, "ACTIONBAR_SHOWGRID")
+  pcall(events.RegisterEvent, events, "ACTIONBAR_HIDEGRID")
+  pcall(events.RegisterEvent, events, "CURSOR_UPDATE")
   pcall(events.RegisterEvent, events, "PET_BAR_UPDATE")
   pcall(events.RegisterEvent, events, "UNIT_PET")
 
@@ -677,6 +682,20 @@ local function SetupActionPageEvents()
   events.lastBonusOffset = CurrentBonusOffset()
   events:SetScript("OnEvent", function()
     local ev = event
+    if ev == "ACTIONBAR_SHOWGRID" then
+      actionGridShown = true
+      if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
+      return
+    end
+    if ev == "ACTIONBAR_HIDEGRID" then
+      actionGridShown = nil
+      if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
+      return
+    end
+    if ev == "CURSOR_UPDATE" then
+      if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
+      return
+    end
     -- Aura ticks must not rebuild every bar. Watch the bonus offset briefly
     -- so stealth/form still swaps pages when Emberveil publishes the aura first.
     if ev == "PLAYER_AURAS_CHANGED" then
@@ -964,8 +983,148 @@ StyleActionButton = function(button, size)
   button.QtUIStyled = true
 end
 
+local actionGridShown
+local EMPTY_SLOT_PREFIXES = {
+  "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+  "MultiBarRightButton", "MultiBarLeftButton",
+  "PetActionButton",
+}
+
+local function HideEmptySlotsOn()
+  if not QtUI.GetLayout then return true end
+  local layout = QtUI:GetLayout()
+  if not layout then return true end
+  local value = layout.hideEmptySlots
+  return value == true or value == 1 or value == "1"
+end
+
+local function CursorIsHolding()
+  local names = { "CursorHasItem", "CursorHasSpell", "CursorHasMacro" }
+  local i
+  for i = 1, table.getn(names) do
+    local fn = getglobal(names[i])
+    if type(fn) == "function" then
+      local ok, has = pcall(fn)
+      if ok and (has == true or has == 1 or has == "1") then return true end
+    end
+  end
+  return nil
+end
+
+local function ShowEmptySlotsNow()
+  if QtUI.moveMode then return true end
+  if actionGridShown then return true end
+  if CursorIsHolding() then return true end
+  return nil
+end
+
+local function ConcealEmptyButton(button)
+  if not button then return end
+  -- Stay on the bar as an invisible drop target. Hide() + EnableMouse(false)
+  -- made empty slots impossible to fill.
+  if button.Show then pcall(button.Show, button) end
+  if button.EnableMouse then pcall(button.EnableMouse, button, true) end
+  if button.QtUICell then
+    local cell = button.QtUICell
+    if cell.ClearAllPoints then
+      cell:ClearAllPoints()
+      cell:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    end
+    if cell.Hide then pcall(cell.Hide, cell) end
+    cell.qtParked = 1
+  end
+  if button.QtUIRimFrame then
+    local rim = button.QtUIRimFrame
+    if rim.ClearAllPoints then
+      rim:ClearAllPoints()
+      rim:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    end
+    if rim.Hide then pcall(rim.Hide, rim) end
+    rim.qtParked = 1
+    button.QtUIRingOn = 0
+  end
+  button.qtEmptyHidden = 1
+end
+
+local function RevealEmptyButton(button)
+  if not button then return end
+  button.qtEmptyHidden = nil
+  if button.EnableMouse then pcall(button.EnableMouse, button, true) end
+  if button.Show then pcall(button.Show, button) end
+end
+
+local function PulseButton(button)
+  if not button then return end
+  local flash = button.QtUIUseFlash
+  if not flash then
+    flash = button:CreateTexture(nil, "OVERLAY")
+    flash:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
+    flash:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+    flash:SetTexture("Interface\\Buttons\\WHITE8X8")
+    flash:SetVertexColor(1, 1, 1)
+    button.QtUIUseFlash = flash
+  end
+  flash:Show()
+  button.qtFlashUntil = GetTime() + .22
+  local watcher = button.QtUIFlashWatch
+  if not watcher then
+    watcher = CreateFrame("Frame", nil, button)
+    button.QtUIFlashWatch = watcher
+  end
+  watcher:SetScript("OnUpdate", function()
+    local parent = this:GetParent()
+    if not parent or not parent.qtFlashUntil or GetTime() >= parent.qtFlashUntil then
+      if parent and parent.QtUIUseFlash then parent.QtUIUseFlash:Hide() end
+      this:SetScript("OnUpdate", nil)
+    end
+  end)
+end
+
+function QtUI:PulseActionSlot(slot)
+  slot = tonumber(slot)
+  if not slot then return end
+  local prefixes = {
+    "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+    "MultiBarRightButton", "MultiBarLeftButton", "BonusActionButton",
+  }
+  local n
+  for n = 1, table.getn(prefixes) do
+    local i
+    for i = 1, 12 do
+      local button = getglobal(prefixes[n] .. i)
+      if button and SlotForButton(button) == slot then
+        PulseButton(button)
+      end
+    end
+  end
+end
+
+function QtUI:ApplyEmptySlotVisibility()
+  local hide = HideEmptySlotsOn()
+  local showEmpty = not hide or ShowEmptySlotsNow()
+  local n
+  for n = 1, table.getn(EMPTY_SLOT_PREFIXES) do
+    local prefix = EMPTY_SLOT_PREFIXES[n]
+    local last = 12
+    if prefix == "PetActionButton" then last = 10 end
+    local i
+    for i = 1, last do
+      local button = getglobal(prefix .. i)
+      if button and button.QtUIStyled then
+        if showEmpty or ButtonHasAction(button) then
+          if button.qtEmptyHidden then RevealEmptyButton(button) end
+        else
+          ConcealEmptyButton(button)
+        end
+      end
+    end
+  end
+  if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
+end
+
 ParkActionButton = function(button)
   if not button then return end
+  button.qtEmptyHidden = nil
   if button.Hide then pcall(button.Hide, button) end
   if button.EnableMouse then pcall(button.EnableMouse, button, false) end
   if button.QtUICell then
@@ -1151,6 +1310,7 @@ function QtUI:LayoutActionBars()
   PassClicksThrough(self.sideRightPanel)
   PassClicksThrough(self.sideLeftPanel)
   PassClicksThrough(self.auxiliaryPanel)
+  if self.ApplyEmptySlotVisibility then self:ApplyEmptySlotVisibility() end
 end
 
 function QtUI:LayoutSideBars()
@@ -1570,7 +1730,17 @@ local function InstallAutoUnshift()
         lastSpell = nil
         lastUseTime = GetTime()
       end
-      return originalUseAction(slot, checkCursor, onSelf)
+      local result = originalUseAction(slot, checkCursor, onSelf)
+      if not QtUI.usePulseWait then
+        QtUI.usePulseWait = CreateFrame("Frame", "QtUIUsePulseWait")
+      end
+      QtUI.usePulseWait.slot = slot
+      QtUI.usePulseWait:SetScript("OnUpdate", function()
+        this:SetScript("OnUpdate", nil)
+        if QtUI.PulseActionSlot then QtUI:PulseActionSlot(this.slot) end
+        if QtUI.RefreshBarCooldowns then QtUI:RefreshBarCooldowns() end
+      end)
+      return result
     end
   end
 

@@ -1697,6 +1697,7 @@ function QtUI:SetMoveMode(enabled)
     if self.moveChromeWait then self.moveChromeWait:SetScript("OnUpdate", nil) end
     HideMoveChrome()
   end
+  if self.ApplyEmptySlotVisibility then self:ApplyEmptySlotVisibility() end
   self.settingMoveMode = nil
 end
 

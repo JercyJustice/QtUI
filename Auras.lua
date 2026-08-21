@@ -15,6 +15,10 @@ local KNOWN_DURATIONS = {
   ["shackle undead"] = 50,
   ["weakened soul"] = 15,
   ["renew"] = 15,
+  ["tiger's fury"] = 6,
+  ["tigers fury"] = 6,
+  ["tigerfuror"] = 6,
+  ["tigerwut"] = 6,
   ["power word: shield"] = 30,
   ["power word: fortitude"] = 1800,
   ["prayer of fortitude"] = 3600,
@@ -237,6 +241,8 @@ local KNOWN_TEXTURE_DURATIONS = {
   ["spell_holy_sealofsacrifice"] = 30,
   ["spell_holy_blessingofprotection"] = 10,
   ["spell_holy_righteousfury"] = 1800,
+  ["ability_mount_jungletiger"] = 6,
+  ["ability_druid_tigersfury"] = 6,
 }
 
 local function GetKnownDuration(auraName, texture)
@@ -1227,7 +1233,10 @@ local function PlaceWatchFrame(frame, width, height)
     if frame.SetHeight then frame:SetHeight(height) end
     return
   end
-  frame:ClearAllPoints()
+  if not frame.qtWatchPlaced then
+    frame:ClearAllPoints()
+    frame.qtWatchPlaced = 1
+  end
   frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
   frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
   if frame.SetWidth then frame:SetWidth(width) end

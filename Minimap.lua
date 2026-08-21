@@ -169,7 +169,14 @@ function QtUI:SetupMinimap()
   events:RegisterEvent("ZONE_CHANGED_INDOORS")
   events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
   events:SetScript("OnEvent", function()
-    if type(SetMapToCurrentZone) == "function" then pcall(SetMapToCurrentZone) end
+    local mapOpen
+    if WorldMapFrame and WorldMapFrame.IsShown then
+      local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
+      mapOpen = ok and (vis == true or vis == 1)
+    end
+    if not mapOpen and type(SetMapToCurrentZone) == "function" then
+      pcall(SetMapToCurrentZone)
+    end
     UpdateZoneName()
     UpdateMinimapCoords()
   end)

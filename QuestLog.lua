@@ -9,6 +9,7 @@ local MAX_ROWS = 18
 local MAX_ITEMS = 8
 local TEXT_SIZE = 11
 local TITLE_SIZE = 13
+local LIST_NAME_SIZE = 9
 local BTN_W = 78
 local BTN_H = 22
 local BTN_Y = 8
@@ -23,6 +24,9 @@ local SCROLL_W = 12
 local VIEW_LINES = math.floor((TEXT_H - 8) / (TEXT_SIZE + 3))
 if VIEW_LINES < 4 then VIEW_LINES = 4 end
 local REWARD_VIEW = 4
+local LIST_TOP = WIN_H - 46
+local LIST_BOTTOM = 40
+local LIST_H = LIST_TOP - LIST_BOTTOM
 
 local nativeOnShow
 local nativeToggle
@@ -59,7 +63,26 @@ local function Paint(fs, size, r, g, b, justifyH, justifyV)
   if QtUI.ApplyFont then QtUI:ApplyFont(fs, size) end
   if fs.SetTextColor then pcall(fs.SetTextColor, fs, r or 1, g or 1, b or 1) end
   if fs.SetJustifyH then fs:SetJustifyH(justifyH or "LEFT") end
+  -- Emberveil: SetJustifyV accepts TOP/CENTER/BOTTOM. MIDDLE is ignored.
+  if justifyV == "MIDDLE" then justifyV = "CENTER" end
   if fs.SetJustifyV then fs:SetJustifyV(justifyV or "TOP") end
+end
+
+local function WheelOn(frame)
+  if frame and frame.EnableMouseWheel then
+    pcall(frame.EnableMouseWheel, frame, true)
+  end
+end
+
+-- Emberveil GetQuestLogTitle uses 0/false for unset flags, not nil (pfQuest).
+local function Flag(v)
+  if v == 0 or v == false then return nil end
+  return v
+end
+
+local function ReadQuestTitle(index)
+  local title, level, tag, isHeader, isCollapsed, complete = GetQuestLogTitle(index)
+  return title, level, tag, Flag(isHeader), Flag(isCollapsed), Flag(complete)
 end
 
 local function PaintWrap(fs, size, r, g, b)
@@ -73,6 +96,44 @@ local function ShiftDown()
   if type(IsShiftKeyDown) ~= "function" then return false end
   local ok, held = pcall(IsShiftKeyDown)
   return ok and True(held)
+end
+
+local function UnitHasQuest(index, unit)
+  if type(IsUnitOnQuest) ~= "function" then return false end
+  local ok, on = pcall(IsUnitOnQuest, index, unit)
+  return ok and True(on)
+end
+
+local function PartyQuestCount(index)
+  index = tonumber(index) or 0
+  if index < 1 then return 0 end
+  local n = 0
+  local seen = {}
+  local function AddUnit(unit)
+    if type(UnitIsUnit) == "function" then
+      local okSame, same = pcall(UnitIsUnit, unit, "player")
+      if okSame and True(same) then return end
+    end
+    if not UnitHasQuest(index, unit) then return end
+    local name
+    if type(UnitName) == "function" then name = UnitName(unit) end
+    if type(name) == "string" and name ~= "" then
+      local key = string.lower(name)
+      if seen[key] then return end
+      seen[key] = true
+    end
+    n = n + 1
+  end
+  local i
+  for i = 1, 4 do AddUnit("party" .. i) end
+  local raid = 0
+  if type(GetNumRaidMembers) == "function" then
+    raid = tonumber(GetNumRaidMembers()) or 0
+  end
+  if raid > 0 then
+    for i = 1, raid do AddUnit("raid" .. i) end
+  end
+  return n
 end
 
 local function ToggleWatch(index)
@@ -208,7 +269,7 @@ end
 
 local function QuestLevelColor(level, complete)
   if complete == -1 then return 1, .25, .25 end
-  if complete == 1 then return .2, 1, .35 end
+  if complete == 1 or complete == true then return .2, 1, .35 end
   level = tonumber(level) or 0
   local player = tonumber(UnitLevel("player")) or 1
   local diff = level - player
@@ -361,6 +422,15 @@ local function ScrollText(frame, delta)
   ApplyTextScroll(frame)
 end
 
+local function ApplyListThumb(frame)
+  if not frame then return end
+  local total = tonumber(frame.listCount) or 0
+  local maxOff = total - MAX_ROWS
+  if maxOff < 0 then maxOff = 0 end
+  local off = tonumber(frame.listScroll) or 0
+  PlaceThumb(frame.listThumb, frame.listTrack, off, maxOff, MAX_ROWS, total, LIST_H)
+end
+
 local function ScrollList(frame, delta)
   if not frame then return end
   delta = tonumber(delta) or 0
@@ -488,7 +558,7 @@ local function PaintDetail(frame)
     return
   end
 
-  local title, level, tag, isHeader, _, complete = GetQuestLogTitle(sel)
+  local title, level, tag, isHeader, _, complete = ReadQuestTitle(sel)
   if True(isHeader) or not title then
     frame.detailTitle:SetText(title or "")
     Paint(frame.detailTitle, TITLE_SIZE, 1, .82, .25)
@@ -503,7 +573,7 @@ local function PaintDetail(frame)
 
   local head = "[" .. tostring(level or 0) .. "] " .. title
   if tag and tag ~= "" then head = head .. " (" .. tag .. ")" end
-  if complete == 1 then head = head .. " |cff33ff55(Complete)|r" end
+  if complete == 1 or complete == true then head = head .. " |cff33ff55(Complete)|r" end
   if complete == -1 then head = head .. " |cffff4040(Failed)|r" end
   frame.detailTitle:SetText(head)
   local r, g, b = QuestLevelColor(level, complete)
@@ -521,11 +591,11 @@ local function PaintDetail(frame)
 
   local obj = objectives or ""
   if type(GetNumQuestLeaderBoards) == "function" and type(GetQuestLogLeaderBoard) == "function" then
-    local n = tonumber(GetNumQuestLeaderBoards()) or 0
+    local n = tonumber(GetNumQuestLeaderBoards(sel)) or 0
     local i
     local extra = ""
     for i = 1, n do
-      local ok, text, _, done = pcall(GetQuestLogLeaderBoard, i)
+      local ok, text, _, done = pcall(GetQuestLogLeaderBoard, i, sel)
       if ok and text and text ~= "" then
         if extra ~= "" then extra = extra .. "\n" end
         if True(done) then
@@ -614,19 +684,21 @@ local function PaintList(frame)
       btn.index = nil
       btn.isHeader = nil
       if btn.label then btn.label:SetText("") end
+      if btn.partyCount then btn.partyCount:SetText("") end
       if btn.SetBackdropColor then btn:SetBackdropColor(0, 0, 0, 0) end
     else
-      local title, level, tag, isHeader, isCollapsed, complete = GetQuestLogTitle(idx)
+      local title, level, tag, isHeader, isCollapsed, complete = ReadQuestTitle(idx)
       btn.index = idx
       btn.isHeader = True(isHeader)
       if True(isHeader) then
         local mark = True(isCollapsed) and "+" or "-"
         btn.label:SetText(" " .. mark .. "  " .. (title or ""))
         Paint(btn.label, 12, 1, .82, .25)
+        if btn.partyCount then btn.partyCount:SetText("") end
       else
         local label = "   [" .. tostring(level or 0) .. "] " .. (title or "")
         if tag and tag ~= "" then label = label .. " (" .. tag .. ")" end
-        if complete == 1 then label = label .. " *" end
+        if complete == 1 or complete == true then label = label .. " [x]" end
         local watched
         if type(IsQuestWatched) == "function" then
           local ok, v = pcall(IsQuestWatched, idx)
@@ -635,7 +707,16 @@ local function PaintList(frame)
         if watched then label = label .. " +" end
         btn.label:SetText(label)
         local r, g, b = QuestLevelColor(level, complete)
-        Paint(btn.label, 11, r, g, b)
+        Paint(btn.label, LIST_NAME_SIZE, r, g, b)
+        if btn.partyCount then
+          local pn = PartyQuestCount(idx)
+          if pn > 0 then
+            btn.partyCount:SetText("(" .. tostring(pn) .. ")")
+            Paint(btn.partyCount, LIST_NAME_SIZE, .85, .9, .95, "RIGHT", "CENTER")
+          else
+            btn.partyCount:SetText("")
+          end
+        end
       end
       if idx == sel and not True(isHeader) then
         if btn.SetBackdropColor then btn:SetBackdropColor(.08, .35, .55, .85) end
@@ -644,6 +725,8 @@ local function PaintList(frame)
       end
     end
   end
+  frame.listCount = entries
+  ApplyListThumb(frame)
 end
 
 function QtUI:RefreshQuestLog()
@@ -658,7 +741,7 @@ function QtUI:RefreshQuestLog()
     entries = (ok and tonumber(entries)) or 0
     local i
     for i = 1, entries do
-      local title, _, _, isHeader = GetQuestLogTitle(i)
+      local title, _, _, isHeader = ReadQuestTitle(i)
       if title and not True(isHeader) then
         pcall(SelectQuestLogEntry, i)
         break
@@ -676,7 +759,7 @@ local function MakeItemButton(parent, i)
   if btn.SetFrameLevel and parent and parent.GetFrameLevel then
     btn:SetFrameLevel((parent:GetFrameLevel() or 4) + 4)
   end
-  if btn.EnableMouseWheel then btn:EnableMouseWheel(1) end
+  WheelOn(btn)
   btn:SetScript("OnMouseWheel", function(a, b)
     local parent = QtUI.questLogFrame
     ScrollRewards(parent, WheelDelta(a, b))
@@ -707,7 +790,7 @@ end
 local function ClickRow()
   if not this.index then return end
   if this.isHeader then
-    local _, _, _, _, collapsed = GetQuestLogTitle(this.index)
+    local _, _, _, _, collapsed = ReadQuestTitle(this.index)
     if True(collapsed) then
       if ExpandQuestHeader then pcall(ExpandQuestHeader, this.index) end
     else
@@ -798,16 +881,43 @@ local function BuildFrame()
 
   local listLeft = WIN_W - LIST_W - PAD
   frame.listHeader = frame:CreateFontString(nil, "OVERLAY")
-  PlaceBox(frame.listHeader, frame, listLeft, WIN_H - 44, WIN_W - PAD, WIN_H - 30)
+  PlaceBox(frame.listHeader, frame, listLeft, WIN_H - 44, WIN_W - PAD - SCROLL_W - 4, WIN_H - 30)
   frame.listHeader:SetText("Quests")
   Paint(frame.listHeader, 12, 1, .82, .2)
+
+  frame.listTrack = CreateFrame("Button", "QtUIQuestListScroll", frame)
+  PlaceBox(frame.listTrack, frame, WIN_W - PAD - SCROLL_W, LIST_BOTTOM, WIN_W - PAD, LIST_TOP)
+  frame.listTrack:EnableMouse(true)
+  WheelOn(frame.listTrack)
+  if frame.listTrack.SetFrameLevel and frame.GetFrameLevel then
+    frame.listTrack:SetFrameLevel(frame:GetFrameLevel() + 6)
+  end
+  frame.listTrack:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.listTrack:SetBackdropColor(.08, .1, .12, .95)
+  frame.listTrack:SetScript("OnMouseWheel", function(a, b)
+    ScrollList(frame, WheelDelta(a, b))
+  end)
+  frame.listTrack:SetScript("OnMouseUp", function()
+    frame.listScroll = JumpScroll(this, frame.listCount or 0, MAX_ROWS)
+    if QtUI.RefreshQuestLog then QtUI:RefreshQuestLog() end
+  end)
+  frame.listThumb = CreateFrame("Frame", "QtUIQuestListThumb", frame.listTrack)
+  frame.listThumb:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+  })
+  frame.listThumb:SetBackdropColor(.38, .55, .62, 1)
+  PlaceBox(frame.listThumb, frame.listTrack, 2, LIST_H - 40, SCROLL_W - 2, LIST_H - 4)
 
   frame.rows = {}
   local i
   for i = 1, MAX_ROWS do
     local btn = CreateFrame("Button", "QtUIQuestRow" .. i, frame)
-    local top = WIN_H - 46 - i * ROW_H
-    PlaceBox(btn, frame, listLeft, top - ROW_H + 2, WIN_W - PAD, top)
+    local top = LIST_TOP - i * ROW_H
+    PlaceBox(btn, frame, listLeft, top - ROW_H + 2, WIN_W - PAD - SCROLL_W - 4, top)
     btn:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
       insets = { left = 0, right = 0, top = 0, bottom = 0 },
@@ -819,12 +929,16 @@ local function BuildFrame()
       btn:SetFrameLevel(frame:GetFrameLevel() + 6)
     end
     btn.label = btn:CreateFontString(nil, "OVERLAY")
-    PlaceBox(btn.label, btn, 4, 1, LIST_W - 18, ROW_H - 1)
-    Paint(btn.label, 11, 1, 1, 1)
+    PlaceBox(btn.label, btn, 4, 1, LIST_W - SCROLL_W - 36, ROW_H - 1)
+    Paint(btn.label, LIST_NAME_SIZE, 1, 1, 1)
+    btn.partyCount = btn:CreateFontString(nil, "OVERLAY")
+    btn.partyCount:ClearAllPoints()
+    btn.partyCount:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+    Paint(btn.partyCount, 11, .85, .9, .95, "RIGHT", "CENTER")
     btn:SetScript("OnMouseUp", function()
       if arg1 == "LeftButton" or arg1 == nil then ClickRow() end
     end)
-    if btn.EnableMouseWheel then btn:EnableMouseWheel(1) end
+    WheelOn(btn)
     btn:SetScript("OnMouseWheel", function(a, b)
       ScrollList(frame, WheelDelta(a, b))
     end)
@@ -838,7 +952,7 @@ local function BuildFrame()
   frame.textPanel = CreateFrame("Button", "QtUIQuestTextPanel", frame)
   PlaceBox(frame.textPanel, frame, PAD, TEXT_BOTTOM, listLeft - SCROLL_W - 10, TEXT_TOP - 2)
   frame.textPanel:EnableMouse(true)
-  if frame.textPanel.EnableMouseWheel then frame.textPanel:EnableMouseWheel(1) end
+  WheelOn(frame.textPanel)
   if frame.textPanel.SetFrameLevel and frame.GetFrameLevel then
     frame.textPanel:SetFrameLevel(frame:GetFrameLevel() + 4)
   end
@@ -858,7 +972,7 @@ local function BuildFrame()
   frame.scrollTrack = CreateFrame("Button", "QtUIQuestTextScroll", frame)
   PlaceBox(frame.scrollTrack, frame, listLeft - SCROLL_W - 8, TEXT_BOTTOM, listLeft - 8, TEXT_TOP - 2)
   frame.scrollTrack:EnableMouse(true)
-  if frame.scrollTrack.EnableMouseWheel then frame.scrollTrack:EnableMouseWheel(1) end
+  WheelOn(frame.scrollTrack)
   if frame.scrollTrack.SetFrameLevel and frame.GetFrameLevel then
     frame.scrollTrack:SetFrameLevel(frame:GetFrameLevel() + 6)
   end
@@ -886,7 +1000,7 @@ local function BuildFrame()
   frame.rewardPanel = CreateFrame("Button", "QtUIQuestRewardPanel", frame)
   PlaceBox(frame.rewardPanel, frame, PAD, REWARD_BOTTOM, listLeft - SCROLL_W - 10, REWARD_TOP)
   frame.rewardPanel:EnableMouse(true)
-  if frame.rewardPanel.EnableMouseWheel then frame.rewardPanel:EnableMouseWheel(1) end
+  WheelOn(frame.rewardPanel)
   if frame.rewardPanel.SetFrameLevel and frame.GetFrameLevel then
     frame.rewardPanel:SetFrameLevel(frame:GetFrameLevel() + 4)
   end
@@ -905,7 +1019,7 @@ local function BuildFrame()
   frame.rewardTrack = CreateFrame("Button", "QtUIQuestRewardScroll", frame)
   PlaceBox(frame.rewardTrack, frame, listLeft - SCROLL_W - 8, REWARD_BOTTOM, listLeft - 8, REWARD_TOP)
   frame.rewardTrack:EnableMouse(true)
-  if frame.rewardTrack.EnableMouseWheel then frame.rewardTrack:EnableMouseWheel(1) end
+  WheelOn(frame.rewardTrack)
   if frame.rewardTrack.SetFrameLevel and frame.GetFrameLevel then
     frame.rewardTrack:SetFrameLevel(frame:GetFrameLevel() + 6)
   end
@@ -945,14 +1059,57 @@ local function BuildFrame()
   frame.rewardScroll = 0
   frame.listScroll = 0
 
-  local function ClickAbandon()
-    if type(SetAbandonQuest) == "function" then pcall(SetAbandonQuest) end
-    if type(StaticPopup_Show) == "function" then
-      pcall(StaticPopup_Show, "ABANDON_QUEST")
-    elseif type(AbandonQuest) == "function" then
-      pcall(AbandonQuest)
+  local function HideAbandonConfirm()
+    if frame.abandonConfirm then ParkFrame(frame.abandonConfirm) end
+  end
+
+  local function DoAbandon()
+    HideAbandonConfirm()
+    local sel = 0
+    if type(GetQuestLogSelection) == "function" then
+      sel = tonumber(GetQuestLogSelection()) or 0
     end
+    if sel > 0 and type(SelectQuestLogEntry) == "function" then
+      pcall(SelectQuestLogEntry, sel)
+    end
+    if type(SetAbandonQuest) == "function" then pcall(SetAbandonQuest) end
+    if type(AbandonQuest) == "function" then pcall(AbandonQuest) end
     QtUI:RefreshQuestLog()
+  end
+
+  local function ShowAbandonConfirm()
+    local sel = 0
+    if type(GetQuestLogSelection) == "function" then
+      sel = tonumber(GetQuestLogSelection()) or 0
+    end
+    if sel < 1 then return end
+    if type(SelectQuestLogEntry) == "function" then pcall(SelectQuestLogEntry, sel) end
+    if type(SetAbandonQuest) == "function" then pcall(SetAbandonQuest) end
+    local name
+    if type(GetAbandonQuestName) == "function" then
+      local ok, n = pcall(GetAbandonQuestName)
+      if ok then name = n end
+    end
+    if (not name or name == "") and type(GetQuestLogTitle) == "function" then
+      local title = GetQuestLogTitle(sel)
+      name = title
+    end
+    if not name or name == "" then return end
+    local box = frame.abandonConfirm
+    if box and box.label then
+      box.label:SetText("Abandon  " .. name .. "?")
+      Paint(box.label, 12, 1, .9, .45, "CENTER", "MIDDLE")
+    end
+    if box then
+      PlaceBox(box, frame, PAD, BTN_Y, WIN_W - LIST_W - PAD - 4, BTN_Y + BTN_H + 28)
+      if box.EnableMouse then box:EnableMouse(true) end
+      if box.Show then pcall(box.Show, box) end
+      if box.Raise then pcall(box.Raise, box) end
+    end
+  end
+
+  local function ClickAbandon()
+    ShowAbandonConfirm()
   end
 
   local function ClickShare()
@@ -1005,6 +1162,54 @@ local function BuildFrame()
   frame.btnShare = MakeTextBtn("QtUIQuestShare", "Share", PAD + BTN_W + 8, ClickShare)
   frame.btnWatch = MakeTextBtn("QtUIQuestWatch", "Track", PAD + (BTN_W + 8) * 2, ClickTrack)
 
+  local confirm = CreateFrame("Frame", "QtUIQuestAbandonConfirm", frame)
+  if confirm.SetFrameLevel and frame.GetFrameLevel then
+    confirm:SetFrameLevel(frame:GetFrameLevel() + 20)
+  end
+  confirm:EnableMouse(true)
+  confirm:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  confirm:SetBackdropColor(.04, .05, .06, .98)
+  confirm:SetBackdropBorderColor(.4, .28, .2, 1)
+  confirm.label = confirm:CreateFontString(nil, "OVERLAY")
+  PlaceBox(confirm.label, confirm, 8, 28, 250, 50)
+  Paint(confirm.label, 12, 1, .9, .45, "LEFT", "MIDDLE")
+
+  local function MakeConfirmBtn(name, label, left, click)
+    local btn = CreateFrame("Button", name, confirm)
+    PlaceBox(btn, confirm, left, 6, left + 70, 26)
+    if btn.EnableMouse then btn:EnableMouse(true) end
+    if btn.RegisterForClicks then btn:RegisterForClicks("LeftButtonUp") end
+    if btn.SetFrameLevel and confirm.GetFrameLevel then
+      btn:SetFrameLevel(confirm:GetFrameLevel() + 2)
+    end
+    btn:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+      tile = true, tileSize = 8, edgeSize = 8,
+      insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    btn:SetBackdropColor(.08, .1, .12, .95)
+    btn:SetBackdropBorderColor(.3, .38, .4, 1)
+    btn.label = btn:CreateFontString(nil, "OVERLAY")
+    btn.label:ClearAllPoints()
+    btn.label:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    btn.label:SetText(label)
+    Paint(btn.label, 11, 1, 1, 1, "CENTER", "MIDDLE")
+    btn:SetScript("OnMouseUp", function()
+      if arg1 == "LeftButton" or arg1 == nil then click() end
+    end)
+    return btn
+  end
+  MakeConfirmBtn("QtUIQuestAbandonYes", "Yes", 8, DoAbandon)
+  MakeConfirmBtn("QtUIQuestAbandonNo", "No", 86, HideAbandonConfirm)
+  frame.abandonConfirm = confirm
+  ParkFrame(confirm)
+
   if UISpecialFrames then table.insert(UISpecialFrames, "QtUIQuestLog") end
   ParkFrame(frame)
   return frame
@@ -1049,6 +1254,10 @@ function QtUI:SetupQuestLog()
     pcall(events.RegisterEvent, events, "QUEST_WATCH_UPDATE")
     pcall(events.RegisterEvent, events, "PLAYER_ENTERING_WORLD")
     pcall(events.RegisterEvent, events, "UNIT_QUEST_LOG_CHANGED")
+    pcall(events.RegisterEvent, events, "PARTY_MEMBERS_CHANGED")
+    pcall(events.RegisterEvent, events, "RAID_ROSTER_UPDATE")
+    pcall(events.RegisterEvent, events, "PARTY_MEMBER_ENABLE")
+    pcall(events.RegisterEvent, events, "PARTY_MEMBER_DISABLE")
     events:SetScript("OnEvent", function()
       if FeatureOn() and QtUI.questLogFrame and QtUI.questLogFrame.IsShown then
         local ok, vis = pcall(QtUI.questLogFrame.IsShown, QtUI.questLogFrame)

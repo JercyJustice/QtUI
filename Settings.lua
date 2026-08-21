@@ -4,7 +4,7 @@ local FEATURE_OPTIONS = {
   { key = "autoSell", label = "Auto-Sell Greys", description = "Sell grey-quality items when a merchant opens." },
   { key = "unitFrames", label = "Player / Target Frames", description = "Replace the native player, target and combo-point frames." },
   { key = "partyFrames", label = "Party / Pet Frames", description = "Replace native party and pet frames." },
-  { key = "auras", label = "Aura Displays", description = "Show QtUI buff and debuff rows on enabled unit frames." },
+  { key = "auras", label = "Aura Displays", description = "Buff and debuff icons on unit frames, plus timed personal buff and own-target-debuff trackers. Shift-click an aura to pin it." },
   { key = "actionBars", label = "Action Bar Edits", description = "Use QtUI's main, utility, stance and pet action-bar layout." },
   { key = "experienceBar", label = "Experience Bar", description = "Show the QtUI level and rested-experience bar." },
   { key = "castBar", label = "Cast Bar", description = "Replace the native player casting bar." },
@@ -51,6 +51,10 @@ function QtUI:SetFeatureEnabled(key, enabled)
     elseif self.HideDamageMeter then
       self:HideDamageMeter()
     end
+  elseif key == "auras" then
+    if enabled and self.SetupAuraWatch then self:SetupAuraWatch() end
+    if self.RefreshAuraWatch then self:RefreshAuraWatch() end
+    if self.UpdateUnitFrames then self:UpdateUnitFrames() end
   end
 end
 
@@ -279,7 +283,7 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
   row.caption:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
   row.caption:SetPoint("RIGHT", row, "LEFT", 160, 0)
   row.caption:SetJustifyH("LEFT")
-  if row.caption.SetJustifyV then row.caption:SetJustifyV("MIDDLE") end
+  if row.caption.SetJustifyV then row.caption:SetJustifyV("CENTER") end
   row.caption:SetText(label)
   row.caption:SetTextColor(.82, .84, .86)
 
@@ -299,12 +303,12 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
   row.button.text:SetPoint("TOPLEFT", row.button, "TOPLEFT", 8, -3)
   row.button.text:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -18, 3)
   row.button.text:SetJustifyH("LEFT")
-  if row.button.text.SetJustifyV then row.button.text:SetJustifyV("MIDDLE") end
+  if row.button.text.SetJustifyV then row.button.text:SetJustifyV("CENTER") end
   row.button.arrow = row.button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   row.button.arrow:SetPoint("TOPRIGHT", row.button, "TOPRIGHT", -7, -5)
   row.button.arrow:SetPoint("BOTTOMRIGHT", row.button, "BOTTOMRIGHT", -7, 5)
   row.button.arrow:SetJustifyH("RIGHT")
-  if row.button.arrow.SetJustifyV then row.button.arrow:SetJustifyV("MIDDLE") end
+  if row.button.arrow.SetJustifyV then row.button.arrow:SetJustifyV("CENTER") end
   row.button.arrow:SetText("|cff888888v|r")
 
   row.menu = CreateFrame("Frame", nil, UIParent)
@@ -341,7 +345,7 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
         btn.text:SetPoint("TOPLEFT", btn, "TOPLEFT", 8, 0)
         btn.text:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -6, 0)
         btn.text:SetJustifyH("LEFT")
-        if btn.text.SetJustifyV then btn.text:SetJustifyV("MIDDLE") end
+        if btn.text.SetJustifyV then btn.text:SetJustifyV("CENTER") end
         btn:EnableMouse(true)
         btn:RegisterForClicks("LeftButtonUp")
         btn:SetScript("OnEnter", function()
@@ -638,6 +642,63 @@ local function CreateToggleRow(parent, y, label, getter, setter, x, width)
   end)
   Refresh()
   row.Refresh = Refresh
+  return row
+end
+
+local function CreateWatchListBox(parent, y, kind)
+  local row = CreateFrame("Frame", nil, parent)
+  row:SetWidth(440)
+  row:SetHeight(42)
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+
+  row.caption = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  row.caption:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+  row.caption:SetText("Spell names, comma-separated")
+
+  local box = CreateFrame("EditBox", nil, row)
+  box:SetAutoFocus(false)
+  if box.SetMultiLine then box:SetMultiLine(nil) end
+  if box.SetFontObject then box:SetFontObject(GameFontHighlightSmall) end
+  box:SetTextInsets(6, 4, 4, 4)
+  if box.SetMaxLetters then box:SetMaxLetters(400) end
+  box:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 8, edgeSize = 8,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  box:SetBackdropColor(.04, .05, .06, 1)
+  box:SetBackdropBorderColor(.18, .24, .28, 1)
+  box:ClearAllPoints()
+  box:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+  box:SetPoint("TOPRIGHT", row, "BOTTOMLEFT", 430, 20)
+  if box.SetWidth then box:SetWidth(430) end
+  if box.SetHeight then box:SetHeight(20) end
+  if box.EnableMouse then box:EnableMouse(true) end
+
+  local function Load()
+    if QtUI.GetAuraWatchListText then box:SetText(QtUI:GetAuraWatchListText(kind) or "") end
+  end
+  local function Save()
+    if QtUI.SetAuraWatchListText then QtUI:SetAuraWatchListText(box:GetText(), kind) end
+  end
+  box:SetScript("OnEnterPressed", function()
+    Save()
+    this:ClearFocus()
+  end)
+  box:SetScript("OnEscapePressed", function()
+    Load()
+    this:ClearFocus()
+  end)
+  box:SetScript("OnEditFocusGained", function()
+    Load()
+  end)
+  box:SetScript("OnEditFocusLost", function()
+    Save()
+  end)
+  Load()
+  row.box = box
+  row.Refresh = Load
   return row
 end
 
@@ -1702,7 +1763,9 @@ function QtUI:SetupSettingsWindow()
 
   local function BuildUnitPage(pageKey, styleKey, blurb, extras)
     local page = AddPage(pageKey)
-    CreateSection(page, 0, 360)
+    local sectionH = 360
+    if extras.watchBuffs or extras.watchDebuffs then sectionH = 590 end
+    CreateSection(page, 0, sectionH)
     page.note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -10)
     page.note:SetWidth(430)
@@ -1786,18 +1849,104 @@ function QtUI:SetupSettingsWindow()
       end, function(value)
         QtUI:GetLayout().estimateMobHealth = value and true or false
       end)
+      y = y - 26
+    end
+    if extras.watchBuffs then
+      CreateHeader(page, y, "Buff tracker")
+      y = y - 24
+      CreateToggleRow(page, y, "Track timed personal buffs", function()
+        local value = QtUI:GetLayout().playerBuffWatch
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().playerBuffWatch = value and true or false
+        if QtUI.RefreshAuraWatch then QtUI:RefreshAuraWatch() end
+      end)
+      y = y - 26
+      CreateStepper(page, y, "Hide longer than (sec)", function()
+        return QtUI:GetLayout().auraWatchThreshold or 120
+      end, function(value)
+        QtUI:GetLayout().auraWatchThreshold = value
+        if QtUI.RefreshAuraWatch then QtUI:RefreshAuraWatch() end
+      end, 0, 600, 30, 0)
+      y = y - 26
+      CreateStepper(page, y, "Tracker width", function()
+        return QtUI:GetLayout().playerBuffWatchWidth or 220
+      end, function(value)
+        QtUI:GetLayout().playerBuffWatchWidth = value
+        if QtUI.LayoutAuraWatch then QtUI:LayoutAuraWatch() end
+      end, 140, 360, 10, 0)
+      y = y - 26
+      CreateStepper(page, y, "Bar height", function()
+        return QtUI:GetLayout().playerBuffWatchBarHeight or 18
+      end, function(value)
+        QtUI:GetLayout().playerBuffWatchBarHeight = value
+        if QtUI.LayoutAuraWatch then QtUI:LayoutAuraWatch() end
+      end, 14, 28, 1, 0)
+      y = y - 26
+      CreateToggleRow(page, y, "Whitelist only", function()
+        local value = QtUI:GetLayout().playerBuffWatchWhitelist
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().playerBuffWatchWhitelist = value and true or false
+        if QtUI.RefreshAuraWatch then QtUI:RefreshAuraWatch() end
+      end)
+      y = y - 26
+      CreateWatchListBox(page, y, "player")
+    end
+    if extras.watchDebuffs then
+      CreateHeader(page, y, "Debuff tracker")
+      y = y - 24
+      CreateToggleRow(page, y, "Track own debuffs on target", function()
+        local value = QtUI:GetLayout().targetDebuffWatch
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().targetDebuffWatch = value and true or false
+        if QtUI.RefreshAuraWatch then QtUI:RefreshAuraWatch() end
+      end)
+      y = y - 26
+      CreateToggleRow(page, y, "Only own debuffs on target frame", function()
+        local value = QtUI:GetLayout().targetOwnDebuffs
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().targetOwnDebuffs = value and true or false
+        if QtUI.UpdateUnitFrames then QtUI:UpdateUnitFrames() end
+      end)
+      y = y - 26
+      CreateStepper(page, y, "Tracker width", function()
+        return QtUI:GetLayout().targetDebuffWatchWidth or 220
+      end, function(value)
+        QtUI:GetLayout().targetDebuffWatchWidth = value
+        if QtUI.LayoutAuraWatch then QtUI:LayoutAuraWatch() end
+      end, 140, 360, 10, 0)
+      y = y - 26
+      CreateStepper(page, y, "Bar height", function()
+        return QtUI:GetLayout().targetDebuffWatchBarHeight or 18
+      end, function(value)
+        QtUI:GetLayout().targetDebuffWatchBarHeight = value
+        if QtUI.LayoutAuraWatch then QtUI:LayoutAuraWatch() end
+      end, 14, 28, 1, 0)
+      y = y - 26
+      CreateToggleRow(page, y, "Whitelist only", function()
+        local value = QtUI:GetLayout().targetDebuffWatchWhitelist
+        return value ~= false and value ~= 0 and value ~= "0"
+      end, function(value)
+        QtUI:GetLayout().targetDebuffWatchWhitelist = value and true or false
+        if QtUI.RefreshAuraWatch then QtUI:RefreshAuraWatch() end
+      end)
+      y = y - 26
+      CreateWatchListBox(page, y, "target")
     end
     return page
   end
 
-  BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors.", {
+  BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors. Whitelist which buffs to track, or Shift-click an aura. Enter to save names.", {
     height = true, powerHeight = true, powerText = true,
     classColor = "Health uses class color", classColorKey = "playerClassColor",
-    minHeight = 40, maxHeight = 100,
+    minHeight = 40, maxHeight = 100, watchBuffs = true,
   })
-  BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors.", {
+  BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors. Whitelist DoTs and CC, or Shift-click a debuff. Own list, separate from player buffs.", {
     height = true, powerHeight = true, powerText = true, classText = true,
-    healthDb = true, minHeight = 40, maxHeight = 100,
+    healthDb = true, minHeight = 40, maxHeight = 100, watchDebuffs = true,
   })
   BuildUnitPage("unit-tot", "targettarget", "Target-of-target size, mana bar and text anchors.", {
     height = true, powerHeight = true, powerText = true,
@@ -1924,7 +2073,7 @@ function QtUI:SetupSettingsWindow()
       button.text:SetPoint("TOPLEFT", button, "TOPLEFT", 4, 0)
       button.text:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 0)
       button.text:SetJustifyH("CENTER")
-      if button.text.SetJustifyV then button.text:SetJustifyV("MIDDLE") end
+      if button.text.SetJustifyV then button.text:SetJustifyV("CENTER") end
     end
   end
 

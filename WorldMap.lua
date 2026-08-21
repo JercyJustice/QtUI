@@ -364,6 +364,14 @@ local function HookMapReveal()
   WorldMapFrame_Update = function()
     originalUpdate()
     DrawRevealedMap()
+    if pfMap and pfMap.UpdateNodes then
+      local key = tostring(GetCurrentMapContinent and GetCurrentMapContinent() or 0) .. ":" .. tostring(GetCurrentMapZone and GetCurrentMapZone() or 0)
+      if GetMapInfo then key = key .. ":" .. tostring(GetMapInfo() or "") end
+      if QtUI.pfMapView ~= key then
+        QtUI.pfMapView = key
+        pcall(function() pfMap:UpdateNodes() end)
+      end
+    end
   end
 end
 

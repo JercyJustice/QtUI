@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.12.0"
+QtUI.version = "0.16.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -469,6 +469,48 @@ function QtUI:EnsureLayoutDefaults()
     UpgradeSideDefault(layout.bars.sideLeft)
     layout.sideGridUpgraded = true
   end
+  if layout.auraWatch == nil then layout.auraWatch = true end
+  if layout.playerBuffWatch == nil then layout.playerBuffWatch = true end
+  if layout.targetDebuffWatch == nil then layout.targetDebuffWatch = true end
+  if layout.targetOwnDebuffs == nil then layout.targetOwnDebuffs = true end
+  if layout.playerBuffWatchWhitelist == nil then
+    if layout.auraWatchWhitelist ~= nil then
+      layout.playerBuffWatchWhitelist = layout.auraWatchWhitelist
+    else
+      layout.playerBuffWatchWhitelist = true
+    end
+  end
+  if layout.targetDebuffWatchWhitelist == nil then
+    if layout.auraWatchWhitelist ~= nil then
+      layout.targetDebuffWatchWhitelist = layout.auraWatchWhitelist
+    else
+      layout.targetDebuffWatchWhitelist = true
+    end
+  end
+  if type(layout.playerBuffWatchPins) ~= "table" then layout.playerBuffWatchPins = {} end
+  if type(layout.targetDebuffWatchPins) ~= "table" then layout.targetDebuffWatchPins = {} end
+  if type(layout.auraWatchPins) ~= "table" then layout.auraWatchPins = {} end
+  layout.auraWatchThreshold = tonumber(layout.auraWatchThreshold) or 120
+  if layout.auraWatchThreshold < 0 then layout.auraWatchThreshold = 0 end
+  if layout.auraWatchThreshold > 600 then layout.auraWatchThreshold = 600 end
+  layout.auraWatchWidth = tonumber(layout.auraWatchWidth) or 220
+  if layout.auraWatchWidth < 140 then layout.auraWatchWidth = 140 end
+  if layout.auraWatchWidth > 360 then layout.auraWatchWidth = 360 end
+  layout.auraWatchBarHeight = tonumber(layout.auraWatchBarHeight) or 18
+  if layout.auraWatchBarHeight < 14 then layout.auraWatchBarHeight = 14 end
+  if layout.auraWatchBarHeight > 28 then layout.auraWatchBarHeight = 28 end
+  layout.playerBuffWatchWidth = tonumber(layout.playerBuffWatchWidth) or layout.auraWatchWidth
+  if layout.playerBuffWatchWidth < 140 then layout.playerBuffWatchWidth = 140 end
+  if layout.playerBuffWatchWidth > 360 then layout.playerBuffWatchWidth = 360 end
+  layout.targetDebuffWatchWidth = tonumber(layout.targetDebuffWatchWidth) or layout.auraWatchWidth
+  if layout.targetDebuffWatchWidth < 140 then layout.targetDebuffWatchWidth = 140 end
+  if layout.targetDebuffWatchWidth > 360 then layout.targetDebuffWatchWidth = 360 end
+  layout.playerBuffWatchBarHeight = tonumber(layout.playerBuffWatchBarHeight) or layout.auraWatchBarHeight
+  if layout.playerBuffWatchBarHeight < 14 then layout.playerBuffWatchBarHeight = 14 end
+  if layout.playerBuffWatchBarHeight > 28 then layout.playerBuffWatchBarHeight = 28 end
+  layout.targetDebuffWatchBarHeight = tonumber(layout.targetDebuffWatchBarHeight) or layout.auraWatchBarHeight
+  if layout.targetDebuffWatchBarHeight < 14 then layout.targetDebuffWatchBarHeight = 14 end
+  if layout.targetDebuffWatchBarHeight > 28 then layout.targetDebuffWatchBarHeight = 28 end
   return layout
 end
 
@@ -912,6 +954,7 @@ function QtUI:ApplyLayout()
   if self.LayoutChat then self:LayoutChat() end
   if self.LayoutDataText then self:LayoutDataText() end
   if self.ApplySavedPositions then self:ApplySavedPositions() end
+  if self.LayoutAuraWatch then self:LayoutAuraWatch() end
   -- Never turn anchor mode on from layout. Login and Apply must stay locked.
   if not self.pulsingBarBackground and self.ScheduleBarChromeRefresh then
     self:ScheduleBarChromeRefresh()
@@ -1062,6 +1105,7 @@ function QtUI:Initialize()
   if self:IsFeatureEnabled("experienceBar") then SafeSetup("experienceBar", self.SetupXPBar) end
   SafeSetup("mobHealth", self.SetupMobHealth)
   if self:IsFeatureEnabled("unitFrames") then SafeSetup("unitFrames", self.SetupUnitFrames) end
+  if self:IsFeatureEnabled("auras") then SafeSetup("auraWatch", self.SetupAuraWatch) end
   if self:IsFeatureEnabled("castBar") then SafeSetup("castBar", self.SetupCastBar) end
   if self:IsFeatureEnabled("partyFrames") then SafeSetup("partyFrames", self.SetupPartyFrames) end
   if self:IsFeatureEnabled("bags") then SafeSetup("bags", self.SetupBags) end

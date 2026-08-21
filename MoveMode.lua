@@ -1797,6 +1797,12 @@ function QtUI:SetupMoveMode()
       self:RegisterMovable("targetDebuffs", "Target Debuffs", self.targetFrame.debuffs, true)
     end
   end
+  if self.playerBuffWatch then
+    self:RegisterMovable("playerBuffWatch", "Personal Buff Tracker", self.playerBuffWatch, true)
+  end
+  if self.targetDebuffWatch then
+    self:RegisterMovable("targetDebuffWatch", "Target Debuff Tracker", self.targetDebuffWatch, true)
+  end
   if self.leftChatPanel then
     self:RegisterMovable("chat", "Chat", self.leftChatPanel)
   elseif ChatFrame1 then

@@ -115,7 +115,7 @@ local function LabelInCell(parent, align)
     text:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
     if text.SetJustifyH then text:SetJustifyH("RIGHT") end
   end
-  if text.SetJustifyV then text:SetJustifyV("MIDDLE") end
+  if text.SetJustifyV then text:SetJustifyV("CENTER") end
   return text
 end
 

@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.23.0"
+QtUI.version = "0.24.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -562,8 +562,20 @@ function QtUI:EnsureLayoutDefaults()
   return layout
 end
 
+-- EnsureLayoutDefaults walks ~200 settings and allocates three closures plus five
+-- tables every call (~7.8us and ~245 bytes of garbage). GetLayout is reached from
+-- per-button, per-frame paths -- icon tinting via RangeColorOn and cooldown text
+-- via FeatureOn -- so one GCD sweep of 82 buttons spent half its time here.
+-- Memoise the validated table. The identity check is the invalidation: a profile
+-- load replaces QtUIDB.layout outright (Profiles.lua), and /qtui reset replaces
+-- QtUIDB, so both miss the cache and revalidate. Direct EnsureLayoutDefaults
+-- callers (ApplyLayout, EnsureDB, Settings, Profiles) still re-clamp on demand.
+local layoutCache
 function QtUI:GetLayout()
-  return self:EnsureLayoutDefaults()
+  local cached = layoutCache
+  if cached and QtUIDB and cached == QtUIDB.layout then return cached end
+  layoutCache = self:EnsureLayoutDefaults()
+  return layoutCache
 end
 
 function QtUI:GetBarConfig(name)

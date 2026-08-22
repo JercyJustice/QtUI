@@ -153,6 +153,7 @@ local function CreatePetFrame(name, unit, parent, point, relativePoint, x, y, wi
 end
 
 local function UpdatePartyMember(frame, skipAuras)
+  if not frame then return end
   local unit = frame.unit
   if not UnitIsPresent(unit) then
     frame:Hide()
@@ -211,6 +212,7 @@ local function UpdatePartyMember(frame, skipAuras)
 end
 
 local function UpdatePetFrame(frame)
+  if not frame then return end
   local unit = frame.unit
   if not UnitIsPresent(unit) then
     frame:Hide()
@@ -293,6 +295,40 @@ local function QueuePartyAuraRefresh(driver)
   driver:SetScript("OnUpdate", PartyAuraTick)
 end
 
+-- The four member frames and their pet frames cost ~400 widgets, and every one of
+-- them is a real engine widget that is laid out and ticked whether or not you are
+-- in a group. Build them the first time a group actually exists. The anchor is
+-- still created at login because move mode registers it as a movable.
+function QtUI:EnsureGroupSize()
+  local n = 0
+  if type(GetNumRaidMembers) == "function" then
+    local ok, raid = pcall(GetNumRaidMembers)
+    if ok then n = tonumber(raid) or 0 end
+  end
+  if n < 1 and type(GetNumPartyMembers) == "function" then
+    local ok, party = pcall(GetNumPartyMembers)
+    if ok then n = tonumber(party) or 0 end
+  end
+  return n
+end
+
+function QtUI:EnsurePartyMemberFrames()
+  if self.partyMemberFramesBuilt then return nil end
+  if not self.partyAnchor then return nil end
+  if self:EnsureGroupSize() < 1 and not self.moveMode then return nil end
+  self.partyMemberFramesBuilt = true
+  local i
+  for i = 1, 4 do
+    local member = CreatePartyMember(i, self.partyAnchor)
+    local pet = CreatePetFrame("QtUIPartyPet" .. i, "partypet" .. i,
+      member, "TOPLEFT", "BOTTOMLEFT", 12, -2, 165)
+    self.partyFrames[i] = member
+    self.partyPetFrames[i] = pet
+  end
+  if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
+  return true
+end
+
 function QtUI:SetupPartyFrames()
   self.partyFrames = {}
   self.partyPetFrames = {}
@@ -309,16 +345,11 @@ function QtUI:SetupPartyFrames()
   for i = 1, 4 do
     self:HideFrame(getglobal("PartyMemberFrame" .. i))
     self:HideFrame(getglobal("PartyMemberFrame" .. i .. "PetFrame"))
-
-    local member = CreatePartyMember(i, anchor)
-    local pet = CreatePetFrame("QtUIPartyPet" .. i, "partypet" .. i,
-      member, "TOPLEFT", "BOTTOMLEFT", 12, -2, 165)
-    self.partyFrames[i] = member
-    self.partyPetFrames[i] = pet
   end
 
   self.playerPetFrame = CreatePetFrame("QtUIPlayerPet", "pet",
     UIParent, "BOTTOM", "BOTTOM", -133, 170, QtUI:GetLayout().petWidth or 180)
+  self:EnsurePartyMemberFrames()
   if self.ApplyPartyFrameLayout then self:ApplyPartyFrameLayout() end
 
   local events = CreateFrame("Frame", "QtUIPartyEvents")
@@ -339,6 +370,11 @@ function QtUI:SetupPartyFrames()
   pcall(events.RegisterEvent, events, "UNIT_PORTRAIT_UPDATE")
   events:SetScript("OnEvent", function()
     local unit = arg1
+    -- Joining a group is the point the member frames become worth building.
+    if event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE"
+        or event == "PLAYER_ENTERING_WORLD" then
+      QtUI:EnsurePartyMemberFrames()
+    end
     if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" or event == "UNIT_MANA"
         or event == "UNIT_MAXMANA" or event == "UNIT_DISPLAYPOWER" or event == "UNIT_AURA"
         or event == "UNIT_LEVEL" or event == "UNIT_NAME_UPDATE" then

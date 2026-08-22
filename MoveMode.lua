@@ -1690,6 +1690,12 @@ function QtUI:SetMoveMode(enabled)
   self.moveMode = enabled and true or nil
   HookEscapeToEndMove()
 
+  -- Party member frames are built lazily once a group exists; anchor mode is the
+  -- other time they need to be on screen, so the anchor can be placed against them.
+  if self.moveMode and self.EnsurePartyMemberFrames then
+    self:EnsurePartyMemberFrames()
+  end
+
   if self.moveMode then
     ParkSettingsWindow()
     EnsureMoveGrid()

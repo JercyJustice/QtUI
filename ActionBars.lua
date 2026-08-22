@@ -203,24 +203,72 @@ local function InstallActionResolvers()
     end)
   end
 
-  -- Panels like the auction house are loaded on demand, so rescan on load events.
+  -- Emberveil has no EnumerateFrames, so the boxes have to be named explicitly.
+  -- Panels like the auction house and mail are loaded on demand, so this reruns
+  -- on the events that open them.
+  local EDIT_BOXES = {
+    -- Auction house
+    "BrowseName", "BrowseMinLevel", "BrowseMaxLevel", "BrowseBidPrice",
+    "StartPrice", "BuyoutPrice", "AuctionsStackSizeEntry", "AuctionsNumStacksEntry",
+    "PriceStartPrice", "PriceBuyoutPrice",
+    -- Mail
+    "SendMailNameEditBox", "SendMailSubjectEditBox", "SendMailBodyEditBox",
+    "SendMailMoneyGold", "SendMailMoneySilver", "SendMailMoneyCopper",
+    -- Trade and money entry
+    "TradePlayerInputMoneyFrameGold", "TradePlayerInputMoneyFrameSilver",
+    "TradePlayerInputMoneyFrameCopper",
+    -- Misc panels
+    "GuildInviteFrameEditBox", "FriendsFrameBroadcastInput",
+    "StackSplitText", "MacroFrameText", "MacroPopupEditBox",
+    "ChannelPasswordEditBox", "PetNameEditBox", "GuildBankPopupEditBox",
+  }
+
   local function ScanEditBoxes()
-    if type(EnumerateFrames) ~= "function" then return end
-    local frame = EnumerateFrames()
-    local guard = 0
-    while frame and guard < 20000 do
-      HookEditBox(frame)
-      local ok, nextFrame = pcall(EnumerateFrames, frame)
-      if not ok then return end
-      frame = nextFrame
-      guard = guard + 1
+    local i
+    for i = 1, table.getn(EDIT_BOXES) do
+      HookEditBox(getglobal(EDIT_BOXES[i]))
+    end
+    -- Chat: the shared alias plus the per-window boxes.
+    HookEditBox(getglobal("ChatFrameEditBox"))
+    for i = 1, (NUM_CHAT_WINDOWS or 7) do
+      HookEditBox(getglobal("ChatFrame" .. i .. "EditBox"))
+    end
+    -- Static popups (renaming, amount entry) are numbered.
+    for i = 1, 4 do
+      HookEditBox(getglobal("StaticPopup" .. i .. "EditBox"))
+      HookEditBox(getglobal("StaticPopup" .. i .. "MoneyInputFrameGold"))
+      HookEditBox(getglobal("StaticPopup" .. i .. "MoneyInputFrameSilver"))
+      HookEditBox(getglobal("StaticPopup" .. i .. "MoneyInputFrameCopper"))
     end
   end
 
+  -- A visible chat edit box means the player is typing. AtlasLoot uses the same
+  -- test on this client, so it is known to work here. Chat is special-cased this
+  -- way because its box is only visible while typing -- panel boxes like the
+  -- auction house are visible the whole time the panel is open, so those rely on
+  -- focus tracking instead.
+  local function ChatEditOpen()
+    local names = { "ChatFrameEditBox" }
+    local i
+    for i = 1, (NUM_CHAT_WINDOWS or 7) do
+      table.insert(names, "ChatFrame" .. i .. "EditBox")
+    end
+    for i = 1, table.getn(names) do
+      local box = getglobal(names[i])
+      if box and box.IsVisible then
+        local ok, visible = pcall(box.IsVisible, box)
+        if ok and (visible == true or visible == 1 or visible == "1") then return true end
+      end
+    end
+    return nil
+  end
+
   local function KeyboardBusy()
+    if ChatEditOpen() then return true end
     local box = focusedEditBox
     if not box then return nil end
-    -- A box that was hidden while focused may never fire OnEditFocusLost.
+    -- A box hidden while focused may never fire OnEditFocusLost; do not let that
+    -- wedge the action bars.
     if box.IsVisible then
       local ok, visible = pcall(box.IsVisible, box)
       if ok and not (visible == true or visible == 1 or visible == "1") then

@@ -8,7 +8,7 @@ local FEATURE_OPTIONS = {
   { key = "actionBars", label = "Action Bar Edits", description = "Use QtUI's main, utility, stance and pet action-bar layout." },
   { key = "experienceBar", label = "Experience Bar", description = "Show the QtUI level and rested-experience bar." },
   { key = "castBar", label = "Cast Bar", description = "Replace the native player casting bar." },
-  { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling and controls." },
+  { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling, zone text and coordinates. Turn off to keep the native minimap." },
   { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
   { key = "dataText", label = "Gold / Time / Performance", description = "Show money, clock, FPS and latency. Click the clock to switch server and local time." },
   { key = "questLog", label = "Custom Quest Log", description = "Replace the native quest log. Full quest text on the left, quest list on the right.", default = true },
@@ -55,6 +55,13 @@ function QtUI:SetFeatureEnabled(key, enabled)
     if enabled and self.SetupAuraWatch then self:SetupAuraWatch() end
     if self.RefreshAuraWatch then self:RefreshAuraWatch() end
     if self.UpdateUnitFrames then self:UpdateUnitFrames() end
+  elseif key == "minimap" then
+    if enabled then
+      if self.SetupMinimap then self:SetupMinimap() end
+      if self.ApplySavedPositions then self:ApplySavedPositions() end
+    elseif self.RestoreMinimap then
+      self:RestoreMinimap()
+    end
   end
 end
 

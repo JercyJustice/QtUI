@@ -17,6 +17,61 @@ local hiddenDecorations = {
   "MinimapToggleButton",
 }
 
+local nativeLayout
+local skinApplied
+
+local function SnapFrame(frame)
+  if not frame then return nil end
+  local snap = {}
+  if frame.GetWidth then snap.width = frame:GetWidth() end
+  if frame.GetHeight then snap.height = frame:GetHeight() end
+  if frame.GetLeft then snap.left = frame:GetLeft() end
+  if frame.GetBottom then snap.bottom = frame:GetBottom() end
+  if frame.GetAlpha then snap.alpha = frame:GetAlpha() end
+  if frame.GetScript then
+    snap.onShow = frame:GetScript("OnShow")
+    snap.onMouseWheel = frame:GetScript("OnMouseWheel")
+  end
+  return snap
+end
+
+local function CaptureNative()
+  if nativeLayout then return end
+  nativeLayout = {
+    cluster = SnapFrame(MinimapCluster),
+    map = SnapFrame(Minimap),
+    deco = {},
+  }
+  local i
+  for i = 1, table.getn(hiddenDecorations) do
+    local name = hiddenDecorations[i]
+    nativeLayout.deco[name] = SnapFrame(getglobal(name))
+  end
+end
+
+local function PlaceAbsolute(frame, snap)
+  if not frame or not snap then return end
+  local left, bottom, width, height = snap.left, snap.bottom, snap.width, snap.height
+  if width and frame.SetWidth then frame:SetWidth(width) end
+  if height and frame.SetHeight then frame:SetHeight(height) end
+  if not left or not bottom or not width or not height then return end
+  if not frame.ClearAllPoints or not frame.SetPoint then return end
+  frame:ClearAllPoints()
+  frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+  frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", left + width, bottom + height)
+end
+
+local function ParkWidget(widget)
+  if not widget then return end
+  if widget.EnableMouse then pcall(widget.EnableMouse, widget, false) end
+  if widget.EnableMouseWheel then pcall(widget.EnableMouseWheel, widget, 0) end
+  if widget.ClearAllPoints and widget.SetPoint then
+    widget:ClearAllPoints()
+    widget:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  end
+  if widget.Hide then pcall(widget.Hide, widget) end
+end
+
 local function UpdateZoneName()
   if not QtUI.minimapZone then return end
   local zone = ""
@@ -72,27 +127,100 @@ local function ForwardMinimapScript(handler)
   this = previousThis
 end
 
-function QtUI:SetupMinimap()
-  if not Minimap then return end
+local function MinimapSkinOn()
+  if QtUI.IsFeatureEnabled then return QtUI:IsFeatureEnabled("minimap") end
+  return true
+end
 
-  for _, name in ipairs(hiddenDecorations) do
-    self:HideFrame(getglobal(name))
+local function EnsureChrome()
+  if QtUI.minimapInput then return end
+
+  local nativeMouseDown = Minimap:GetScript("OnMouseDown")
+  local nativeMouseUp = Minimap:GetScript("OnMouseUp")
+  local nativeClick = Minimap:GetScript("OnClick")
+  local input = CreateFrame("Button", "QtUIMinimapInput", Minimap)
+  input:SetAllPoints(Minimap)
+  if input.SetFrameLevel then input:SetFrameLevel(Minimap:GetFrameLevel() or 1) end
+  input:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  input:SetScript("OnMouseWheel", HandleMouseWheel)
+  input:SetScript("OnMouseDown", function() ForwardMinimapScript(nativeMouseDown) end)
+  input:SetScript("OnMouseUp", function() ForwardMinimapScript(nativeMouseUp) end)
+  input:SetScript("OnClick", function() ForwardMinimapScript(nativeClick) end)
+  QtUI.minimapInput = input
+
+  local zone = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
+  zone:SetJustifyH("CENTER")
+  zone:SetTextColor(1, .82, .2)
+  if QtUI.ApplyFont then QtUI:ApplyFont(zone, 12) end
+  if zone.SetShadowOffset then zone:SetShadowOffset(1, -1) end
+  if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
+  QtUI.minimapZone = zone
+
+  local coords = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapCoords", "OVERLAY", "GameFontNormalSmall")
+  coords:SetJustifyH("CENTER")
+  coords:SetTextColor(1, 1, 1)
+  if QtUI.ApplyFont then
+    QtUI:ApplyFont(coords, 11)
+  elseif coords.SetFont then
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    coords:SetFont(font, 11, "OUTLINE")
   end
-  -- Emberveil ships MinimapZoneText with the placeholder "BLAH!".
+  if coords.SetShadowOffset then coords:SetShadowOffset(1, -1) end
+  if coords.SetShadowColor then coords:SetShadowColor(0, 0, 0, 1) end
+  QtUI.minimapCoords = coords
+
+  local coordTicker = CreateFrame("Frame", "QtUIMinimapCoordTicker")
+  coordTicker.elapsed = 0
+  coordTicker:SetScript("OnUpdate", function()
+    if not MinimapSkinOn() then return end
+    this.elapsed = this.elapsed + (arg1 or 0)
+    if this.elapsed < .5 then return end
+    this.elapsed = 0
+    UpdateMinimapCoords()
+  end)
+  QtUI.minimapCoordTicker = coordTicker
+
+  local events = CreateFrame("Frame", "QtUIMinimapEvents")
+  events:RegisterEvent("MINIMAP_ZONE_CHANGED")
+  events:RegisterEvent("ZONE_CHANGED")
+  events:RegisterEvent("ZONE_CHANGED_INDOORS")
+  events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+  events:SetScript("OnEvent", function()
+    if not MinimapSkinOn() then return end
+    -- pfQuest already resets the map when the world map is closed. Calling
+    -- SetMapToCurrentZone here while Emberveil's native map is open (Lua
+    -- WorldMapFrame often reports hidden) wipes pfQuest world-map pins.
+    if not pfMap then
+      local mapOpen
+      if WorldMapFrame and WorldMapFrame.IsShown then
+        local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
+        mapOpen = ok and (vis == true or vis == 1)
+      end
+      if not mapOpen and type(SetMapToCurrentZone) == "function" then
+        pcall(SetMapToCurrentZone)
+      end
+    end
+    UpdateZoneName()
+    UpdateMinimapCoords()
+  end)
+  QtUI.minimapEvents = events
+end
+
+local function ApplyMinimapSkin()
+  EnsureChrome()
+
+  local i
+  for i = 1, table.getn(hiddenDecorations) do
+    ParkWidget(getglobal(hiddenDecorations[i]))
+  end
+
   local nativeZone = getglobal("MinimapZoneText") or getglobal("MiniMapZoneText")
   if nativeZone then
     if nativeZone.SetText then pcall(nativeZone.SetText, nativeZone, "") end
     if nativeZone.SetAlpha then pcall(nativeZone.SetAlpha, nativeZone, 0) end
-    if nativeZone.ClearAllPoints and nativeZone.SetPoint then
-      pcall(function()
-        nativeZone:ClearAllPoints()
-        nativeZone:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-      end)
-    end
+    ParkWidget(nativeZone)
   end
 
-  -- Retain the native circular render that works in Emberveil, but strip all
-  -- of Blizzard's surrounding artwork and controls.
   if Minimap.SetMaskTexture then Minimap:SetMaskTexture("Textures\\MinimapMask") end
 
   if MinimapCluster then
@@ -110,82 +238,108 @@ function QtUI:SetupMinimap()
   Minimap:EnableMouseWheel(1)
   Minimap:SetScript("OnMouseWheel", HandleMouseWheel)
 
-  -- Emberveil renders the minimap but does not consistently include that
-  -- special render frame in UI mouse hit testing. A regular transparent button
-  -- captures the wheel before it reaches the camera. Parent it to Minimap at
-  -- the map's own frame level so pfQuest pins (Minimap children) stay on top.
-  local nativeMouseDown = Minimap:GetScript("OnMouseDown")
-  local nativeMouseUp = Minimap:GetScript("OnMouseUp")
-  local nativeClick = Minimap:GetScript("OnClick")
-  local input = CreateFrame("Button", "QtUIMinimapInput", Minimap)
-  input:SetAllPoints(Minimap)
-  if input.SetFrameLevel then input:SetFrameLevel(Minimap:GetFrameLevel() or 1) end
-  input:EnableMouse(true)
-  input:EnableMouseWheel(1)
-  input:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  input:SetScript("OnMouseWheel", HandleMouseWheel)
-  input:SetScript("OnMouseDown", function() ForwardMinimapScript(nativeMouseDown) end)
-  input:SetScript("OnMouseUp", function() ForwardMinimapScript(nativeMouseUp) end)
-  input:SetScript("OnClick", function() ForwardMinimapScript(nativeClick) end)
-  self.minimapInput = input
-
-  local zone = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
-  zone:SetPoint("BOTTOM", Minimap, "TOP", 0, 2)
-  zone:SetWidth(MAP_SIZE)
-  zone:SetJustifyH("CENTER")
-  zone:SetTextColor(1, .82, .2)
-  if QtUI.ApplyFont then QtUI:ApplyFont(zone, 12) end
-  if zone.SetShadowOffset then zone:SetShadowOffset(1, -1) end
-  if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
-  self.minimapZone = zone
-
-  local coords = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapCoords", "OVERLAY", "GameFontNormalSmall")
-  coords:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 4)
-  coords:SetWidth(MAP_SIZE)
-  coords:SetJustifyH("CENTER")
-  coords:SetTextColor(1, 1, 1)
-  if QtUI.ApplyFont then
-    QtUI:ApplyFont(coords, 11)
-  elseif coords.SetFont then
-    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-    coords:SetFont(font, 11, "OUTLINE")
+  local input = QtUI.minimapInput
+  if input then
+    input:ClearAllPoints()
+    input:SetAllPoints(Minimap)
+    if input.SetFrameLevel then input:SetFrameLevel(Minimap:GetFrameLevel() or 1) end
+    input:EnableMouse(true)
+    input:EnableMouseWheel(1)
+    if input.Show then pcall(input.Show, input) end
   end
-  if coords.SetShadowOffset then coords:SetShadowOffset(1, -1) end
-  if coords.SetShadowColor then coords:SetShadowColor(0, 0, 0, 1) end
-  self.minimapCoords = coords
 
-  local coordTicker = CreateFrame("Frame", "QtUIMinimapCoordTicker")
-  coordTicker.elapsed = 0
-  coordTicker:SetScript("OnUpdate", function()
-    this.elapsed = this.elapsed + (arg1 or 0)
-    if this.elapsed < .5 then return end
-    this.elapsed = 0
-    UpdateMinimapCoords()
-  end)
-  UpdateMinimapCoords()
+  local zone = QtUI.minimapZone
+  if zone then
+    zone:ClearAllPoints()
+    zone:SetPoint("BOTTOM", Minimap, "TOP", 0, 2)
+    zone:SetWidth(MAP_SIZE)
+    if zone.Show then pcall(zone.Show, zone) end
+  end
 
-  local events = CreateFrame("Frame", "QtUIMinimapEvents")
-  events:RegisterEvent("MINIMAP_ZONE_CHANGED")
-  events:RegisterEvent("ZONE_CHANGED")
-  events:RegisterEvent("ZONE_CHANGED_INDOORS")
-  events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-  events:SetScript("OnEvent", function()
-    -- pfQuest already resets the map when the world map is closed. Calling
-    -- SetMapToCurrentZone here while Emberveil's native map is open (Lua
-    -- WorldMapFrame often reports hidden) wipes pfQuest world-map pins.
-    if not pfMap then
-      local mapOpen
-      if WorldMapFrame and WorldMapFrame.IsShown then
-        local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
-        mapOpen = ok and (vis == true or vis == 1)
-      end
-      if not mapOpen and type(SetMapToCurrentZone) == "function" then
-        pcall(SetMapToCurrentZone)
-      end
-    end
-    UpdateZoneName()
-    UpdateMinimapCoords()
-  end)
+  local coords = QtUI.minimapCoords
+  if coords then
+    coords:ClearAllPoints()
+    coords:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 4)
+    coords:SetWidth(MAP_SIZE)
+    if coords.Show then pcall(coords.Show, coords) end
+  end
 
   UpdateZoneName()
+  UpdateMinimapCoords()
+  skinApplied = 1
+end
+
+function QtUI:RestoreMinimap()
+  if not Minimap then return end
+
+  ParkWidget(self.minimapInput)
+  if self.minimapZone then
+    self.minimapZone:SetText("")
+    ParkWidget(self.minimapZone)
+  end
+  if self.minimapCoords then
+    self.minimapCoords:SetText("")
+    ParkWidget(self.minimapCoords)
+  end
+
+  local snap = nativeLayout
+  if snap and snap.cluster then
+    PlaceAbsolute(MinimapCluster, snap.cluster)
+  elseif MinimapCluster then
+    MinimapCluster:ClearAllPoints()
+    MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
+    MinimapCluster:SetWidth(192)
+    MinimapCluster:SetHeight(192)
+  end
+
+  if snap and snap.map then
+    PlaceAbsolute(Minimap, snap.map)
+    if snap.map.onMouseWheel then
+      Minimap:SetScript("OnMouseWheel", snap.map.onMouseWheel)
+    else
+      Minimap:SetScript("OnMouseWheel", nil)
+    end
+  else
+    Minimap:ClearAllPoints()
+    Minimap:SetPoint("CENTER", MinimapCluster or UIParent, "TOPRIGHT", -76, -82)
+    Minimap:SetWidth(140)
+    Minimap:SetHeight(140)
+    Minimap:SetScript("OnMouseWheel", nil)
+  end
+  if Minimap.SetMaskTexture then Minimap:SetMaskTexture("Textures\\MinimapMask") end
+  Minimap:EnableMouse(true)
+
+  local i
+  for i = 1, table.getn(hiddenDecorations) do
+    local name = hiddenDecorations[i]
+    local frame = getglobal(name)
+    if frame then
+      local deco = snap and snap.deco and snap.deco[name]
+      if frame.SetScript then pcall(frame.SetScript, frame, "OnShow", deco and deco.onShow or nil) end
+      if deco then PlaceAbsolute(frame, deco) end
+      if deco and deco.alpha and frame.SetAlpha then pcall(frame.SetAlpha, frame, deco.alpha) end
+      if frame.Show then pcall(frame.Show, frame) end
+    end
+  end
+
+  local nativeZone = getglobal("MinimapZoneText") or getglobal("MiniMapZoneText")
+  if nativeZone then
+    if nativeZone.SetAlpha then pcall(nativeZone.SetAlpha, nativeZone, 1) end
+    if nativeZone.SetText and type(GetMinimapZoneText) == "function" then
+      pcall(nativeZone.SetText, nativeZone, GetMinimapZoneText() or "")
+    end
+    if nativeZone.Show then pcall(nativeZone.Show, nativeZone) end
+  end
+
+  skinApplied = nil
+end
+
+function QtUI:SetupMinimap()
+  if not Minimap then return end
+  CaptureNative()
+  if not MinimapSkinOn() then
+    if skinApplied then self:RestoreMinimap() end
+    return
+  end
+  ApplyMinimapSkin()
 end

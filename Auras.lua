@@ -470,13 +470,19 @@ local function AuraWatchOn()
   return not layout or layout.auraWatch ~= false
 end
 
--- Tiger's Fury and other short self-buffs used to access-violate Emberveil (0x338)
--- because the watch scanned auras in the same frame they were applied. That no
--- longer happens: the aura-watch event handler returns early on UNIT_AURA and the
--- frame is refreshed from WatchOnUpdate instead, so the scan never runs in the
--- delivery frame. The scan also goes through GetAura (UnitBuff), never the
--- GetPlayerBuff* or GameTooltip:SetUnitBuff calls that were the actual crash.
-local PLAYER_WATCH_SAFE = true
+-- DO NOT ENABLE. Emberveil access-violates at 0x338 when this watch scans a short
+-- self-buff such as Tiger's Fury. Keep the frame created for layout, but never
+-- scan or show it.
+--
+-- This was tried in 0.25.0 on the theory that deferring the scan out of the
+-- UNIT_AURA delivery frame made it safe -- the handler does return early on
+-- UNIT_AURA, the refresh runs from WatchOnUpdate, and the scan goes through
+-- GetAura (UnitBuff) rather than GetPlayerBuff* or GameTooltip:SetUnitBuff.
+-- That reasoning was wrong. It exposed a separate nil-global bug (fixed in
+-- 0.25.2) and, once that was out of the way, still produced a client crash
+-- dump at 0x338 five minutes into the session. Polling from OnUpdate is not
+-- enough; the fault is in scanning player buffs at all on this client.
+local PLAYER_WATCH_SAFE
 
 local function PlayerBuffWatchOn()
   if not PLAYER_WATCH_SAFE then return nil end
@@ -1345,10 +1351,12 @@ function QtUI:SetupAuraWatch()
   self.auraWatchReady = true
   ScanSpellbook()
 
-  -- Mirrors the target watch, which sits the same distance right of centre.
+  -- Created for layout only. The OnUpdate is stripped and the frame is parked so
+  -- it can never poll player buffs -- see PLAYER_WATCH_SAFE above.
   local player = CreateWatchFrame("QtUIPlayerBuffWatch", "player", "BUFF", "player")
+  player:SetScript("OnUpdate", nil)
   player:ClearAllPoints()
-  player:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", -180, 40)
+  player:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   self.playerBuffWatch = player
 
   local target = CreateWatchFrame("QtUITargetDebuffWatch", "target", "DEBUFF", "target")

@@ -178,8 +178,76 @@ local function InstallActionResolvers()
   -- also redirects to BonusActionButton while that bar reports shown — QtUI
   -- hides it, but Emberveil Hide() often still returns shown, so the key sets
   -- PUSHED on ActionButton and the original handler checks BonusActionButton.
+  -- Real 1.12 withholds action keybinds while an edit box owns the keyboard, so
+  -- vanilla's ActionButtonUp never had to check. Emberveil dispatches them anyway,
+  -- so typing a number in chat or an auction-house price box also fires that
+  -- hotbar slot. There is no GetCurrentKeyBoardFocus on this client, so track the
+  -- focused edit box ourselves -- OnEditFocusGained/Lost do work here.
+  local focusedEditBox
+  local hookedEditBoxes = {}
+
+  local function HookEditBox(box)
+    if not box or hookedEditBoxes[box] or not box.GetObjectType then return end
+    local ok, kind = pcall(box.GetObjectType, box)
+    if not ok or kind ~= "EditBox" then return end
+    hookedEditBoxes[box] = true
+    local prevGained = box.GetScript and box:GetScript("OnEditFocusGained")
+    local prevLost = box.GetScript and box:GetScript("OnEditFocusLost")
+    box:SetScript("OnEditFocusGained", function()
+      focusedEditBox = box
+      if prevGained then prevGained() end
+    end)
+    box:SetScript("OnEditFocusLost", function()
+      if focusedEditBox == box then focusedEditBox = nil end
+      if prevLost then prevLost() end
+    end)
+  end
+
+  -- Panels like the auction house are loaded on demand, so rescan on load events.
+  local function ScanEditBoxes()
+    if type(EnumerateFrames) ~= "function" then return end
+    local frame = EnumerateFrames()
+    local guard = 0
+    while frame and guard < 20000 do
+      HookEditBox(frame)
+      local ok, nextFrame = pcall(EnumerateFrames, frame)
+      if not ok then return end
+      frame = nextFrame
+      guard = guard + 1
+    end
+  end
+
+  local function KeyboardBusy()
+    local box = focusedEditBox
+    if not box then return nil end
+    -- A box that was hidden while focused may never fire OnEditFocusLost.
+    if box.IsVisible then
+      local ok, visible = pcall(box.IsVisible, box)
+      if ok and not (visible == true or visible == 1 or visible == "1") then
+        focusedEditBox = nil
+        return nil
+      end
+    end
+    return true
+  end
+
+  QtUI.KeyboardBusy = KeyboardBusy
+  QtUI.ScanEditBoxes = ScanEditBoxes
+  ScanEditBoxes()
+
+  local editWatch = CreateFrame("Frame", "QtUIEditFocusWatch")
+  pcall(editWatch.RegisterEvent, editWatch, "ADDON_LOADED")
+  pcall(editWatch.RegisterEvent, editWatch, "PLAYER_ENTERING_WORLD")
+  pcall(editWatch.RegisterEvent, editWatch, "AUCTION_HOUSE_SHOW")
+  pcall(editWatch.RegisterEvent, editWatch, "MAIL_SHOW")
+  pcall(editWatch.RegisterEvent, editWatch, "TRADE_SHOW")
+  pcall(editWatch.RegisterEvent, editWatch, "BANKFRAME_OPENED")
+  editWatch:SetScript("OnEvent", ScanEditBoxes)
+
   local function FireHotkey(button, onSelf)
     if not button then return end
+    -- Typing, not playing.
+    if KeyboardBusy() then return end
     if button.SetButtonState then pcall(button.SetButtonState, button, "NORMAL") end
     local action = SlotForButton(button)
     if not action then return end
@@ -192,6 +260,7 @@ local function InstallActionResolvers()
   local originalActionButtonDown = ActionButtonDown
   if type(originalActionButtonDown) == "function" then
     ActionButtonDown = function(id)
+      if KeyboardBusy() then return end
       local activeButton = getglobal("ActionButton" .. tostring(id or ""))
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonDown(id)
@@ -203,6 +272,7 @@ local function InstallActionResolvers()
   local originalActionButtonUp = ActionButtonUp
   if type(originalActionButtonUp) == "function" then
     ActionButtonUp = function(id, onSelf)
+      if KeyboardBusy() then return end
       local activeButton = getglobal("ActionButton" .. tostring(id or ""))
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonUp(id, onSelf)
@@ -214,6 +284,7 @@ local function InstallActionResolvers()
   if type(MultiActionButtonDown) == "function" then
     local originalMultiDown = MultiActionButtonDown
     MultiActionButtonDown = function(bar, id)
+      if KeyboardBusy() then return end
       local button = getglobal(tostring(bar or "") .. "Button" .. tostring(id or ""))
       if not button or not button.QtUIAction then
         return originalMultiDown(bar, id)
@@ -225,6 +296,7 @@ local function InstallActionResolvers()
   if type(MultiActionButtonUp) == "function" then
     local originalMultiUp = MultiActionButtonUp
     MultiActionButtonUp = function(bar, id, onSelf)
+      if KeyboardBusy() then return end
       local button = getglobal(tostring(bar or "") .. "Button" .. tostring(id or ""))
       if not button or not button.QtUIAction then
         return originalMultiUp(bar, id, onSelf)

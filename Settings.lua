@@ -1899,7 +1899,10 @@ function QtUI:SetupSettingsWindow()
       y = y - 26
     end
     if extras.watchBuffs then
-      CreateHeader(page, y, "Buff tracker")
+      -- The personal buff tracker is disabled in Auras.lua (PLAYER_WATCH_SAFE):
+      -- scanning player buffs access-violates this client at 0x338. Say so rather
+      -- than presenting a toggle that silently does nothing.
+      CreateHeader(page, y, "Buff tracker  |cff888888(unavailable on this client)|r")
       y = y - 24
       CreateToggleRow(page, y, "Track timed personal buffs", function()
         local value = QtUI:GetLayout().playerBuffWatch

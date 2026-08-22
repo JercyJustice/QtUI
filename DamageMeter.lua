@@ -232,6 +232,13 @@ local function AddData(source, action, target, value, school, datatype, crit)
   MarkMetersDirty()
 end
 
+local function AddDeath(name)
+  if not fightStart then return end
+  if type(name) ~= "string" or name == "" then return end
+  name = ResolveName(name)
+  table.insert(fightDeaths, { name = name, t = GetTime() - fightStart })
+end
+
 -- ShaguDPS locale-independent pattern sanitizer.
 local sanitizeCache = {}
 local function Sanitize(pattern)
@@ -904,13 +911,6 @@ end
 
 local function CopySegment(src)
   return CopyTableDeep(src, 3)
-end
-
-local function AddDeath(name)
-  if not fightStart then return end
-  if type(name) ~= "string" or name == "" then return end
-  name = ResolveName(name)
-  table.insert(fightDeaths, { name = name, t = GetTime() - fightStart })
 end
 
 local function SegmentHasData(seg)

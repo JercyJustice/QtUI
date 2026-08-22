@@ -263,7 +263,11 @@ end
 
 local ownSpells = {}
 local ownTextures = {}
+local ownTextureNames = {}
 local SPELL_ALIASES = {
+  ["tigerfuror"] = "tiger's fury",
+  ["tigerwut"] = "tiger's fury",
+  ["tiger's fury"] = "tigerfuror",
   ["judgement of the crusader"] = "seal of the crusader",
   ["judgment of the crusader"] = "seal of the crusader",
   ["judgement of light"] = "seal of light",
@@ -281,6 +285,7 @@ local SPELL_ALIASES = {
 local function ScanSpellbook()
   ownSpells = {}
   ownTextures = {}
+  ownTextureNames = {}
   if type(GetNumSpellTabs) ~= "function" or type(GetSpellName) ~= "function" then return end
   local tabs = tonumber(GetNumSpellTabs()) or 0
   local t
@@ -297,7 +302,11 @@ local function ScanSpellbook()
       if type(GetSpellTexture) == "function" then
         local ok, path = pcall(GetSpellTexture, offset + s, "spell")
         if ok and type(path) == "string" then
-          ownTextures[string.lower(path)] = true
+          local lower = string.lower(path)
+          ownTextures[lower] = true
+          if type(spellName) == "string" and spellName ~= "" then
+            ownTextureNames[lower] = spellName
+          end
         end
       end
     end
@@ -393,16 +402,27 @@ local function SetWatchListFromText(text, kind)
   end
 end
 
-local function IsPinned(auraName, kind)
-  if not auraName or auraName == "" then return nil end
+local function NameMatchesPin(name, kind)
+  if not name or name == "" then return nil end
   local pins = WatchPins(kind)
   if not pins then return nil end
-  local key = string.lower(auraName)
+  local key = string.lower(name)
+  local alias = SPELL_ALIASES[key]
   local i
   for i = 1, table.getn(pins) do
     local pin = pins[i]
-    if pin == key then return true end
+    if pin == key or (alias and pin == alias) then return true end
+    if SPELL_ALIASES[pin] == key then return true end
     if string.len(pin) >= 3 and string.find(key, pin, 1, true) then return true end
+  end
+  return nil
+end
+
+local function IsPinned(auraName, kind, texture)
+  if NameMatchesPin(auraName, kind) then return true end
+  if texture then
+    local mapped = ownTextureNames[string.lower(texture)]
+    if mapped and NameMatchesPin(mapped, kind) then return true end
   end
   return nil
 end
@@ -446,7 +466,12 @@ local function AuraWatchOn()
   return not layout or layout.auraWatch ~= false
 end
 
+-- Emberveil access-violates when a short self-buff (Tiger's Fury) is tracked.
+-- Keep the player watch created for layout, but never scan or show it.
+local PLAYER_WATCH_SAFE
+
 local function PlayerBuffWatchOn()
+  if not PLAYER_WATCH_SAFE then return nil end
   if not AuraWatchOn() then return nil end
   if not QtUI.GetLayout then return true end
   local layout = QtUI:GetLayout()
@@ -639,25 +664,9 @@ local function GetPlayerAura(index, auraType)
     if timeOk then timeLeft = AsSeconds(remaining) end
   end
 
-  local auraName
-  local cacheKey = tostring(buffIndex) .. ":" .. string.lower(texture)
-  local cached = scanCache[cacheKey]
-  local now = GetTime()
-  if cached and cached.name and (now - cached.time) < 8 then
-    auraName = cached.name
-  elseif GameTooltip and GameTooltip.SetPlayerBuff then
-    if not auraScanner then
-      auraScanner = CreateFrame("GameTooltip", "QtUIAuraScanTooltip", UIParent, "GameTooltipTemplate")
-      auraScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    end
-    auraScanner:ClearLines()
-    pcall(auraScanner.SetPlayerBuff, auraScanner, buffIndex)
-    local nameLine = getglobal("QtUIAuraScanTooltipTextLeft1")
-    auraName = nameLine and nameLine:GetText()
-    auraScanner:Hide()
-    scanCache[cacheKey] = { name = auraName, time = now }
-  end
-
+  -- Never SetPlayerBuff / tooltip here. Emberveil crashes when a short combat
+  -- buff like Tiger's Fury is scanned in the same frame it is applied.
+  local auraName = ownTextureNames[string.lower(texture)]
   local duration = GetKnownDuration(auraName, texture)
   local expiration
   if timeLeft and timeLeft > 0 then
@@ -1118,7 +1127,7 @@ local function CollectWatchAuras(frame, unit, auraType, ownOnly, threshold)
     if not texture then break end
     local remaining = 0
     if expiration and expiration > now then remaining = expiration - now end
-    local pinned = IsPinned(auraName, kind)
+    local pinned = IsPinned(auraName, kind, texture)
     local own = IsOwnAura(auraName, texture)
     local pass
     if whitelist then
@@ -1182,37 +1191,37 @@ local function PaintWatchBar(bar, entry, auraType)
   bar.expiration = entry.expiration
   bar.maxDuration = entry.duration
   if not bar.maxDuration or bar.maxDuration < 0.1 then bar.maxDuration = 0.1 end
-  bar.icon:SetTexture(entry.texture)
-  bar.nameText:SetText(entry.name or "")
-  bar.stacks:SetText(entry.applications > 1 and entry.applications or "")
-  bar.bar:SetMinMaxValues(0, bar.maxDuration)
-  bar.bar:SetValue(entry.remaining)
-  if auraType == "DEBUFF" then
-    bar.bar:SetStatusBarColor(.82, .18, .16, .95)
-    bar:SetBackdropBorderColor(.7, .18, .16, 1)
-  else
-    bar.bar:SetStatusBarColor(.16, .62, .82, .95)
-    bar:SetBackdropBorderColor(.18, .5, .68, 1)
+  local paintKey = (entry.texture or "") .. ":" .. (entry.name or "") .. ":" .. tostring(bar.maxDuration)
+  if bar.qtPaintKey ~= paintKey then
+    bar.qtPaintKey = paintKey
+    bar.icon:SetTexture(entry.texture)
+    bar.nameText:SetText(entry.name or "")
+    if auraType == "DEBUFF" then
+      bar:SetBackdropBorderColor(.7, .18, .16, 1)
+    else
+      bar:SetBackdropBorderColor(.18, .5, .68, 1)
+    end
   end
+  bar.stacks:SetText(entry.applications > 1 and entry.applications or "")
+  if bar.bar and bar.bar.Hide then pcall(bar.bar.Hide, bar.bar) end
   PaintWatchTime(bar, entry.remaining)
-  bar:Show()
+  if bar.Show then pcall(bar.Show, bar) end
 end
 
 local function UpdateWatchTimers(frame)
   local now = GetTime()
+  local expired
   local i
   for i = 1, table.getn(frame.bars) do
     local bar = frame.bars[i]
     if bar:IsShown() and bar.expiration then
       local remaining = bar.expiration - now
       if remaining < 0 then remaining = 0 end
-      local maxDuration = bar.maxDuration
-      if not maxDuration or maxDuration < 0.1 then maxDuration = 0.1 end
-      bar.bar:SetMinMaxValues(0, maxDuration)
-      bar.bar:SetValue(remaining)
       PaintWatchTime(bar, remaining)
+      if remaining <= 0 then expired = true end
     end
   end
+  if expired then RefreshWatchFrame(frame) end
 end
 
 local function PlaceWatchFrame(frame, width, height)
@@ -1250,17 +1259,13 @@ local function SizeWatchFrame(frame, shown)
   local count = shown
   if count < 1 then count = 1 end
   local height = count * (barH + 1) - 1
-  if frame.qtWatchW ~= width or frame.qtWatchH ~= height then
-    PlaceWatchFrame(frame, width, height)
-    frame.qtWatchW = width
-    frame.qtWatchH = height
-  end
+  if frame.qtWatchW == width and frame.qtWatchH == height then return end
+  PlaceWatchFrame(frame, width, height)
+  frame.qtWatchW = width
+  frame.qtWatchH = height
   local i
   for i = 1, table.getn(frame.bars) do
     LayoutWatchBar(frame.bars[i], width, barH)
-  end
-  if frame.placeholder then
-    PlaceWatchBox(frame.placeholder, frame, 6, 2, width - 12, height - 4)
   end
 end
 
@@ -1279,8 +1284,14 @@ local function RefreshWatchFrame(frame)
 
   if frame.unit == "target" and not UnitName("target") then
     local i
-    for i = 1, table.getn(frame.bars) do frame.bars[i]:Hide() end
-    if frame.placeholder then frame.placeholder:Show() end
+    for i = 1, table.getn(frame.bars) do
+      local bar = frame.bars[i]
+      bar.expiration = nil
+      bar.auraName = nil
+      bar.qtPaintKey = nil
+      bar:ClearAllPoints()
+      bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+    end
     if QtUI.moveMode then
       SizeWatchFrame(frame, 1)
       if frame.Show then pcall(frame.Show, frame) end
@@ -1303,30 +1314,35 @@ local function RefreshWatchFrame(frame)
     PaintWatchBar(frame.bars[shown], list[i], frame.auraType)
   end
   for i = shown + 1, maxBars do
-    frame.bars[i]:Hide()
-    frame.bars[i].expiration = nil
-    frame.bars[i].auraName = nil
+    local bar = frame.bars[i]
+    bar.expiration = nil
+    bar.auraName = nil
+    bar.qtPaintKey = nil
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   end
 
-  if frame.placeholder then
-    if shown == 0 then frame.placeholder:Show() else frame.placeholder:Hide() end
+  if shown == 0 then
+    if QtUI.moveMode then
+      SizeWatchFrame(frame, 1)
+      if frame.Show then pcall(frame.Show, frame) end
+    elseif frame.Hide then
+      pcall(frame.Hide, frame)
+    end
+    return
   end
-  if shown > 0 or QtUI.moveMode then
-    SizeWatchFrame(frame, shown)
-    if frame.Show then pcall(frame.Show, frame) end
-  elseif frame.Hide then
-    pcall(frame.Hide, frame)
-  end
+  SizeWatchFrame(frame, shown)
+  if frame.Show then pcall(frame.Show, frame) end
 end
 
 local function WatchOnUpdate()
   this.elapsed = (this.elapsed or 0) + (arg1 or 0)
   if this.elapsed < .2 then return end
   this.elapsed = 0
-  this.ticks = (this.ticks or 0) + 1
   UpdateWatchTimers(this)
-  if this.ticks >= 2 then
-    this.ticks = 0
+  this.scan = (this.scan or 0) + 1
+  if this.scan >= 5 then
+    this.scan = 0
     RefreshWatchFrame(this)
   end
 end
@@ -1353,15 +1369,6 @@ local function CreateWatchFrame(name, unit, auraType, kind)
   frame.auraType = auraType
   frame.kind = kind
   frame.bars = {}
-  frame.placeholder = frame:CreateFontString(nil, "OVERLAY")
-  if QtUI.ApplyFont then QtUI:ApplyFont(frame.placeholder, 11) end
-  frame.placeholder:SetTextColor(.55, .7, .78)
-  if frame.placeholder.SetJustifyH then frame.placeholder:SetJustifyH("LEFT") end
-  if kind == "target" then
-    frame.placeholder:SetText("Shift-click a debuff or add names in Settings")
-  else
-    frame.placeholder:SetText("Shift-click a buff or add names in Settings")
-  end
   local i
   for i = 1, WATCH_MAX do
     frame.bars[i] = CreateWatchBar(frame, i)
@@ -1373,7 +1380,7 @@ local function CreateWatchFrame(name, unit, auraType, kind)
 end
 
 function QtUI:RefreshAuraWatch()
-  RefreshWatchFrame(self.playerBuffWatch)
+  if PLAYER_WATCH_SAFE then RefreshWatchFrame(self.playerBuffWatch) end
   RefreshWatchFrame(self.targetDebuffWatch)
 end
 
@@ -1391,8 +1398,9 @@ function QtUI:SetupAuraWatch()
   ScanSpellbook()
 
   local player = CreateWatchFrame("QtUIPlayerBuffWatch", "player", "BUFF", "player")
+  player:SetScript("OnUpdate", nil)
   player:ClearAllPoints()
-  player:SetPoint("BOTTOMLEFT", UIParent, "CENTER", -400, 40)
+  player:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
   self.playerBuffWatch = player
 
   local target = CreateWatchFrame("QtUITargetDebuffWatch", "target", "DEBUFF", "target")
@@ -1410,7 +1418,6 @@ function QtUI:SetupAuraWatch()
 
   local events = CreateFrame("Frame", "QtUIAuraWatchEvents")
   events:RegisterEvent("PLAYER_ENTERING_WORLD")
-  events:RegisterEvent("PLAYER_AURAS_CHANGED")
   events:RegisterEvent("PLAYER_TARGET_CHANGED")
   events:RegisterEvent("UNIT_AURA")
   pcall(events.RegisterEvent, events, "SPELLS_CHANGED")
@@ -1418,8 +1425,14 @@ function QtUI:SetupAuraWatch()
     if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
       ScanSpellbook()
     end
-    if event == "UNIT_AURA" and arg1 and arg1 ~= "player" and arg1 ~= "target" then return end
-    QtUI:RefreshAuraWatch()
+    -- Player buffs are polled. Scanning PLAYER_AURAS_CHANGED in the same
+    -- frame as Tiger's Fury (and similar short buffs) crashes Emberveil.
+    if event == "UNIT_AURA" and arg1 ~= "target" then return end
+    if event == "PLAYER_TARGET_CHANGED" or arg1 == "target" then
+      RefreshWatchFrame(QtUI.targetDebuffWatch)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+      QtUI:RefreshAuraWatch()
+    end
   end)
   self.auraWatchEvents = events
   self:RefreshAuraWatch()

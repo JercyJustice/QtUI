@@ -112,13 +112,14 @@ function QtUI:SetupMinimap()
 
   -- Emberveil renders the minimap but does not consistently include that
   -- special render frame in UI mouse hit testing. A regular transparent button
-  -- reliably captures the wheel before it reaches the third-person camera.
+  -- captures the wheel before it reaches the camera. Parent it to Minimap at
+  -- the map's own frame level so pfQuest pins (Minimap children) stay on top.
   local nativeMouseDown = Minimap:GetScript("OnMouseDown")
   local nativeMouseUp = Minimap:GetScript("OnMouseUp")
   local nativeClick = Minimap:GetScript("OnClick")
-  local input = CreateFrame("Button", "QtUIMinimapInput", MinimapCluster or UIParent)
+  local input = CreateFrame("Button", "QtUIMinimapInput", Minimap)
   input:SetAllPoints(Minimap)
-  input:SetFrameLevel((Minimap:GetFrameLevel() or 1) + 5)
+  if input.SetFrameLevel then input:SetFrameLevel(Minimap:GetFrameLevel() or 1) end
   input:EnableMouse(true)
   input:EnableMouseWheel(1)
   input:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -169,13 +170,18 @@ function QtUI:SetupMinimap()
   events:RegisterEvent("ZONE_CHANGED_INDOORS")
   events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
   events:SetScript("OnEvent", function()
-    local mapOpen
-    if WorldMapFrame and WorldMapFrame.IsShown then
-      local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
-      mapOpen = ok and (vis == true or vis == 1)
-    end
-    if not mapOpen and type(SetMapToCurrentZone) == "function" then
-      pcall(SetMapToCurrentZone)
+    -- pfQuest already resets the map when the world map is closed. Calling
+    -- SetMapToCurrentZone here while Emberveil's native map is open (Lua
+    -- WorldMapFrame often reports hidden) wipes pfQuest world-map pins.
+    if not pfMap then
+      local mapOpen
+      if WorldMapFrame and WorldMapFrame.IsShown then
+        local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
+        mapOpen = ok and (vis == true or vis == 1)
+      end
+      if not mapOpen and type(SetMapToCurrentZone) == "function" then
+        pcall(SetMapToCurrentZone)
+      end
     end
     UpdateZoneName()
     UpdateMinimapCoords()

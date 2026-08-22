@@ -295,24 +295,43 @@ local function ParseOverlay(prefix, entry)
   return prefix .. name, tonumber(width), tonumber(height), tonumber(x), tonumber(y)
 end
 
-local function EnsureOverlayTexture(index)
-  local texture = getglobal("WorldMapOverlay" .. index)
-  if not texture then
-    texture = WorldMapDetailFrame:CreateTexture("WorldMapOverlay" .. index, "ARTWORK")
-  end
-  if index > (NUM_WORLDMAP_OVERLAYS or 0) then
-    NUM_WORLDMAP_OVERLAYS = index
+-- Own textures, never WorldMapOverlayN. Emberveil composites those native
+-- overlay slots on the UE world map and extra tiles cover pfQuest pins.
+local revealTextures = {}
+
+local function EnsureRevealTexture(index)
+  local texture = revealTextures[index]
+  if not texture and WorldMapDetailFrame then
+    texture = WorldMapDetailFrame:CreateTexture("QtUIMapReveal" .. index, "BACKGROUND")
+    revealTextures[index] = texture
   end
   return texture
 end
 
+local function HideRevealTextures(fromIndex)
+  local i
+  for i = fromIndex, table.getn(revealTextures) do
+    local texture = revealTextures[i]
+    if texture then
+      if texture.SetTexture then texture:SetTexture(nil) end
+      if texture.Hide then texture:Hide() end
+    end
+  end
+end
+
 local function DrawRevealedMap()
-  if not WorldMapDetailFrame or not GetMapInfo then return end
+  if not WorldMapDetailFrame or not GetMapInfo then
+    HideRevealTextures(1)
+    return
+  end
 
   local mapFileName = GetMapInfo()
   if not mapFileName then mapFileName = "World" end
   local zoneData = MAP_OVERLAY_DATA[mapFileName]
-  if not zoneData then return end
+  if not zoneData then
+    HideRevealTextures(1)
+    return
+  end
 
   local prefix = "Interface\\WorldMap\\" .. mapFileName .. "\\"
   local textureCount = 0
@@ -340,19 +359,31 @@ local function DrawRevealedMap()
           while fileWidth < pixelWidth do fileWidth = fileWidth * 2 end
 
           textureCount = textureCount + 1
-          local texture = EnsureOverlayTexture(textureCount)
-          texture:SetWidth(pixelWidth)
-          texture:SetHeight(pixelHeight)
-          texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
-          texture:ClearAllPoints()
-          texture:SetPoint("TOPLEFT", WorldMapDetailFrame, "TOPLEFT",
-            offsetX + 256 * (column - 1), -(offsetY + 256 * (row - 1)))
-          texture:SetTexture(textureName .. ((row - 1) * horizontal + column))
-          texture:SetVertexColor(1, 1, 1, 1)
-          texture:Show()
+          local texture = EnsureRevealTexture(textureCount)
+          if texture then
+            texture:SetWidth(pixelWidth)
+            texture:SetHeight(pixelHeight)
+            texture:SetTexCoord(0, pixelWidth / fileWidth, 0, pixelHeight / fileHeight)
+            texture:ClearAllPoints()
+            texture:SetPoint("TOPLEFT", WorldMapDetailFrame, "TOPLEFT",
+              offsetX + 256 * (column - 1), -(offsetY + 256 * (row - 1)))
+            texture:SetTexture(textureName .. ((row - 1) * horizontal + column))
+            texture:SetVertexColor(1, 1, 1, 1)
+            if texture.SetDrawLayer then texture:SetDrawLayer("BACKGROUND") end
+            texture:Show()
+          end
         end
       end
     end
+  end
+  HideRevealTextures(textureCount + 1)
+end
+
+local function QueuePfQuestNodes()
+  -- Do not call pfMap:UpdateNodes here. That parks leftover pins and races
+  -- pfQuest's own WORLD_MAP_UPDATE cache. queue_update is pfQuest's refresh.
+  if pfMap then
+    pfMap.queue_update = GetTime()
   end
 end
 
@@ -364,14 +395,7 @@ local function HookMapReveal()
   WorldMapFrame_Update = function()
     originalUpdate()
     DrawRevealedMap()
-    if pfMap and pfMap.UpdateNodes then
-      local key = tostring(GetCurrentMapContinent and GetCurrentMapContinent() or 0) .. ":" .. tostring(GetCurrentMapZone and GetCurrentMapZone() or 0)
-      if GetMapInfo then key = key .. ":" .. tostring(GetMapInfo() or "") end
-      if QtUI.pfMapView ~= key then
-        QtUI.pfMapView = key
-        pcall(function() pfMap:UpdateNodes() end)
-      end
-    end
+    QueuePfQuestNodes()
   end
 end
 

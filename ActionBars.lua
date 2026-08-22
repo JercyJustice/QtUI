@@ -173,10 +173,8 @@ local function InstallActionResolvers()
     return activeButton and activeButton:GetID()
   end
 
-  -- Vanilla key bindings normally divert to BonusActionButton while the
-  -- native bonus controller is shown. QtUI keeps that controller alive
-  -- for state updates but displays ActionButton instead, so dispatch bindings
-  -- through the visible button and the same resolver used by mouse clicks.
+  -- Vanilla only casts on key-up when the button is PUSHED. Emberveil often
+  -- never reports that state, so the slot looks selected and UseAction is skipped.
   local originalActionButtonDown = ActionButtonDown
   if type(originalActionButtonDown) == "function" then
     ActionButtonDown = function(id)
@@ -184,9 +182,7 @@ local function InstallActionResolvers()
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonDown(id)
       end
-      if activeButton:GetButtonState() == "NORMAL" then
-        activeButton:SetButtonState("PUSHED")
-      end
+      if activeButton.SetButtonState then pcall(activeButton.SetButtonState, activeButton, "PUSHED") end
     end
   end
 
@@ -197,15 +193,16 @@ local function InstallActionResolvers()
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonUp(id, onSelf)
       end
-      if activeButton:GetButtonState() ~= "PUSHED" then return end
-      activeButton:SetButtonState("NORMAL")
-      if MacroFrame_SaveMacro then MacroFrame_SaveMacro() end
+      if activeButton.SetButtonState then pcall(activeButton.SetButtonState, activeButton, "NORMAL") end
+      if MacroFrame_SaveMacro then pcall(MacroFrame_SaveMacro) end
       local action = ResolvePrimaryAction(activeButton)
       if action and type(UseAction) == "function" then UseAction(action, 0, onSelf) end
-      if action and type(IsCurrentAction) == "function" and IsCurrentAction(action) then
-        activeButton:SetChecked(1)
-      else
-        activeButton:SetChecked(0)
+      if action and type(IsCurrentAction) == "function" and activeButton.SetChecked then
+        if IsCurrentAction(action) then
+          activeButton:SetChecked(1)
+        else
+          activeButton:SetChecked(0)
+        end
       end
     end
   end

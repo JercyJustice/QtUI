@@ -151,7 +151,7 @@ local function EnsureChrome()
   local zone = (MinimapCluster or UIParent):CreateFontString("QtUIMinimapZone", "OVERLAY", "GameFontNormalSmall")
   zone:SetJustifyH("CENTER")
   zone:SetTextColor(1, .82, .2)
-  if QtUI.ApplyFont then QtUI:ApplyFont(zone, 12) end
+  if QtUI.ApplyFont then QtUI:ApplyFont(zone, 12, 1, .82, .2) end
   if zone.SetShadowOffset then zone:SetShadowOffset(1, -1) end
   if zone.SetShadowColor then zone:SetShadowColor(0, 0, 0, 1) end
   QtUI.minimapZone = zone
@@ -160,7 +160,7 @@ local function EnsureChrome()
   coords:SetJustifyH("CENTER")
   coords:SetTextColor(1, 1, 1)
   if QtUI.ApplyFont then
-    QtUI:ApplyFont(coords, 11)
+    QtUI:ApplyFont(coords, 11, 1, 1, 1)
   elseif coords.SetFont then
     local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
     coords:SetFont(font, 11, "OUTLINE")

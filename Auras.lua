@@ -19,6 +19,10 @@ local KNOWN_DURATIONS = {
   ["tigers fury"] = 6,
   ["tigerfuror"] = 6,
   ["tigerwut"] = 6,
+  ["growl"] = 3,
+  ["knurren"] = 3,
+  ["taunt"] = 3,
+  ["spott"] = 3,
   ["power word: shield"] = 30,
   ["power word: fortitude"] = 1800,
   ["prayer of fortitude"] = 3600,
@@ -635,55 +639,10 @@ local function UnitIsPlayerUnit(unit)
   return nil
 end
 
-local function GetPlayerAura(index, auraType)
-  if type(GetPlayerBuff) ~= "function" then return nil end
-  local filter = "HELPFUL"
-  if auraType == "DEBUFF" then filter = "HARMFUL" end
-  local ok, buffIndex = pcall(GetPlayerBuff, index - 1, filter)
-  if not ok then ok, buffIndex = pcall(GetPlayerBuff, index, filter) end
-  if not ok then return nil end
-  buffIndex = tonumber(buffIndex)
-  if not buffIndex or buffIndex == 0 or buffIndex == -1 then return nil end
-
-  local texture
-  if type(GetPlayerBuffTexture) == "function" then
-    local texOk, tex = pcall(GetPlayerBuffTexture, buffIndex)
-    if texOk then texture = tex end
-  end
-  if not texture then return nil end
-
-  local applications = 0
-  if type(GetPlayerBuffApplications) == "function" then
-    local countOk, count = pcall(GetPlayerBuffApplications, buffIndex)
-    if countOk then applications = tonumber(count) or 0 end
-  end
-
-  local timeLeft
-  if type(GetPlayerBuffTimeLeft) == "function" then
-    local timeOk, remaining = pcall(GetPlayerBuffTimeLeft, buffIndex)
-    if timeOk then timeLeft = AsSeconds(remaining) end
-  end
-
-  -- Never SetPlayerBuff / tooltip here. Emberveil crashes when a short combat
-  -- buff like Tiger's Fury is scanned in the same frame it is applied.
-  local auraName = ownTextureNames[string.lower(texture)]
-  local duration = GetKnownDuration(auraName, texture)
-  local expiration
-  if timeLeft and timeLeft > 0 then
-    expiration = GetTime() + timeLeft
-  end
-  return texture, applications, nil, duration, expiration, auraName, buffIndex
-end
-
 local function GetAura(unit, index, auraType)
-  if UnitIsPlayerUnit(unit) then
-    local texture, applications, auraKind, duration, expiration, auraName, buffIndex =
-      GetPlayerAura(index, auraType)
-    if texture then
-      return texture, applications, auraKind, duration, expiration, auraName, buffIndex
-    end
-  end
-
+  -- Never GetPlayerBuff / GetPlayerBuffTexture / GetPlayerBuffTimeLeft /
+  -- SetPlayerBuff. Emberveil access-violates when a short self-buff
+  -- (Tiger's Fury) is applied in the same frame those APIs run.
   local first, second, third, fourth, fifth, sixth, seventh =
     GetRawAura(unit, index, auraType)
   if not first then return nil end
@@ -706,30 +665,12 @@ local function GetAura(unit, index, auraType)
     expiration = AsExpiration(fifth)
   end
 
-  if not duration or duration <= 0 or not auraName then
-    local key = (unit or "") .. ":" .. (auraType or "") .. ":" .. tostring(index) .. ":" .. (texture or "")
-    local now = GetTime()
-    local cached = scanCache[key]
-    if cached and (now - cached.time) < 5 then
-      auraName = auraName or cached.name
-      duration = duration or cached.duration
-      if cached.expiration and cached.expiration > now then
-        expiration = cached.expiration
-      end
-    else
-      local scannedName, scannedDuration, scannedRemaining = ScanAuraTooltip(unit, index, auraType)
-      auraName = auraName or scannedName
-      duration = duration or scannedDuration or GetKnownDuration(auraName, texture)
-      if scannedRemaining then expiration = now + scannedRemaining end
-      scanCache[key] = {
-        name = scannedName,
-        duration = duration,
-        expiration = expiration,
-        time = now,
-      }
-    end
+  if texture and not auraName and type(texture) == "string" then
+    auraName = ownTextureNames[string.lower(texture)]
   end
   duration = duration or GetKnownDuration(auraName, texture)
+  -- Never GameTooltip:SetUnitBuff/SetUnitDebuff here. Taunt/Growl and other
+  -- freshly applied auras crash Emberveil in that same frame (0x338).
   return texture, applications, auraKind, duration, expiration, auraName
 end
 
@@ -1028,8 +969,7 @@ local function CreateWatchBar(parent, index)
   frame.icon = frame:CreateTexture(nil, "ARTWORK")
   frame.stacks = frame:CreateFontString(nil, "OVERLAY")
   if frame.stacks.SetJustifyH then frame.stacks:SetJustifyH("CENTER") end
-  if QtUI.ApplyFont then QtUI:ApplyFont(frame.stacks, 10) end
-  frame.stacks:SetTextColor(1, 1, 1)
+  if QtUI.ApplyFont then QtUI:ApplyFont(frame.stacks, 10, 1, 1, 1) end
 
   frame.bar = CreateFrame("StatusBar", nil, frame)
   frame.bar:SetStatusBarTexture(QtUI.media and QtUI.media.statusbar or "Interface\\TargetingFrame\\UI-StatusBar")
@@ -1042,13 +982,11 @@ local function CreateWatchBar(parent, index)
 
   frame.nameText = frame.bar:CreateFontString(nil, "OVERLAY")
   if frame.nameText.SetJustifyH then frame.nameText:SetJustifyH("RIGHT") end
-  if QtUI.ApplyFont then QtUI:ApplyFont(frame.nameText, 11) end
-  frame.nameText:SetTextColor(1, 1, 1)
+  if QtUI.ApplyFont then QtUI:ApplyFont(frame.nameText, 11, 1, 1, 1) end
 
   frame.timeText = frame.bar:CreateFontString(nil, "OVERLAY")
   if frame.timeText.SetJustifyH then frame.timeText:SetJustifyH("LEFT") end
-  if QtUI.ApplyFont then QtUI:ApplyFont(frame.timeText, 11) end
-  frame.timeText:SetTextColor(1, 1, 1)
+  if QtUI.ApplyFont then QtUI:ApplyFont(frame.timeText, 11, 1, 1, 1) end
 
   frame.index = index
   frame:Hide()
@@ -1425,11 +1363,17 @@ function QtUI:SetupAuraWatch()
     if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
       ScanSpellbook()
     end
-    -- Player buffs are polled. Scanning PLAYER_AURAS_CHANGED in the same
-    -- frame as Tiger's Fury (and similar short buffs) crashes Emberveil.
-    if event == "UNIT_AURA" and arg1 ~= "target" then return end
-    if event == "PLAYER_TARGET_CHANGED" or arg1 == "target" then
-      RefreshWatchFrame(QtUI.targetDebuffWatch)
+    -- Do not scan auras in the same frame they are applied (Tiger's Fury,
+    -- Growl/Taunt). The target watch is polled from OnUpdate instead.
+    if event == "UNIT_AURA" then return end
+    if event == "PLAYER_TARGET_CHANGED" then
+      this.targetWait = .25
+      this:SetScript("OnUpdate", function()
+        this.targetWait = (this.targetWait or 0) - (arg1 or 0)
+        if this.targetWait > 0 then return end
+        this:SetScript("OnUpdate", nil)
+        RefreshWatchFrame(QtUI.targetDebuffWatch)
+      end)
     elseif event == "PLAYER_ENTERING_WORLD" then
       QtUI:RefreshAuraWatch()
     end

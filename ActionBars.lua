@@ -193,17 +193,17 @@ local function InstallActionResolvers()
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonUp(id, onSelf)
       end
-      if activeButton.SetButtonState then pcall(activeButton.SetButtonState, activeButton, "NORMAL") end
-      if MacroFrame_SaveMacro then pcall(MacroFrame_SaveMacro) end
+      -- Emberveil drops PUSHED, so native Up would skip the cast. Restore
+      -- PUSHED and let the original handler call UseAction. Calling UseAction
+      -- ourselves (and IsCurrentAction after Tiger's Fury) AVs at 0x338.
+      if activeButton.SetButtonState then pcall(activeButton.SetButtonState, activeButton, "PUSHED") end
       local action = ResolvePrimaryAction(activeButton)
-      if action and type(UseAction) == "function" then UseAction(action, 0, onSelf) end
-      if action and type(IsCurrentAction) == "function" and activeButton.SetChecked then
-        if IsCurrentAction(action) then
-          activeButton:SetChecked(1)
-        else
-          activeButton:SetChecked(0)
-        end
+      if action then
+        QtUI.qtLastAction = action
+        QtUI.qtLastOnSelf = onSelf
+        QtUI.qtLastActionTime = GetTime()
       end
+      return originalActionButtonUp(id, onSelf)
     end
   end
 
@@ -316,8 +316,9 @@ local function InstallActionResolvers()
     ticker.elapsed = 0
     ticker:SetScript("OnUpdate", function()
       this.elapsed = this.elapsed + (arg1 or 0)
-      if this.elapsed < .25 then return end
+      if this.elapsed < .4 then return end
       this.elapsed = 0
+      if not RangeColorOn() then return end
       local prefixes = {
         "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
         "MultiBarRightButton", "MultiBarLeftButton",
@@ -327,7 +328,7 @@ local function InstallActionResolvers()
         local i
         for i = 1, 12 do
           local button = getglobal(prefixes[p] .. i)
-          if button and button.unit ~= false then TintActionIcon(button) end
+          if button and button.IsShown and button:IsShown() then TintActionIcon(button) end
         end
       end
     end)
@@ -380,14 +381,19 @@ local function InstallActionResolvers()
     end
   end
   -- Emberveil's MultiActionBar_Update restyles MultiBarLeft/Right after
-  -- our layout and wipes the rim. Put the buttons back on the Qt panels
-  -- and stamp the frame again.
+  -- our layout and wipes the rim. Only restamp when it actually stole the
+  -- parent — doing PlaceInGrid on every combat update kills FPS.
   if type(MultiActionBar_Update) == "function" then
     local originalBarUpdate = MultiActionBar_Update
     local restamping
     MultiActionBar_Update = function()
       originalBarUpdate()
       if restamping then return end
+      local sample = getglobal("MultiBarRightButton1")
+      local parent = sample and sample.GetParent and sample:GetParent()
+      if parent and QtUI.sideRightPanel and parent == QtUI.sideRightPanel then
+        return
+      end
       restamping = true
       if QtUI.LayoutSideBars then QtUI:LayoutSideBars() end
       if QtUI.ApplySlotBackgrounds then QtUI:ApplySlotBackgrounds() end
@@ -631,7 +637,6 @@ local function SetupActionPageEvents()
   pcall(events.RegisterEvent, events, "ACTIONBAR_PAGE_CHANGED")
   pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORM")
   pcall(events.RegisterEvent, events, "UPDATE_SHAPESHIFT_FORMS")
-  pcall(events.RegisterEvent, events, "PLAYER_AURAS_CHANGED")
   pcall(events.RegisterEvent, events, "PLAYER_ENTER_COMBAT")
   pcall(events.RegisterEvent, events, "PLAYER_LEAVE_COMBAT")
   pcall(events.RegisterEvent, events, "ACTIONBAR_SLOT_CHANGED")
@@ -691,15 +696,6 @@ local function SetupActionPageEvents()
     end
     if ev == "CURSOR_UPDATE" then
       if QtUI.ApplyEmptySlotVisibility then QtUI:ApplyEmptySlotVisibility() end
-      return
-    end
-    -- Aura ticks must not rebuild every bar. Watch the bonus offset briefly
-    -- so stealth/form still swaps pages when Emberveil publishes the aura first.
-    if ev == "PLAYER_AURAS_CHANGED" then
-      if not this.watchBonus or this.watchBonus <= 0 then
-        this.watchBonus = .4
-      end
-      this:SetScript("OnUpdate", RefreshAfterClientUpdate)
       return
     end
 
@@ -1474,21 +1470,8 @@ local function InstallAutoUnshift()
   if autoUnshiftInstalled then return end
   autoUnshiftInstalled = true
 
-  -- Same approach as pfUI/modules/autoshift.lua: wait for the client error,
-  -- then CancelPlayerBuff on the 0-31 buff slot whose icon is a form.
-  local formIcons = {
-    "ability_racial_bearform",
-    "ability_druid_catform",
-    "ability_druid_travelform",
-    "ability_druid_aquaticform",
-    "ability_druid_direbearform",
-    "ability_druid_treeoflife",
-    "ability_druid_stagform",
-    "spell_nature_forceofnature",
-    "spell_nature_spiritwolf",
-    "spell_shadow_shadowform",
-  }
-
+  -- Leave form via the shapeshift bar, not GetPlayerBuff*. Scanning player
+  -- buff slots in the same frame as Tiger's Fury crashes Emberveil (0x338).
   local errorGlobals = {
     "SPELL_FAILED_NOT_SHAPESHIFT",
     "SPELL_FAILED_NO_ITEMS_WHILE_SHAPESHIFTED",
@@ -1505,11 +1488,6 @@ local function InstallAutoUnshift()
     "ERR_TAXIPLAYERALREADYMOUNTED",
   }
 
-  local originalUseAction = UseAction
-  local passing
-  local lastSlot, lastCheckCursor, lastOnSelf
-  local lastSpell
-  local lastUseTime
   local pending = CreateFrame("Frame", "QtUIAutoUnshift")
   pending:Hide()
 
@@ -1523,52 +1501,29 @@ local function InstallAutoUnshift()
     return true
   end
 
-  local function IsFormTexture(texture)
-    if not texture or texture == "" then return nil end
-    local lower = string.lower(texture)
+  local function ActiveFormIndex()
+    if type(GetNumShapeshiftForms) ~= "function" or type(GetShapeshiftFormInfo) ~= "function" then
+      return nil
+    end
+    local n = tonumber(GetNumShapeshiftForms()) or 0
     local i
-    for i = 1, table.getn(formIcons) do
-      if string.find(lower, formIcons[i], 1, true) then return true end
+    for i = 1, n do
+      local _, _, active = GetShapeshiftFormInfo(i)
+      if active == true or active == 1 or active == "1" then return i end
     end
     return nil
   end
 
   local function StillInForm()
-    if type(GetPlayerBuffTexture) ~= "function" then return nil end
-    local i
-    for i = 0, 31 do
-      local ok, tex = pcall(GetPlayerBuffTexture, i)
-      if ok and IsFormTexture(tex) then return true end
-    end
-    return nil
+    return ActiveFormIndex() and true or nil
   end
 
   local function LeaveShapeshift()
-    if type(CancelPlayerBuff) ~= "function" then return nil end
-    local i
-    for i = 0, 31 do
-      local tex
-      local cancelId = i
-      if type(GetPlayerBuffTexture) == "function" then
-        local ok, value = pcall(GetPlayerBuffTexture, i)
-        if ok then tex = value end
-      end
-      if (not tex or tex == "") and type(GetPlayerBuff) == "function" then
-        local ok, buffIndex = pcall(GetPlayerBuff, i, "HELPFUL|PASSIVE")
-        if not ok then ok, buffIndex = pcall(GetPlayerBuff, i, "HELPFUL") end
-        if not ok then ok, buffIndex = pcall(GetPlayerBuff, i - 1, "HELPFUL") end
-        buffIndex = ok and tonumber(buffIndex) or nil
-        if buffIndex and buffIndex ~= 0 and buffIndex ~= -1 then
-          local texOk, value = pcall(GetPlayerBuffTexture, buffIndex)
-          if texOk then tex = value end
-          cancelId = buffIndex
-        end
-      end
-      if IsFormTexture(tex) then
-        pcall(CancelPlayerBuff, cancelId)
-        if cancelId ~= i then pcall(CancelPlayerBuff, i) end
-        return true
-      end
+    local index = ActiveFormIndex()
+    if not index then return nil end
+    if type(CastShapeshiftForm) == "function" then
+      pcall(CastShapeshiftForm, index)
+      return true
     end
     return nil
   end
@@ -1597,15 +1552,11 @@ local function InstallAutoUnshift()
 
   local function FlushPending()
     local slot = pending.slot
-    local spell = pending.spell
+    local onSelf = pending.onSelf
     StopPending()
-    passing = true
-    if slot and originalUseAction then
-      pcall(originalUseAction, slot, pending.checkCursor, pending.onSelf)
-    elseif spell and type(CastSpellByName) == "function" then
-      pcall(CastSpellByName, spell)
+    if slot and type(UseAction) == "function" then
+      pcall(UseAction, slot, 0, onSelf)
     end
-    passing = nil
   end
 
   local function PendingOnUpdate()
@@ -1625,10 +1576,8 @@ local function InstallAutoUnshift()
   end
 
   local function QueueRecast()
-    pending.slot = lastSlot
-    pending.checkCursor = lastCheckCursor
-    pending.onSelf = lastOnSelf
-    pending.spell = lastSpell
+    pending.slot = QtUI.qtLastAction
+    pending.onSelf = QtUI.qtLastOnSelf
     pending.elapsed = 0
     pending.retry = 0
     pending:SetScript("OnUpdate", PendingOnUpdate)
@@ -1642,7 +1591,7 @@ local function InstallAutoUnshift()
       return nil
     end
     local now = GetTime()
-    if (not lastSlot and not lastSpell) or not lastUseTime or (now - lastUseTime) > .5 then
+    if not QtUI.qtLastAction or not QtUI.qtLastActionTime or (now - QtUI.qtLastActionTime) > .5 then
       return nil
     end
     LeaveShapeshift()
@@ -1670,31 +1619,6 @@ local function InstallAutoUnshift()
     UIErrorsFrame.AddMessage = function(frame, text, a, b, c, d, e)
       HandleError(text)
       return originalAdd(frame, text, a, b, c, d, e)
-    end
-  end
-
-  if type(originalUseAction) == "function" then
-    UseAction = function(slot, checkCursor, onSelf)
-      if not passing and slot then
-        lastSlot = slot
-        lastCheckCursor = checkCursor
-        lastOnSelf = onSelf
-        lastSpell = nil
-        lastUseTime = GetTime()
-      end
-      return originalUseAction(slot, checkCursor, onSelf)
-    end
-  end
-
-  if type(CastSpellByName) == "function" then
-    local originalCast = CastSpellByName
-    CastSpellByName = function(name, onSelf)
-      if not passing and name then
-        lastSpell = name
-        lastSlot = nil
-        lastUseTime = GetTime()
-      end
-      return originalCast(name, onSelf)
     end
   end
 end

@@ -59,39 +59,48 @@ end
 
 -- Emberveil: FontString:SetFont is a no-op while a Font object is assigned,
 -- and CreateFontString always assigns GameFontNormal. Own Font objects via
--- CreateFont + SetFontObject. One Font per widget so SetTextColor does not
--- bleed through a shared object.
+-- CreateFont + SetFontObject. SetTextColor writes through the Font object, so
+-- pool by size+color instead of one Font per widget (that cut idle FPS in half).
 local FONT_PATH = "Fonts\\FRIZQT__.TTF"
 local fontSeq = 0
+local fontPool = {}
 
-function QtUI:ApplyFont(widget, size)
+function QtUI:ApplyFont(widget, size, r, g, b)
   if not widget then return end
   size = math.floor(tonumber(size) or 12)
   if size < 6 then size = 6 end
   if size > 32 then size = 32 end
+  r = tonumber(r)
+  g = tonumber(g)
+  b = tonumber(b)
+  if not r then r = 1 end
+  if not g then g = 1 end
+  if not b then b = 1 end
   local path = STANDARD_TEXT_FONT or FONT_PATH
-  local font = widget.qtFontObject
+  local key = size .. ":" .. string.format("%.2f:%.2f:%.2f", r, g, b)
+  local font = fontPool[key]
   if not font and type(CreateFont) == "function" then
     fontSeq = fontSeq + 1
     local ok, created = pcall(CreateFont, "QtUIFont" .. fontSeq)
-    if ok then font = created end
-    widget.qtFontObject = font
-  end
-  if font and font.SetFont and widget.qtFontSize ~= size then
-    pcall(font.SetFont, font, path, size)
-  end
-  if font and font.SetTextColor then
-    pcall(font.SetTextColor, font, 1, 1, 1)
+    if ok and created then
+      font = created
+      fontPool[key] = font
+      if font.SetFont then pcall(font.SetFont, font, path, size) end
+      if font.SetTextColor then pcall(font.SetTextColor, font, r, g, b) end
+    end
   end
   if font and widget.SetFontObject then
     pcall(widget.SetFontObject, widget, font)
+    widget.qtFontObject = font
     widget.qtFontSize = size
+    widget.qtFontKey = key
     return
   end
   if widget.SetFont then
     pcall(widget.SetFont, widget, path, size)
     widget.qtFontSize = size
   end
+  if widget.SetTextColor then pcall(widget.SetTextColor, widget, r, g, b) end
 end
 
 -- Single-point TOPLEFT/TOPRIGHT on FontStrings is unreliable here: Emberveil

@@ -60,12 +60,17 @@ end
 local function Paint(fs, size, r, g, b, justifyH, justifyV)
   if not fs then return end
   size = size or TEXT_SIZE
-  if QtUI.ApplyFont then QtUI:ApplyFont(fs, size) end
-  if fs.SetTextColor then pcall(fs.SetTextColor, fs, r or 1, g or 1, b or 1) end
+  r = tonumber(r) or 1
+  g = tonumber(g) or 1
+  b = tonumber(b) or 1
+  if QtUI.ApplyFont then QtUI:ApplyFont(fs, size, r, g, b) end
+  -- Emberveil paints from FontString:SetTextColor, not Font:SetTextColor.
+  if fs.SetTextColor then pcall(fs.SetTextColor, fs, r, g, b) end
   if fs.SetJustifyH then fs:SetJustifyH(justifyH or "LEFT") end
   -- Emberveil: SetJustifyV accepts TOP/CENTER/BOTTOM. MIDDLE is ignored.
   if justifyV == "MIDDLE" then justifyV = "CENTER" end
   if fs.SetJustifyV then fs:SetJustifyV(justifyV or "TOP") end
+  if fs.Show then pcall(fs.Show, fs) end
 end
 
 local function WheelOn(frame)
@@ -499,7 +504,7 @@ local function PaintItems(frame)
     btn.index = nil
     if btn.icon then btn.icon:SetTexture(nil) end
     if btn.count then btn.count:SetText("") end
-    if btn.Hide then pcall(btn.Hide, btn) end
+    PlaceBox(btn, frame.rewardPanel, 4, REWARD_H + 20, 38, REWARD_H + 54)
   end
   local slot = 1
   local function AddItems(kind, count, getter)
@@ -540,6 +545,9 @@ local function PaintDetail(frame)
   local sel = 0
   if type(GetQuestLogSelection) == "function" then
     sel = tonumber(GetQuestLogSelection()) or 0
+  end
+  if sel > 0 and type(SelectQuestLogEntry) == "function" then
+    pcall(SelectQuestLogEntry, sel)
   end
   if frame.paintSel ~= sel then
     frame.paintSel = sel

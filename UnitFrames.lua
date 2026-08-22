@@ -866,8 +866,19 @@ function QtUI:SetupUnitFrames()
     if event == "RAID_TARGET_UPDATE" then
       QtUI:UpdateUnitFrames(true)
       if QtUI.UpdatePartyFrames then QtUI:UpdatePartyFrames(true) end
+    elseif event == "UNIT_AURA" then
+      -- Delay aura icon refresh. Growl/Taunt on the target and Tiger's Fury
+      -- on the player crash Emberveil if we scan UnitBuff/Debuff this frame.
+      this.auraWait = .3
+      this:SetScript("OnUpdate", function()
+        this.auraWait = (this.auraWait or 0) - (arg1 or 0)
+        if this.auraWait > 0 then return end
+        this:SetScript("OnUpdate", nil)
+        if QtUI.UpdateUnitFrames then QtUI:UpdateUnitFrames() end
+      end)
+      QtUI:UpdateUnitFrames(true)
     elseif event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD" or arg1 == "player" or arg1 == "target" then
-      local refreshAuras = event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD"
+      local refreshAuras = event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD"
       QtUI:UpdateUnitFrames(not refreshAuras)
     end
   end)

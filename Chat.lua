@@ -12,6 +12,52 @@ local function SafeChatCall(func, frame, value)
   if type(func) == "function" and frame then pcall(func, frame, value) end
 end
 
+-- Emberveil ScrollingMessageFrame has ScrollUp/ScrollDown, not PageUp/PageDown.
+-- Stock ChatFrame.lua still calls :PageUp() from ChatFrame_ChatPageUp.
+local PAGE_STEPS = 8
+
+local function ActiveChatFrame()
+  return SELECTED_CHAT_FRAME or SELECTED_DOCK_FRAME or DEFAULT_CHAT_FRAME or ChatFrame1
+end
+
+local function ChatScroll(frame, dir, steps)
+  if not frame then return end
+  steps = tonumber(steps) or 1
+  if steps < 1 then steps = 1 end
+  local method = dir and dir > 0 and frame.ScrollUp or frame.ScrollDown
+  if type(method) ~= "function" then return end
+  local i
+  for i = 1, steps do pcall(method, frame) end
+end
+
+local function HookChatPaging()
+  if QtUI.chatPagingHooked then return end
+  QtUI.chatPagingHooked = true
+
+  ChatFrame_ChatPageUp = function()
+    ChatScroll(ActiveChatFrame(), 1, PAGE_STEPS)
+  end
+  ChatFrame_ChatPageDown = function()
+    ChatScroll(ActiveChatFrame(), -1, PAGE_STEPS)
+  end
+
+  ChatFrame_OnMouseWheel = function(chatFrame, delta)
+    local frame = chatFrame
+    local wheel = tonumber(delta)
+    if type(frame) ~= "table" and type(frame) ~= "userdata" then
+      wheel = tonumber(chatFrame) or tonumber(arg1) or 0
+      frame = this or ActiveChatFrame()
+    else
+      if not wheel then wheel = tonumber(arg1) or 0 end
+    end
+    if wheel > 0 then
+      ChatScroll(frame, 1, 1)
+    elseif wheel < 0 then
+      ChatScroll(frame, -1, 1)
+    end
+  end
+end
+
 local function HideChatChrome(index)
   local names = {
     "ChatFrame" .. index .. "Tab",
@@ -59,6 +105,15 @@ local function ConfigureChat(frame, panel, index, fontSize)
   if frame.SetFading then frame:SetFading(false) end
   PaintChatFont(frame, fontSize)
   if frame.SetMaxLines then frame:SetMaxLines(128) end
+  if frame.EnableMouseWheel then pcall(frame.EnableMouseWheel, frame, true) end
+  frame:SetScript("OnMouseWheel", function()
+    local wheel = tonumber(arg1) or 0
+    if wheel > 0 then
+      ChatScroll(this, 1, 1)
+    elseif wheel < 0 then
+      ChatScroll(this, -1, 1)
+    end
+  end)
   if frame.Show then pcall(frame.Show, frame) end
   HideChatChrome(index)
   local edit = getglobal("ChatFrame" .. tostring(index) .. "EditBox")
@@ -332,6 +387,7 @@ function QtUI:LayoutChat()
 end
 
 function QtUI:SetupChat()
+  HookChatPaging()
   if self.leftChatPanel then
     self:LayoutChat()
     return

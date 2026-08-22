@@ -412,12 +412,10 @@ function QtUI:SetupMapCoords()
   self.mapCoordsReady = true
   local player = WorldMapFrame:CreateFontString("QtUIMapPlayerCoords", "OVERLAY", "GameFontNormal")
   player:SetJustifyH("LEFT")
-  if player.SetTextColor then player:SetTextColor(1, 1, 1) end
-  if self.ApplyFont then self:ApplyFont(player, 13) end
+  if self.ApplyFont then self:ApplyFont(player, 13, 1, 1, 1) end
   local mouse = WorldMapFrame:CreateFontString("QtUIMapMouseCoords", "OVERLAY", "GameFontNormal")
   mouse:SetJustifyH("LEFT")
-  if mouse.SetTextColor then mouse:SetTextColor(.85, .9, .95) end
-  if self.ApplyFont then self:ApplyFont(mouse, 13) end
+  if self.ApplyFont then self:ApplyFont(mouse, 13, .85, .9, .95) end
   self.mapPlayerCoords = player
   self.mapMouseCoords = mouse
 

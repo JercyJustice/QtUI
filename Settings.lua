@@ -1807,9 +1807,12 @@ function QtUI:SetupSettingsWindow()
 
   local function BuildUnitPage(pageKey, styleKey, blurb, extras)
     local page = AddPage(pageKey)
-    local sectionH = 360
-    if extras.watchBuffs or extras.watchDebuffs then sectionH = 590 end
-    CreateSection(page, 0, sectionH)
+    -- Provisional height only. The real extent is not known until the rows are
+    -- built, so the box is re-anchored to the final y at the end of this
+    -- function. The old fixed 590 for tracker pages was taller than the content
+    -- pane (464), and nothing in this window clips, so its border drew across
+    -- the bottom of the settings frame and onto the world.
+    local section = CreateSection(page, 0, 360)
     page.note = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     page.note:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -10)
     page.note:SetWidth(430)
@@ -1979,6 +1982,19 @@ function QtUI:SetupSettingsWindow()
       end)
       y = y - 26
       CreateWatchListBox(page, y, "target")
+    end
+
+    -- Wrap the rows that were actually built, and never spill past the content
+    -- pane. CreateSection anchors x=4 width=462, so mirror that here.
+    if section then
+      -- Fixed geometry on purpose: the content pane is the settings frame (540)
+      -- less the 34px title strip and the 42px button strip, so 464. GetHeight is
+      -- not trustworthy here and a bad reading would collapse the box.
+      local bottom = y - 14
+      if bottom < -458 then bottom = -458 end
+      section:ClearAllPoints()
+      section:SetPoint("TOPLEFT", page, "TOPLEFT", 4, 0)
+      section:SetPoint("BOTTOMRIGHT", page, "TOPLEFT", 466, bottom)
     end
     return page
   end

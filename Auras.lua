@@ -470,9 +470,13 @@ local function AuraWatchOn()
   return not layout or layout.auraWatch ~= false
 end
 
--- Emberveil access-violates when a short self-buff (Tiger's Fury) is tracked.
--- Keep the player watch created for layout, but never scan or show it.
-local PLAYER_WATCH_SAFE
+-- Tiger's Fury and other short self-buffs used to access-violate Emberveil (0x338)
+-- because the watch scanned auras in the same frame they were applied. That no
+-- longer happens: the aura-watch event handler returns early on UNIT_AURA and the
+-- frame is refreshed from WatchOnUpdate instead, so the scan never runs in the
+-- delivery frame. The scan also goes through GetAura (UnitBuff), never the
+-- GetPlayerBuff* or GameTooltip:SetUnitBuff calls that were the actual crash.
+local PLAYER_WATCH_SAFE = true
 
 local function PlayerBuffWatchOn()
   if not PLAYER_WATCH_SAFE then return nil end
@@ -1335,10 +1339,10 @@ function QtUI:SetupAuraWatch()
   self.auraWatchReady = true
   ScanSpellbook()
 
+  -- Mirrors the target watch, which sits the same distance right of centre.
   local player = CreateWatchFrame("QtUIPlayerBuffWatch", "player", "BUFF", "player")
-  player:SetScript("OnUpdate", nil)
   player:ClearAllPoints()
-  player:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+  player:SetPoint("BOTTOMRIGHT", UIParent, "CENTER", -180, 40)
   self.playerBuffWatch = player
 
   local target = CreateWatchFrame("QtUITargetDebuffWatch", "target", "DEBUFF", "target")

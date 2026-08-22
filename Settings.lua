@@ -338,10 +338,31 @@ local function CreateDropdown(parent, y, label, getter, setter, options)
     end
     local count = table.getn(row.options)
     local height = 6 + count * 16
+    -- The menu lives on UIParent at TOOLTIP strata so it can escape the content
+    -- pane, which means nothing stops it drawing past the bottom of the settings
+    -- window. Open upwards when there is not room below inside the window.
+    local flip
+    local settings = QtUI.settingsFrame
+    local buttonBottom = row.button.GetBottom and row.button:GetBottom()
+    local windowBottom = settings and settings.GetBottom and settings:GetBottom()
+    if buttonBottom and windowBottom and (buttonBottom - 2 - height) < windowBottom then
+      local buttonTop = row.button.GetTop and row.button:GetTop()
+      local windowTop = settings.GetTop and settings:GetTop()
+      -- Only flip if the menu actually fits above; otherwise down is no worse.
+      if buttonTop and windowTop and (buttonTop + 2 + height) <= windowTop then
+        flip = true
+      end
+    end
     row.menu:ClearAllPoints()
-    row.menu:SetPoint("TOPLEFT", row.button, "BOTTOMLEFT", 0, -2)
-    row.menu:SetPoint("TOPRIGHT", row.button, "BOTTOMRIGHT", 0, -2)
-    row.menu:SetPoint("BOTTOMLEFT", row.button, "BOTTOMLEFT", 0, -2 - height)
+    if flip then
+      row.menu:SetPoint("BOTTOMLEFT", row.button, "TOPLEFT", 0, 2)
+      row.menu:SetPoint("BOTTOMRIGHT", row.button, "TOPRIGHT", 0, 2)
+      row.menu:SetPoint("TOPLEFT", row.button, "TOPLEFT", 0, 2 + height)
+    else
+      row.menu:SetPoint("TOPLEFT", row.button, "BOTTOMLEFT", 0, -2)
+      row.menu:SetPoint("TOPRIGHT", row.button, "BOTTOMRIGHT", 0, -2)
+      row.menu:SetPoint("BOTTOMLEFT", row.button, "BOTTOMLEFT", 0, -2 - height)
+    end
     for i = 1, count do
       local spec = row.options[i]
       local btn = row.menu.buttons[i]
@@ -835,9 +856,24 @@ end
 
 local function ShowPage(frame, key)
   CloseActiveDrop()
+  -- Hide() alone is not reliable on Emberveil, and a page that fails to hide keeps
+  -- drawing over the incoming page and over the window chrome -- nothing here clips.
+  -- Park the outgoing pages off-screen as well, the way the rest of the addon does,
+  -- and re-anchor the incoming one to the content pane.
   local name, page
   for name, page in pairs(frame.pages) do
-    if name == key then page:Show() else page:Hide() end
+    if name == key then
+      page:ClearAllPoints()
+      if frame.contentPane then
+        page:SetAllPoints(frame.contentPane)
+      end
+      if page.Show then pcall(page.Show, page) end
+    else
+      page:ClearAllPoints()
+      page:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
+      page:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", -3600, 3600)
+      if page.Hide then pcall(page.Hide, page) end
+    end
   end
   local _, button
   for _, button in ipairs(frame.navButtons) do
@@ -935,6 +971,8 @@ function QtUI:SetupSettingsWindow()
   content:SetPoint("TOPLEFT", nav, "TOPRIGHT", 10, 0)
   content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 42)
   if content.EnableMouse then content:EnableMouse(false) end
+  -- ShowPage needs this to re-anchor a page it previously parked off-screen.
+  frame.contentPane = content
 
   frame.pages = {}
   frame.navButtons = {}

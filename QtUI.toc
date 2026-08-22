@@ -2,7 +2,7 @@
 ## Title: QtUI
 ## Notes: Compact Emberveil interface with dual chat, unit frames and data text
 ## Author: JercyJustice
-## Version: 0.25.1
+## Version: 0.25.2
 ## DefaultState: enabled
 ## SavedVariables: QtUIDB
 

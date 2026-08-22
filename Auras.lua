@@ -1150,6 +1150,11 @@ local function PaintWatchBar(bar, entry, auraType)
   if bar.Show then pcall(bar.Show, bar) end
 end
 
+-- Declared up here because UpdateWatchTimers calls it before its definition; a
+-- plain `local function` further down would resolve to a nil global at that point
+-- and error the moment a tracked aura expired.
+local RefreshWatchFrame
+
 local function UpdateWatchTimers(frame)
   local now = GetTime()
   local expired
@@ -1211,7 +1216,8 @@ local function SizeWatchFrame(frame, shown)
   end
 end
 
-local function RefreshWatchFrame(frame)
+-- Assigns the forward declaration above, so it is the same local everywhere.
+function RefreshWatchFrame(frame)
   if not frame then return end
   local enabled
   if frame.kind == "player" then

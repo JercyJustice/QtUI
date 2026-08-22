@@ -275,6 +275,24 @@ function QtUI:UpdatePartyFrames(skipAuras)
   UpdatePetFrame(self.playerPetFrame)
 end
 
+-- Deferred party aura refresh. Arms only when nothing is pending, so a stream of
+-- UNIT_AURA events cannot keep pushing the deadline out and starve the scan the
+-- way a plain "reset the timer every event" version would in a raid.
+local function PartyAuraTick()
+  this.auraWait = (this.auraWait or 0) - (arg1 or 0)
+  if this.auraWait > 0 then return end
+  this:SetScript("OnUpdate", nil)
+  this.auraPending = nil
+  if QtUI.UpdatePartyFrames then QtUI:UpdatePartyFrames() end
+end
+
+local function QueuePartyAuraRefresh(driver)
+  if not driver or driver.auraPending then return end
+  driver.auraPending = true
+  driver.auraWait = .3
+  driver:SetScript("OnUpdate", PartyAuraTick)
+end
+
 function QtUI:SetupPartyFrames()
   self.partyFrames = {}
   self.partyPetFrames = {}
@@ -327,7 +345,17 @@ function QtUI:SetupPartyFrames()
       if unit == "player" or unit == "target" then return end
       if unit and unit ~= "pet" and not string.find(unit, "party", 1, true) then return end
     end
-    local skipAuras = event ~= "UNIT_AURA" and event ~= "PARTY_MEMBERS_CHANGED"
+    -- Never scan auras in the same frame one is applied: Growl/Taunt and other
+    -- freshly applied auras access-violate Emberveil (0x338). UnitFrames and the
+    -- aura watch already defer for this reason; party frames must do the same.
+    -- The old condition read `event ~= "UNIT_AURA"`, which made skipAuras false
+    -- on exactly the event that must not scan.
+    if event == "UNIT_AURA" then
+      QtUI:UpdatePartyFrames(true)
+      QueuePartyAuraRefresh(this)
+      return
+    end
+    local skipAuras = event ~= "PARTY_MEMBERS_CHANGED"
       and event ~= "PLAYER_ENTERING_WORLD" and event ~= "UNIT_PET" and event ~= "PET_UI_UPDATE"
     QtUI:UpdatePartyFrames(skipAuras)
   end)

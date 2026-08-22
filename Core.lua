@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.22.0"
+QtUI.version = "0.23.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -223,11 +223,50 @@ function QtUI:CreatePanel(name, parent, level)
   return panel
 end
 
+-- Emberveil re-enters OnHide from Hide(), so calling Hide() inside a frame's own
+-- OnShow nests visibility changes and stacks until the client hangs or
+-- access-violates (0x338) -- the hazard SafeHidePopup and the move-mode parkers
+-- already avoid. These frames are native (PlayerFrame, MultiBar*, ContainerFrame*
+-- and friends) and the client shows them constantly, so the handler must never
+-- Hide inline. Queue the hide onto the next frame instead; anchors and layout are
+-- left exactly as they were, so nothing anchored to these frames moves.
+local hideQueue = {}
+local hideDriver
+
+local function FlushHideQueue()
+  local frame = table.remove(hideQueue)
+  while frame do
+    if frame.Hide then pcall(frame.Hide, frame) end
+    frame = table.remove(hideQueue)
+  end
+  this:SetScript("OnUpdate", nil)
+end
+
+local function QueueHide(frame)
+  if not frame then return end
+  local i
+  for i = 1, table.getn(hideQueue) do
+    if hideQueue[i] == frame then return end
+  end
+  table.insert(hideQueue, frame)
+  if not hideDriver then
+    hideDriver = CreateFrame("Frame", "QtUIHideQueue")
+  end
+  hideDriver:SetScript("OnUpdate", FlushHideQueue)
+end
+
 function QtUI:HideFrame(frame)
   if not frame then return end
-  frame:Hide()
+  -- Safe here: this call is not running inside the frame's own OnShow.
+  if frame.Hide then pcall(frame.Hide, frame) end
+  if frame.qtHideHooked then return end
+  frame.qtHideHooked = true
   if type(frame.SetScript) == "function" then
-    frame:SetScript("OnShow", function() this:Hide() end)
+    frame:SetScript("OnShow", function()
+      -- Best effort against a one-frame flicker; Emberveil may ignore it.
+      if this.SetAlpha then pcall(this.SetAlpha, this, 0) end
+      QueueHide(this)
+    end)
   end
 end
 
@@ -379,7 +418,6 @@ function QtUI:EnsureLayoutDefaults()
   if layout.energyTickAlpha > 1 then layout.energyTickAlpha = 1 end
   if layout.eqCompare == nil then layout.eqCompare = true end
   if layout.classTooltip == nil then layout.classTooltip = true end
-  if layout.mapCoords == nil then layout.mapCoords = true end
   if layout.clockLocal == nil then layout.clockLocal = false end
   if layout.dataTextCompact == nil then layout.dataTextCompact = false end
   layout.chatWidth = tonumber(layout.chatWidth) or 380
@@ -1054,15 +1092,29 @@ local function IsBagPanel(frame)
   return nil
 end
 
+-- The world map must keep its native FULLSCREEN strata. pfQuest parents its
+-- pins to WorldMapButton (a child of WorldMapFrame), so demoting the frame to
+-- DIALOG and re-Raise()ing it on every show reorders the map against its pins
+-- and the markers stop drawing. ShowUIPanel receives WorldMapFrame from
+-- ToggleWorldMap, so it has to be excluded here rather than in PANEL_NAMES.
+local function IsMapPanel(frame)
+  if not frame or not frame.GetName then return nil end
+  local name = frame:GetName()
+  if not name then return nil end
+  if string.find(name, "WorldMap", 1, true) then return true end
+  if string.find(name, "BattlefieldMinimap", 1, true) then return true end
+  return nil
+end
+
 local function RaiseGamePanel(frame)
-  if not frame or IsBagPanel(frame) then return end
+  if not frame or IsBagPanel(frame) or IsMapPanel(frame) then return end
   if frame.SetFrameStrata then pcall(frame.SetFrameStrata, frame, "DIALOG") end
   if frame.SetToplevel then pcall(frame.SetToplevel, frame, true) end
   if frame.Raise then pcall(frame.Raise, frame) end
 end
 
 local function HookGamePanel(frame)
-  if not frame or frame.qtPanelRaised or IsBagPanel(frame) then return end
+  if not frame or frame.qtPanelRaised or IsBagPanel(frame) or IsMapPanel(frame) then return end
   frame.qtPanelRaised = true
   local prev
   if type(frame.GetScript) == "function" then
@@ -1128,7 +1180,6 @@ function QtUI:Initialize()
   if self:IsFeatureEnabled("partyFrames") then SafeSetup("partyFrames", self.SetupPartyFrames) end
   if self:IsFeatureEnabled("bags") then SafeSetup("bags", self.SetupBags) end
   if self:IsFeatureEnabled("minimap") then SafeSetup("minimap", self.SetupMinimap) end
-  if self:IsFeatureEnabled("mapReveal") then SafeSetup("mapReveal", self.SetupWorldMap) end
   if self:IsFeatureEnabled("autoLoot") then SafeSetup("autoLoot", self.SetupAutoLoot) end
   if self:IsFeatureEnabled("autoSell") then SafeSetup("autoSell", self.SetupAutoSell) end
   if self:IsFeatureEnabled("dataText") then SafeSetup("dataText", self.SetupDataText) end
@@ -1138,7 +1189,6 @@ function QtUI:Initialize()
   SafeSetup("cooldowns", self.SetupCooldowns)
   SafeSetup("eqCompare", self.SetupEqCompare)
   SafeSetup("classTooltip", self.SetupClassTooltip)
-  if self.SetupMapCoords then SafeSetup("mapCoords", self.SetupMapCoords) end
   SafeSetup("settingsButton", self.SetupSettingsButton)
   SafeSetup("moveMode", self.SetupMoveMode)
   SafeSetup("panelStrata", self.SetupPanelStrata)

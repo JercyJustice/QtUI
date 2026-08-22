@@ -46,7 +46,7 @@ local hiddenNames = {
 
   -- micro menu shown in the first reference image
   "CharacterMicroButton", "SpellbookMicroButton", "TalentMicroButton",
-  "QuestLogMicroButton", "SocialsMicroButton", "WorldMapMicroButton",
+  "QuestLogMicroButton", "SocialsMicroButton",
   "MainMenuMicroButton", "HelpMicroButton",
 
   -- original bag strip; Bagnon or keybinds can still open bags

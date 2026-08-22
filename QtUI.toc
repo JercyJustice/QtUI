@@ -2,7 +2,7 @@
 ## Title: QtUI
 ## Notes: Compact Emberveil interface with dual chat, unit frames and data text
 ## Author: JercyJustice
-## Version: 0.22.0
+## Version: 0.23.0
 ## DefaultState: enabled
 ## SavedVariables: QtUIDB
 
@@ -20,7 +20,6 @@ PartyFrames.lua
 VendorPrices.lua
 Bags.lua
 Minimap.lua
-WorldMap.lua
 QuestLog.lua
 AutoLoot.lua
 DataText.lua

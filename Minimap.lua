@@ -187,19 +187,6 @@ local function EnsureChrome()
   events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
   events:SetScript("OnEvent", function()
     if not MinimapSkinOn() then return end
-    -- pfQuest already resets the map when the world map is closed. Calling
-    -- SetMapToCurrentZone here while Emberveil's native map is open (Lua
-    -- WorldMapFrame often reports hidden) wipes pfQuest world-map pins.
-    if not pfMap then
-      local mapOpen
-      if WorldMapFrame and WorldMapFrame.IsShown then
-        local ok, vis = pcall(WorldMapFrame.IsShown, WorldMapFrame)
-        mapOpen = ok and (vis == true or vis == 1)
-      end
-      if not mapOpen and type(SetMapToCurrentZone) == "function" then
-        pcall(SetMapToCurrentZone)
-      end
-    end
     UpdateZoneName()
     UpdateMinimapCoords()
   end)

@@ -9,7 +9,6 @@ local FEATURE_OPTIONS = {
   { key = "experienceBar", label = "Experience Bar", description = "Show the QtUI level and rested-experience bar." },
   { key = "castBar", label = "Cast Bar", description = "Replace the native player casting bar." },
   { key = "minimap", label = "Minimap Edits", description = "Use QtUI's compact minimap styling, zone text and coordinates. Turn off to keep the native minimap." },
-  { key = "mapReveal", label = "Map Reveal", description = "Reveal unexplored terrain artwork on the world map." },
   { key = "dataText", label = "Gold / Time / Performance", description = "Show money, clock, FPS and latency. Click the clock to switch server and local time." },
   { key = "questLog", label = "Custom Quest Log", description = "Replace the native quest log. Full quest text on the left, quest list on the right.", default = true },
   { key = "damageMeter", label = "Damage Meter", description = "Combat meter. Title cycles Current/Overall Damage, DPS and Heal. R resets that window. Add or close extra windows in Settings." },
@@ -1043,15 +1042,8 @@ function QtUI:SetupSettingsWindow()
   CreateSection(general, -180, 118, 236, 230)
   CreateHeader(general, -188, "Map / Extra", 244, 214)
   CreateFeatureToggle(general, -208, "minimap", 244, 214)
-  CreateFeatureToggle(general, -228, "mapReveal", 244, 214)
-  CreateFeatureToggle(general, -248, "dataText", 244, 214)
-  CreateFeatureToggle(general, -268, "questLog", 244, 214)
-  CreateToggleRow(general, -288, "World map coordinates", function()
-    local value = QtUI:GetLayout().mapCoords
-    return value ~= false and value ~= 0 and value ~= "0"
-  end, function(value)
-    QtUI:GetLayout().mapCoords = value and true or false
-  end, 244, 214)
+  CreateFeatureToggle(general, -228, "dataText", 244, 214)
+  CreateFeatureToggle(general, -248, "questLog", 244, 214)
   CreateSection(general, -308, 104)
   CreateHeader(general, -316, "Snap")
   CreateStepper(general, -336, "Snap range (tolerance)", function()

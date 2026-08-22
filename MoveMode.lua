@@ -1547,6 +1547,14 @@ function QtUI:ResetMovable(key)
           relativePoint = "BOTTOMRIGHT", x = -18, y = 220,
         }
       end
+      if key == "bank" then
+        QtUIDB.bankX = nil
+        QtUIDB.bankY = nil
+        entry.default = {
+          point = "BOTTOMLEFT", relativeTo = UIParent,
+          relativePoint = "BOTTOMLEFT", x = 18, y = 220,
+        }
+      end
       if key == "cast" and QtUI.PlaceCastBar then
         QtUI:PlaceCastBar()
       elseif entry.default then
@@ -1781,6 +1789,7 @@ function QtUI:SetupMoveMode()
     self:RegisterMovable("minimapEnchants", "Weapon Enchants", TemporaryEnchantFrame, true)
   end
   self:RegisterMovable("bags", "Bags", self.bagFrame)
+  self:RegisterMovable("bank", "Bank", self.bankFrame, true)
   self:RegisterMovable("data", "Gold / Time / FPS", self.dataBar)
   if self.playerFrame then
     if self.playerFrame.buffs then

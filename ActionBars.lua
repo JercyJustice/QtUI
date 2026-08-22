@@ -173,8 +173,22 @@ local function InstallActionResolvers()
     return activeButton and activeButton:GetID()
   end
 
-  -- Vanilla only casts on key-up when the button is PUSHED. Emberveil often
-  -- never reports that state, so the slot looks selected and UseAction is skipped.
+  -- Mouse clicks call UseAction on the visible button. Keybinds go through
+  -- ActionButtonUp, which vanilla skips unless the button is PUSHED. Native Up
+  -- also redirects to BonusActionButton while that bar reports shown — QtUI
+  -- hides it, but Emberveil Hide() often still returns shown, so the key sets
+  -- PUSHED on ActionButton and the original handler checks BonusActionButton.
+  local function FireHotkey(button, onSelf)
+    if not button then return end
+    if button.SetButtonState then pcall(button.SetButtonState, button, "NORMAL") end
+    local action = SlotForButton(button)
+    if not action then return end
+    QtUI.qtLastAction = action
+    QtUI.qtLastOnSelf = onSelf
+    QtUI.qtLastActionTime = GetTime()
+    if type(UseAction) == "function" then UseAction(action, 0, onSelf) end
+  end
+
   local originalActionButtonDown = ActionButtonDown
   if type(originalActionButtonDown) == "function" then
     ActionButtonDown = function(id)
@@ -193,17 +207,29 @@ local function InstallActionResolvers()
       if not activeButton or not activeButton.QtUIPrimaryAction then
         return originalActionButtonUp(id, onSelf)
       end
-      -- Emberveil drops PUSHED, so native Up would skip the cast. Restore
-      -- PUSHED and let the original handler call UseAction. Calling UseAction
-      -- ourselves (and IsCurrentAction after Tiger's Fury) AVs at 0x338.
-      if activeButton.SetButtonState then pcall(activeButton.SetButtonState, activeButton, "PUSHED") end
-      local action = ResolvePrimaryAction(activeButton)
-      if action then
-        QtUI.qtLastAction = action
-        QtUI.qtLastOnSelf = onSelf
-        QtUI.qtLastActionTime = GetTime()
+      FireHotkey(activeButton, onSelf)
+    end
+  end
+
+  if type(MultiActionButtonDown) == "function" then
+    local originalMultiDown = MultiActionButtonDown
+    MultiActionButtonDown = function(bar, id)
+      local button = getglobal(tostring(bar or "") .. "Button" .. tostring(id or ""))
+      if not button or not button.QtUIAction then
+        return originalMultiDown(bar, id)
       end
-      return originalActionButtonUp(id, onSelf)
+      if button.SetButtonState then pcall(button.SetButtonState, button, "PUSHED") end
+    end
+  end
+
+  if type(MultiActionButtonUp) == "function" then
+    local originalMultiUp = MultiActionButtonUp
+    MultiActionButtonUp = function(bar, id, onSelf)
+      local button = getglobal(tostring(bar or "") .. "Button" .. tostring(id or ""))
+      if not button or not button.QtUIAction then
+        return originalMultiUp(bar, id, onSelf)
+      end
+      FireHotkey(button, onSelf)
     end
   end
 

@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.18.0"
+QtUI.version = "0.22.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
@@ -967,6 +967,7 @@ function QtUI:ApplyLayout()
   if self.UpdateUnitFrames then self:UpdateUnitFrames() end
   if self.UpdatePartyFrames then self:UpdatePartyFrames() end
   if self.bagFrame and self.UpdateBags then self:UpdateBags() end
+  if self.bankFrame and self.UpdateBank then self:UpdateBank() end
   if self.ApplyDamageMeterLayout then self:ApplyDamageMeterLayout() end
   if self.LayoutChat then self:LayoutChat() end
   if self.LayoutDataText then self:LayoutDataText() end
@@ -1033,7 +1034,7 @@ local PANEL_NAMES = {
   "CharacterFrame", "PaperDollFrame", "ReputationFrame", "SkillFrame", "HonorFrame",
   "PetPaperDollFrame", "TradeFrame", "MailFrame", "SendMailFrame", "OpenMailFrame",
   "AuctionFrame", "CraftFrame", "TradeSkillFrame", "ClassTrainerFrame",
-  "BankFrame", "MerchantFrame", "GossipFrame", "QuestFrame", "QuestLogFrame",
+  "MerchantFrame", "GossipFrame", "QuestFrame", "QuestLogFrame",
   "TaxiFrame", "InspectFrame", "TalentFrame", "SpellBookFrame", "FriendsFrame",
   "GuildFrame", "WhoFrame", "PetitionFrame", "TabardFrame", "PetStableFrame",
   "DressUpFrame", "ItemTextFrame", "LootFrame", "BattlefieldFrame",
@@ -1047,7 +1048,7 @@ local function IsBagPanel(frame)
   if not frame or not frame.GetName then return nil end
   local name = frame:GetName()
   if not name then return nil end
-  if name == "QtUIBagFrame" or name == "QtUIStackSplit" then return true end
+  if name == "QtUIBagFrame" or name == "QtUIBankFrame" or name == "QtUIStackSplit" then return true end
   if string.find(name, "ContainerFrame", 1, true) then return true end
   if string.find(name, "Backpack", 1, true) then return true end
   return nil

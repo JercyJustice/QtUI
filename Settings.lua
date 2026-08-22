@@ -1,5 +1,5 @@
 local FEATURE_OPTIONS = {
-  { key = "bags", label = "Custom Bags", description = "Use QtUI's combined bag window and item layout." },
+  { key = "bags", label = "Custom Bags", description = "Use QtUI's combined bag and bank windows." },
   { key = "autoLoot", label = "Auto Loot", description = "Loot opened containers automatically unless Shift is held." },
   { key = "autoSell", label = "Auto-Sell Greys", description = "Sell grey-quality items when a merchant opens." },
   { key = "unitFrames", label = "Player / Target Frames", description = "Replace the native player, target and combo-point frames." },

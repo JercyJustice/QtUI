@@ -330,8 +330,8 @@ local function HandleItemClick()
   end
 end
 
-local function CreateItemButton(parent, index)
-  local button = CreateFrame("Button", "QtUIBagItem" .. index, parent)
+local function CreateItemButton(parent, index, prefix)
+  local button = CreateFrame("Button", (prefix or "QtUIBagItem") .. index, parent)
   button:SetWidth(SLOT_SIZE)
   button:SetHeight(SLOT_SIZE)
   button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -383,57 +383,33 @@ local function CreateItemButton(parent, index)
   return button
 end
 
-local function HighlightBagSlots(bag, show)
-  local frame = QtUI.bagFrame
-  if not frame then return end
+local function HighlightFrameBagSlots(frame, bag, show)
+  if not frame or not frame.items then return end
+  local _, button
   for _, button in ipairs(frame.items) do
-    if button.bag == bag and button:IsShown() then
-      if show then button.bagHighlight:Show() else button.bagHighlight:Hide() end
-    else
-      button.bagHighlight:Hide()
+    if button.bagHighlight then
+      if bag and button.bag == bag and button:IsShown() then
+        if show then button.bagHighlight:Show() else button.bagHighlight:Hide() end
+      else
+        button.bagHighlight:Hide()
+      end
     end
   end
+end
+
+local function HighlightBagSlots(bag, show)
+  HighlightFrameBagSlots(QtUI.bagFrame, bag, show)
+  HighlightFrameBagSlots(QtUI.bankFrame, bag, show)
 end
 
 local function BagInventorySlot(bag)
   if type(ContainerIDToInventoryID) == "function" then
-    return ContainerIDToInventoryID(bag)
+    local ok, id = pcall(ContainerIDToInventoryID, bag)
+    if ok and id then return id end
   end
+  -- Vanilla 1.12: bags 1-4 → 20-23, bank bags 5-10 → 64-69.
+  if bag and bag >= 5 then return bag + 59 end
   return 19 + bag
-end
-
-local function UpdateEquippedBagButton(button)
-  local bag = button.bag
-  local slots = GetContainerNumSlots(bag) or 0
-  local texture
-  if bag == 0 then
-    texture = "Interface\\Buttons\\Button-Backpack-Up"
-  elseif bag == -2 then
-    texture = "Interface\\Icons\\INV_Misc_Key_03"
-  else
-    texture = GetInventoryItemTexture("player", button.inventorySlot)
-  end
-
-  button.icon:SetTexture(texture or "Interface\\Buttons\\Button-Backpack-Up")
-  if texture then
-    button.icon:SetVertexColor(1, 1, 1, 1)
-  else
-    button.icon:SetVertexColor(.3, .3, .3, .7)
-  end
-  if bag == -2 then
-    button.slots:SetText("")
-  else
-    button.slots:SetText(slots)
-  end
-  if bag == -2 then
-    if ShowKeyring() then
-      TintSlotWell(button, 1, .72, .18, 1)
-      button.icon:SetVertexColor(1, 1, 1, 1)
-    else
-      TintSlotWell(button, .4, .4, .4, 1)
-      button.icon:SetVertexColor(.45, .45, .45, .8)
-    end
-  end
 end
 
 local function HasKeyringItem()
@@ -462,6 +438,12 @@ local function ShowKeyButton()
 end
 
 local function ContainerSlots(bag)
+  if bag == -1 then
+    local n = tonumber(GetContainerNumSlots(-1)) or 0
+    if n > 0 then return n end
+    -- Emberveil reports 0 for the bank pane; vanilla bank is 24 slots.
+    return 24
+  end
   if bag == -2 then
     local n = tonumber(GetContainerNumSlots(-2)) or 0
     if n > 0 then return n end
@@ -502,6 +484,102 @@ local function BagOrder()
   return { 0, 1, 2, 3, 4 }
 end
 
+local function IsPlayerBag(bag)
+  return bag == -2 or (bag and bag >= 0 and bag <= 4)
+end
+
+local function IsBankBagId(bag)
+  return bag == -1 or (bag and bag >= 5 and bag <= 10)
+end
+
+local function PurchasedBankBags()
+  if type(GetNumBankSlots) == "function" then
+    local ok, slots = pcall(GetNumBankSlots)
+    if ok and slots ~= nil then
+      slots = tonumber(slots) or 0
+      if slots < 0 then slots = 0 end
+      if slots > 6 then slots = 6 end
+      return slots, true
+    end
+  end
+  return 6, nil
+end
+
+local function BankBagIsPurchased(bag)
+  if not bag or bag < 5 or bag > 10 then return true end
+  local n, known = PurchasedBankBags()
+  if not known then return true end
+  return (bag - 4) <= n
+end
+
+local function BankBagOrder()
+  local order = { -1 }
+  local n = PurchasedBankBags()
+  local i
+  for i = 1, n do
+    table.insert(order, 4 + i)
+  end
+  return order
+end
+
+local function BuyNextBankSlot()
+  if type(StaticPopup_Show) == "function" then
+    local ok = pcall(StaticPopup_Show, "CONFIRM_BUY_BANK_SLOT")
+    if ok then return end
+  end
+  if type(PurchaseSlot) == "function" then
+    pcall(PurchaseSlot)
+  end
+end
+
+local function UpdateEquippedBagButton(button)
+  local bag = button.bag
+  local slots = ContainerSlots(bag)
+  local texture
+  if bag == 0 then
+    texture = "Interface\\Buttons\\Button-Backpack-Up"
+  elseif bag == -1 then
+    texture = "Interface\\Icons\\INV_Box_02"
+  elseif bag == -2 then
+    texture = "Interface\\Icons\\INV_Misc_Key_03"
+  else
+    texture = GetInventoryItemTexture("player", button.inventorySlot)
+  end
+
+  if bag >= 5 and bag <= 10 and not BankBagIsPurchased(bag) then
+    button.icon:SetTexture(texture or "Interface\\Buttons\\Button-Backpack-Up")
+    button.icon:SetVertexColor(.28, .28, .28, .55)
+    button.slots:SetText("")
+    TintSlotWell(button, .4, .32, .12, 1)
+    return
+  end
+
+  button.icon:SetTexture(texture or "Interface\\Buttons\\Button-Backpack-Up")
+  if texture then
+    button.icon:SetVertexColor(1, 1, 1, 1)
+  else
+    button.icon:SetVertexColor(.3, .3, .3, .7)
+  end
+  if bag == -2 then
+    button.slots:SetText("")
+  else
+    button.slots:SetText(slots)
+  end
+  if bag == -1 then
+    TintSlotWell(button, .85, .72, .22, 1)
+  elseif bag == -2 then
+    if ShowKeyring() then
+      TintSlotWell(button, 1, .72, .18, 1)
+      button.icon:SetVertexColor(1, 1, 1, 1)
+    else
+      TintSlotWell(button, .4, .4, .4, 1)
+      button.icon:SetVertexColor(.45, .45, .45, .8)
+    end
+  else
+    TintSlotWell(button, 1, 1, 1, 1)
+  end
+end
+
 local function HandleEquippedBagClick()
   if this.bag == -2 then
     local layout = QtUI.GetLayout and QtUI:GetLayout()
@@ -514,7 +592,11 @@ local function HandleEquippedBagClick()
     if QtUI.UpdateBags then QtUI:UpdateBags() end
     return
   end
-  if this.bag == 0 then return end
+  if this.bag == 0 or this.bag == -1 then return end
+  if this.bag >= 5 and this.bag <= 10 and not BankBagIsPurchased(this.bag) then
+    BuyNextBankSlot()
+    return
+  end
 
   local hasCursorItem = type(CursorHasItem) == "function" and IsTruthy(CursorHasItem())
   if hasCursorItem and type(PutItemInBag) == "function" then
@@ -547,6 +629,10 @@ local function CreateEquippedBagButton(parent, bag)
   button:SetScript("OnClick", HandleEquippedBagClick)
   button:SetScript("OnDragStart", HandleEquippedBagClick)
   button:SetScript("OnReceiveDrag", function()
+    if this.bag >= 5 and this.bag <= 10 and not BankBagIsPurchased(this.bag) then
+      BuyNextBankSlot()
+      return
+    end
     if this.bag > 0 and type(PutItemInBag) == "function" then
       PutItemInBag(this.inventorySlot)
     end
@@ -557,9 +643,24 @@ local function CreateEquippedBagButton(parent, bag)
     if this.bag == -2 then
       GameTooltip:SetText("Keyring")
       GameTooltip:AddLine("Shown while you have keys. Click to include them in this window.", .8, .8, .8, 1)
+    elseif this.bag == -1 then
+      GameTooltip:SetText("Bank")
+      GameTooltip:AddLine("24-slot bank pane. Hover to highlight those slots.", .75, .75, .75, 1)
     elseif this.bag == 0 then
       GameTooltip:SetText("Backpack")
       GameTooltip:AddLine("The backpack is fixed and cannot be replaced.", .75, .75, .75, 1)
+    elseif this.bag >= 5 and this.bag <= 10 and not BankBagIsPurchased(this.bag) then
+      GameTooltip:SetText("Purchasable Bag Slot")
+      local cost
+      if type(GetBankSlotCost) == "function" then
+        local ok, value = pcall(GetBankSlotCost, PurchasedBankBags())
+        if ok then cost = tonumber(value) end
+      end
+      if cost and cost > 0 then
+        GameTooltip:AddLine("Click to purchase for " .. FormatMoney(cost), 1, .82, 0, 1)
+      else
+        GameTooltip:AddLine("Click to purchase this bank bag slot.", .8, .8, .8, 1)
+      end
     elseif GetInventoryItemLink("player", this.inventorySlot) then
       GameTooltip:SetInventoryItem("player", this.inventorySlot)
       GameTooltip:AddLine(" ")
@@ -630,9 +731,10 @@ local function UpdateSlot(button, bag, slot, isKeySlot)
   button:Show()
 end
 
-local function BagLayoutSignature()
+local function BagLayoutSignature(bagOrder)
   local signature = ""
-  local bagOrder = BagOrder()
+  bagOrder = bagOrder or BagOrder()
+  local _, bag
   for _, bag in ipairs(bagOrder) do
     signature = signature .. bag .. ":" .. ContainerSlots(bag) .. ";"
   end
@@ -643,18 +745,25 @@ local function UpdateMoneyText(frame)
   if frame and frame.money then frame.money:SetText(FormatMoney(GetMoney())) end
 end
 
-local function UpdateSpaceText(frame)
+local function UpdateSpaceText(frame, bagOrder)
+  if not frame then return end
   local free, total = 0, 0
-  local bagOrder = BagOrder()
+  bagOrder = bagOrder or (frame.kind == "bank" and BankBagOrder() or BagOrder())
+  local _, bag
   for _, bag in ipairs(bagOrder) do
     local slots = ContainerSlots(bag)
     total = total + slots
+    local slot
     for slot = 1, slots do
       if not GetContainerItemLink(bag, slot) then free = free + 1 end
     end
   end
   if frame.space then
-    frame.space:SetText(free .. " / " .. total)
+    if frame.kind == "bank" then
+      frame.space:SetText("Bank  " .. free .. " / " .. total)
+    else
+      frame.space:SetText(free .. " / " .. total)
+    end
   end
 end
 
@@ -680,8 +789,7 @@ local function UpdateOneSlot(frame, bag, slot)
   if button then UpdateSlot(button, bag, slot, bag == -2) end
 end
 
-function QtUI:UpdateBags()
-  local frame = self.bagFrame
+local function LayoutOneBag(frame, bagOrder)
   if not frame then return end
 
   local layout = QtUI.GetLayout and QtUI:GetLayout()
@@ -693,16 +801,16 @@ function QtUI:UpdateBags()
   local position = 1
   local free = 0
   local total = 0
-  local bagOrder = BagOrder()
-  local keySlots = 0
+  local prefix = frame.itemPrefix or "QtUIBagItem"
   frame.itemByLocation = {}
+  local _, bag
   for _, bag in ipairs(bagOrder) do
     local slots = ContainerSlots(bag)
     local slot
     for slot = 1, slots do
       local button = frame.items[position]
       if not button then
-        button = CreateItemButton(frame, position)
+        button = CreateItemButton(frame, position, prefix)
         frame.items[position] = button
       end
       button:SetWidth(slotSize)
@@ -718,7 +826,6 @@ function QtUI:UpdateBags()
       frame.itemByLocation[bag .. ":" .. slot] = button
 
       total = total + 1
-      if bag == -2 then keySlots = keySlots + 1 end
       if not GetContainerItemLink(bag, slot) then free = free + 1 end
       position = position + 1
     end
@@ -734,10 +841,18 @@ function QtUI:UpdateBags()
   local windowHeight = 62 + rows * (slotSize + SLOT_GAP)
   frame:SetWidth(windowWidth)
   frame:SetHeight(windowHeight)
-  frame.layoutSignature = BagLayoutSignature()
-  UpdateSpaceText(frame)
+  frame.layoutSignature = BagLayoutSignature(bagOrder)
+  UpdateSpaceText(frame, bagOrder)
   UpdateMoneyText(frame)
   UpdateEquippedBags(frame)
+end
+
+function QtUI:UpdateBags()
+  LayoutOneBag(self.bagFrame, BagOrder())
+end
+
+function QtUI:UpdateBank()
+  LayoutOneBag(self.bankFrame, BankBagOrder())
 end
 
 function QtUI:OpenBags()
@@ -760,6 +875,55 @@ function QtUI:ToggleBags()
   if self.bagFrame:IsShown() then self:CloseBags() else self:OpenBags() end
 end
 
+local function ParkNativeBankFrame()
+  local frame = BankFrame
+  if not frame then return end
+  -- Must stay "shown": BankFrame_OnEvent calls CloseBankFrame if it is not visible.
+  if frame.ClearAllPoints then
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -5000, 5000)
+  end
+  if frame.SetAlpha then pcall(frame.SetAlpha, frame, 0) end
+  if frame.EnableMouse then pcall(frame.EnableMouse, frame, false) end
+  if frame.SetFrameStrata then pcall(frame.SetFrameStrata, frame, "BACKGROUND") end
+  if type(frame.GetChildren) == "function" then
+    local ok, children = pcall(function() return { frame:GetChildren() } end)
+    if ok and type(children) == "table" then
+      local n
+      for n = 1, table.getn(children) do
+        local child = children[n]
+        if child and child.EnableMouse then pcall(child.EnableMouse, child, false) end
+      end
+    end
+  end
+end
+
+function QtUI:OpenBank()
+  if not self.bankFrame then return end
+  pcall(self.UpdateBank, self)
+  if self.bankFrame.Show then pcall(self.bankFrame.Show, self.bankFrame) end
+  ParkNativeBankFrame()
+  local frame = self.bankFrame
+  frame.parkElapsed = 0
+  frame:SetScript("OnUpdate", function()
+    this.parkElapsed = (this.parkElapsed or 0) + (arg1 or 0)
+    if this.parkElapsed < .2 then return end
+    this.parkElapsed = 0
+    ParkNativeBankFrame()
+  end)
+end
+
+function QtUI:CloseBank()
+  if self.bankFrame then
+    if self.bankFrame.SetScript then self.bankFrame:SetScript("OnUpdate", nil) end
+    if self.bankFrame.bagMenu then self.bankFrame.bagMenu:Hide() end
+    self.bankFrame:Hide()
+  end
+  if self.splitFrame and self.splitFrame.owner and IsBankBagId(self.splitFrame.owner.bag) then
+    self.splitFrame:Hide()
+  end
+end
+
 function QtUI:SetupBags()
   local frame = self:CreatePanel("QtUIBagFrame", UIParent, 8)
   frame:SetFrameStrata("HIGH")
@@ -776,6 +940,8 @@ function QtUI:SetupBags()
   frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", function() this:StartMoving() end)
   frame:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+  frame.kind = "bags"
+  frame.itemPrefix = "QtUIBagItem"
   frame.items = {}
 
   -- Item buttons consume mouse input, so provide a full-width header handle
@@ -805,8 +971,8 @@ function QtUI:SetupBags()
   end)
 
   frame.space = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 10, -12)
-  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -22, -12)
+  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 10, -4)
+  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -22, -4)
   frame.space:SetJustifyH("LEFT")
 
   frame.close = CreateFrame("Button", "QtUIBagClose", frame)
@@ -905,7 +1071,27 @@ function QtUI:SetupBags()
   CloseBackpack = function() QtUI:CloseBags() end
   OpenAllBags = function() QtUI:OpenBags() end
   CloseAllBags = function() QtUI:CloseBags() end
-  ToggleBag = function() QtUI:ToggleBags() end
+  ToggleBag = function(id)
+    id = tonumber(id)
+    if id and IsBankBagId(id) then
+      if QtUI.OpenBank then QtUI:OpenBank() end
+      return
+    end
+    QtUI:ToggleBags()
+  end
+  OpenBag = function(id)
+    id = tonumber(id)
+    if id and IsBankBagId(id) then
+      if QtUI.OpenBank then QtUI:OpenBank() end
+      return
+    end
+    QtUI:OpenBags()
+  end
+  CloseBag = function(id)
+    id = tonumber(id)
+    if id and IsBankBagId(id) then return end
+    QtUI:CloseBags()
+  end
 
   local bagsOk, bagsErr = pcall(function() QtUI:UpdateBags() end)
   if bagsOk then
@@ -915,42 +1101,68 @@ function QtUI:SetupBags()
     self:Print("Bags failed to build: " .. tostring(bagsErr))
   end
 
+  local bankOk, bankErr = pcall(function() QtUI:SetupBank() end)
+  if not bankOk then
+    self:Print("Bank failed to build: " .. tostring(bankErr))
+  end
+
   local events = CreateFrame("Frame", "QtUIBagEvents")
   events:RegisterEvent("BAG_UPDATE")
   events:RegisterEvent("ITEM_LOCK_CHANGED")
   events:RegisterEvent("PLAYER_MONEY")
   events:RegisterEvent("MERCHANT_SHOW")
+  pcall(events.RegisterEvent, events, "BANKFRAME_OPENED")
+  pcall(events.RegisterEvent, events, "BANKFRAME_CLOSED")
+  pcall(events.RegisterEvent, events, "PLAYERBANKSLOTS_CHANGED")
+  pcall(events.RegisterEvent, events, "PLAYERBANKBAGSLOTS_CHANGED")
   events.dirtyBags = {}
   events.dirtySlots = {}
   events.elapsed = 0
 
+  local function FrameShown(frame)
+    if not frame or not frame.IsShown then return nil end
+    local ok, shown = pcall(frame.IsShown, frame)
+    return ok and (shown == true or shown == 1 or shown == "1")
+  end
+
+  local function FlushOneFrame(frame, orderFn, rebuildFn, dirtyFilter)
+    if not FrameShown(frame) then return end
+    local order = orderFn()
+    local hasBagChanges
+    local bag
+    for bag in pairs(events.dirtyBags) do
+      if dirtyFilter(bag) then hasBagChanges = true break end
+    end
+    if frame.layoutSignature ~= BagLayoutSignature(order) then
+      rebuildFn(QtUI)
+      return
+    end
+    for bag in pairs(events.dirtyBags) do
+      if dirtyFilter(bag) then UpdateOneBag(frame, bag) end
+    end
+    local _, location
+    for _, location in pairs(events.dirtySlots) do
+      if dirtyFilter(location.bag) and not events.dirtyBags[location.bag] then
+        UpdateOneSlot(frame, location.bag, location.slot)
+      end
+    end
+    if hasBagChanges then
+      UpdateSpaceText(frame, order)
+      UpdateEquippedBags(frame)
+    end
+  end
+
   local function FlushBagEvents()
-    local frame = QtUI.bagFrame
-    if not frame or not frame:IsShown() then
+    local bagShown = FrameShown(QtUI.bagFrame)
+    local bankShown = FrameShown(QtUI.bankFrame)
+    if not bagShown and not bankShown then
       events.dirtyBags = {}
       events.dirtySlots = {}
       return
     end
 
-    -- Equipping a different-sized bag is the only normal operation that
-    -- requires recreating anchors and rebuilding the location lookup.
-    local hasBagChanges = next(events.dirtyBags)
-    if frame.layoutSignature ~= BagLayoutSignature() then
-      QtUI:UpdateBags()
-    else
-      for bag in pairs(events.dirtyBags) do UpdateOneBag(frame, bag) end
-      for key, location in pairs(events.dirtySlots) do
-        if not events.dirtyBags[location.bag] then
-          UpdateOneSlot(frame, location.bag, location.slot)
-        end
-      end
-      -- Lock changes only affect the dimmed state of one icon. Occupancy and
-      -- equipped-bag information can only change with BAG_UPDATE.
-      if hasBagChanges then
-        UpdateSpaceText(frame)
-        UpdateEquippedBags(frame)
-      end
-    end
+    FlushOneFrame(QtUI.bagFrame, BagOrder, QtUI.UpdateBags, IsPlayerBag)
+    FlushOneFrame(QtUI.bankFrame, BankBagOrder, QtUI.UpdateBank, IsBankBagId)
     events.dirtyBags = {}
     events.dirtySlots = {}
   end
@@ -963,25 +1175,49 @@ function QtUI:SetupBags()
     FlushBagEvents()
   end
 
+  local function DirtyAllPlayerBags()
+    events.dirtyBags[0] = true
+    events.dirtyBags[1] = true
+    events.dirtyBags[2] = true
+    events.dirtyBags[3] = true
+    events.dirtyBags[4] = true
+    events.dirtyBags[-2] = true
+  end
+
+  local function DirtyAllBankBags()
+    events.dirtyBags[-1] = true
+    events.dirtyBags[5] = true
+    events.dirtyBags[6] = true
+    events.dirtyBags[7] = true
+    events.dirtyBags[8] = true
+    events.dirtyBags[9] = true
+    events.dirtyBags[10] = true
+  end
+
   events:SetScript("OnEvent", function()
     if event == "MERCHANT_SHOW" then
       QtUI:OpenBags()
+    elseif event == "BANKFRAME_OPENED" then
+      ParkNativeBankFrame()
+      if QtUI.OpenBank then QtUI:OpenBank() end
+      if QtUI.OpenBags then QtUI:OpenBags() end
+    elseif event == "BANKFRAME_CLOSED" then
+      if QtUI.CloseBank then QtUI:CloseBank() end
     elseif event == "PLAYER_MONEY" then
-      if QtUI.bagFrame and QtUI.bagFrame:IsShown() then
-        UpdateMoneyText(QtUI.bagFrame)
-      end
+      if FrameShown(QtUI.bagFrame) then UpdateMoneyText(QtUI.bagFrame) end
+    elseif event == "PLAYERBANKSLOTS_CHANGED" then
+      events.dirtyBags[-1] = true
+    elseif event == "PLAYERBANKBAGSLOTS_CHANGED" then
+      DirtyAllBankBags()
+      if QtUI.bankFrame then QtUI.bankFrame.layoutSignature = nil end
     elseif event == "BAG_UPDATE" then
       local bag = tonumber(arg1)
       if bag then
         events.dirtyBags[bag] = true
       else
         -- Emberveil builds do not always provide Blizzard's event arguments.
-        events.dirtyBags[0] = true
-        events.dirtyBags[1] = true
-        events.dirtyBags[2] = true
-        events.dirtyBags[3] = true
-        events.dirtyBags[4] = true
-        events.dirtyBags[-2] = true
+        DirtyAllPlayerBags()
+        if FrameShown(QtUI.bankFrame) then DirtyAllBankBags() end
       end
     elseif event == "ITEM_LOCK_CHANGED" then
       local bag, slot = tonumber(arg1), tonumber(arg2)
@@ -989,10 +1225,183 @@ function QtUI:SetupBags()
         events.dirtySlots[bag .. ":" .. slot] = { bag = bag, slot = slot }
       elseif bag then
         events.dirtyBags[bag] = true
+      else
+        DirtyAllPlayerBags()
+        if FrameShown(QtUI.bankFrame) then DirtyAllBankBags() end
       end
     end
     if next(events.dirtyBags) or next(events.dirtySlots) then
       events:SetScript("OnUpdate", ProcessPendingBagEvents)
     end
   end)
+end
+
+function QtUI:SetupBank()
+  if self.bankFrame then return end
+  local frame = self:CreatePanel("QtUIBankFrame", UIParent, 8)
+  frame:SetFrameStrata("HIGH")
+  frame.kind = "bank"
+  frame.itemPrefix = "QtUIBankItem"
+  if QtUIDB.bankX and QtUIDB.bankY then
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", QtUIDB.bankX, QtUIDB.bankY)
+  else
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 18, 220)
+  end
+  frame:SetBackdropColor(.025, .035, .045, .92)
+  frame:SetBackdropBorderColor(.18, .24, .28, 1)
+  frame:SetMovable(true)
+  frame:SetClampedToScreen(true)
+  frame:EnableMouse(true)
+  frame:RegisterForDrag("LeftButton")
+  frame:SetScript("OnDragStart", function() this:StartMoving() end)
+  frame:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+  frame.items = {}
+
+  frame.dragHandle = CreateFrame("Button", "QtUIBankDragHandle", frame)
+  frame.dragHandle:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+  frame.dragHandle:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+  frame.dragHandle:SetHeight(26)
+  frame.dragHandle:SetFrameLevel(frame:GetFrameLevel() + 5)
+  frame.dragHandle:RegisterForDrag("LeftButton")
+  frame.dragHandle:SetScript("OnDragStart", function()
+    this:GetParent():StartMoving()
+  end)
+  frame.dragHandle:SetScript("OnDragStop", function()
+    local parent = this:GetParent()
+    parent:StopMovingOrSizing()
+    local left, bottom = parent:GetLeft(), parent:GetBottom()
+    if left and bottom then
+      QtUIDB.bankX = left
+      QtUIDB.bankY = bottom
+      if QtUIDB.positions then
+        QtUIDB.positions.bank = { x = left, y = bottom }
+      end
+      parent:ClearAllPoints()
+      parent:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    end
+  end)
+
+  frame.space = frame.dragHandle:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  frame.space:SetPoint("LEFT", frame.dragHandle, "LEFT", 10, -4)
+  frame.space:SetPoint("RIGHT", frame.dragHandle, "RIGHT", -22, -4)
+  frame.space:SetJustifyH("LEFT")
+
+  frame.close = CreateFrame("Button", "QtUIBankClose", frame)
+  frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
+  frame.close:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", -23, -23)
+  frame.close:SetFrameLevel(frame:GetFrameLevel() + 10)
+  if frame.close.SetNormalTexture then
+    frame.close:SetNormalTexture("Interface\\AddOns\\QtUI\\Media\\close_normal")
+  end
+  if frame.close.SetPushedTexture then
+    frame.close:SetPushedTexture("Interface\\AddOns\\QtUI\\Media\\close_pushed")
+  end
+  frame.close:EnableMouse(true)
+  frame.close:RegisterForClicks("LeftButtonUp")
+  frame.close:SetScript("OnClick", function()
+    if type(CloseBankFrame) == "function" then pcall(CloseBankFrame) end
+    QtUI:CloseBank()
+  end)
+  frame.close:SetScript("OnEnter", function()
+    if this.GetNormalTexture and this:GetNormalTexture() then
+      this:GetNormalTexture():SetVertexColor(.4, 1, .8)
+    end
+  end)
+  frame.close:SetScript("OnLeave", function()
+    if this.GetNormalTexture and this:GetNormalTexture() then
+      this:GetNormalTexture():SetVertexColor(1, 1, 1)
+    end
+  end)
+
+  frame.bagMenuButton = CreateFrame("Button", "QtUIBankMenuButton", frame)
+  frame.bagMenuButton:SetWidth(22)
+  frame.bagMenuButton:SetHeight(22)
+  frame.bagMenuButton:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 11, 6)
+  frame.bagMenuButton:SetFrameLevel(frame:GetFrameLevel() + 6)
+  ApplySlotWell(frame.bagMenuButton, 2)
+  frame.bagMenuButton.icon = frame.bagMenuButton:CreateTexture(nil, "ARTWORK")
+  frame.bagMenuButton.icon:SetPoint("TOPLEFT", frame.bagMenuButton, "TOPLEFT", 3, -3)
+  frame.bagMenuButton.icon:SetPoint("BOTTOMRIGHT", frame.bagMenuButton, "BOTTOMRIGHT", -3, 3)
+  frame.bagMenuButton.icon:SetTexture("Interface\\Icons\\INV_Box_02")
+
+  frame.bagMenu = self:CreatePanel("QtUIBankMenu", frame, frame:GetFrameLevel() + 8)
+  frame.bagMenu:SetFrameStrata("DIALOG")
+  frame.bagMenu:SetWidth(254)
+  frame.bagMenu:SetHeight(62)
+  frame.bagMenu:SetPoint("BOTTOMLEFT", frame.bagMenuButton, "TOPLEFT", 0, 4)
+  frame.bagMenu:SetBackdropColor(.015, .02, .025, .94)
+  frame.bagMenu:SetBackdropBorderColor(.28, .34, .36, 1)
+  frame.bagMenu.title = frame.bagMenu:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  frame.bagMenu.title:SetPoint("TOP", frame.bagMenu, "TOP", 0, -6)
+  frame.bagMenu.title:SetText("Bank Bags")
+  frame.bagMenu:Hide()
+
+  frame.equippedBags = {}
+  local bagIndex
+  for bagIndex = 5, 10 do
+    local bagButton = CreateEquippedBagButton(frame.bagMenu, bagIndex)
+    bagButton:SetPoint("BOTTOMLEFT", frame.bagMenu, "BOTTOMLEFT", 7 + (bagIndex - 5) * 40, 6)
+    frame.equippedBags[bagIndex - 4] = bagButton
+  end
+
+  frame.paneButton = CreateEquippedBagButton(frame, -1)
+  frame.paneButton:SetWidth(22)
+  frame.paneButton:SetHeight(22)
+  frame.paneButton:SetPoint("BOTTOMLEFT", frame.bagMenuButton, "BOTTOMRIGHT", 3, 0)
+  if frame.paneButton.icon then
+    frame.paneButton.icon:ClearAllPoints()
+    frame.paneButton.icon:SetPoint("TOPLEFT", frame.paneButton, "TOPLEFT", 3, -3)
+    frame.paneButton.icon:SetPoint("BOTTOMRIGHT", frame.paneButton, "BOTTOMRIGHT", -3, 3)
+  end
+  frame.paneButton:SetFrameLevel(frame:GetFrameLevel() + 6)
+  frame.equippedBags[7] = frame.paneButton
+
+  frame.bagMenuButton:SetScript("OnClick", function()
+    local menu = this:GetParent().bagMenu
+    if menu:IsShown() then menu:Hide() else
+      QtUI:UpdateBank()
+      menu:Show()
+    end
+  end)
+  frame.bagMenuButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP")
+    GameTooltip:SetText("Bank Bags")
+    GameTooltip:AddLine("View, replace or purchase bank bags.", .8, .8, .8, 1)
+    GameTooltip:Show()
+  end)
+  frame.bagMenuButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  frame:Hide()
+  self.bankFrame = frame
+
+  pcall(function() QtUI:UpdateBank() end)
+
+  local native = BankFrame
+  if native and not native.qtBankHooked then
+    native.qtBankHooked = true
+    local prevShow, prevHide
+    if type(native.GetScript) == "function" then
+      prevShow = native:GetScript("OnShow")
+      prevHide = native:GetScript("OnHide")
+    end
+    native:SetScript("OnShow", function()
+      if prevShow then pcall(prevShow) end
+      ParkNativeBankFrame()
+      if QtUI.OpenBank then QtUI:OpenBank() end
+      if QtUI.OpenBags then QtUI:OpenBags() end
+    end)
+    native:SetScript("OnHide", function()
+      if prevHide then pcall(prevHide) end
+      if QtUI.CloseBank then QtUI:CloseBank() end
+    end)
+  end
+
+  if type(CloseBankFrame) == "function" and not QtUI.wrappedCloseBankFrame then
+    QtUI.wrappedCloseBankFrame = true
+    local origClose = CloseBankFrame
+    CloseBankFrame = function()
+      pcall(origClose)
+      if QtUI.CloseBank then QtUI:CloseBank() end
+    end
+  end
 end

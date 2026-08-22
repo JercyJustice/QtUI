@@ -1899,10 +1899,7 @@ function QtUI:SetupSettingsWindow()
       y = y - 26
     end
     if extras.watchBuffs then
-      -- The personal buff tracker is disabled in Auras.lua (PLAYER_WATCH_SAFE):
-      -- scanning player buffs access-violates this client at 0x338. Say so rather
-      -- than presenting a toggle that silently does nothing.
-      CreateHeader(page, y, "Buff tracker  |cff888888(unavailable on this client)|r")
+      CreateHeader(page, y, "Buff tracker")
       y = y - 24
       CreateToggleRow(page, y, "Track timed personal buffs", function()
         local value = QtUI:GetLayout().playerBuffWatch
@@ -2002,10 +1999,13 @@ function QtUI:SetupSettingsWindow()
     return page
   end
 
-  BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors. Whitelist which buffs to track, or Shift-click an aura. Enter to save names.", {
+  -- No watchBuffs: the personal buff tracker is disabled in Auras.lua because it
+  -- crashes this client (see PLAYER_WATCH_SAFE). Leaving the section out entirely
+  -- beats showing settings that do nothing.
+  BuildUnitPage("unit-player", "player", "Player frame size, mana bar and text anchors.", {
     height = true, powerHeight = true, powerText = true,
     classColor = "Health uses class color", classColorKey = "playerClassColor",
-    minHeight = 40, maxHeight = 100, watchBuffs = true,
+    minHeight = 40, maxHeight = 100,
   })
   BuildUnitPage("unit-target", "target", "Target frame size, mana bar and text anchors. Whitelist DoTs and CC, or Shift-click a debuff. Own list, separate from player buffs.", {
     height = true, powerHeight = true, powerText = true, classText = true,

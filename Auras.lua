@@ -899,7 +899,6 @@ function QtUI:UpdateAuraRow(row)
 end
 
 local WATCH_MAX = 12
-local watchFrames = {}
 
 local function PlaceWatchBox(widget, parent, left, bottom, width, height)
   if not widget or not parent then return end
@@ -1334,7 +1333,7 @@ local function CreateWatchFrame(name, unit, auraType, kind)
 end
 
 function QtUI:RefreshAuraWatch()
-  if PLAYER_WATCH_SAFE then RefreshWatchFrame(self.playerBuffWatch) end
+  -- Target only. The personal buff watch is not built; see PLAYER_WATCH_SAFE.
   RefreshWatchFrame(self.targetDebuffWatch)
 end
 
@@ -1351,24 +1350,15 @@ function QtUI:SetupAuraWatch()
   self.auraWatchReady = true
   ScanSpellbook()
 
-  -- Created for layout only. The OnUpdate is stripped and the frame is parked so
-  -- it can never poll player buffs -- see PLAYER_WATCH_SAFE above.
-  local player = CreateWatchFrame("QtUIPlayerBuffWatch", "player", "BUFF", "player")
-  player:SetScript("OnUpdate", nil)
-  player:ClearAllPoints()
-  player:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -4000, 4000)
-  self.playerBuffWatch = player
-
+  -- No player buff watch. It is not built at all rather than built and parked:
+  -- see PLAYER_WATCH_SAFE above for why it stays off. Not creating it also drops
+  -- ~90 widgets and keeps a dead entry out of anchor mode.
   local target = CreateWatchFrame("QtUITargetDebuffWatch", "target", "DEBUFF", "target")
   target:ClearAllPoints()
   target:SetPoint("BOTTOMLEFT", UIParent, "CENTER", 180, 40)
   self.targetDebuffWatch = target
 
-  watchFrames[1] = player
-  watchFrames[2] = target
-
   if self.RegisterMovable then
-    self:RegisterMovable("playerBuffWatch", "Personal Buff Tracker", player, true)
     self:RegisterMovable("targetDebuffWatch", "Target Debuff Tracker", target, true)
   end
 

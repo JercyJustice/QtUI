@@ -1,5 +1,5 @@
 QtUI = CreateFrame("Frame", "QtUIEventFrame", UIParent)
-QtUI.version = "0.26.1"
+QtUI.version = "0.27.0"
 QtUI.media = {
   statusbar = "Interface\\TargetingFrame\\UI-StatusBar",
 }
